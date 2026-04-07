@@ -238,8 +238,8 @@ impl Setting {
                 }
 
                 // 环境变量可覆盖配置文件中的任意字段
-                // 格式：WP_STATION_DATABASE__HOST、WP_STATION_DATABASE__NAME 等
-                // 双下划线 __ 对应配置层级分隔符
+                // 格式：WP_STATION__DATABASE__HOST、WP_STATION__DATABASE__NAME 等
+                // 前缀与首层 key、各层 key 之间统一用双下划线 __ 分隔
                 let builder = Config::builder()
                     .add_source(File::with_name(config_path))
                     .add_source(

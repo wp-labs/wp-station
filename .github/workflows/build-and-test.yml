@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   # Ubuntu：启动 Docker PG，执行完整测试
-  test:
+  test-ubuntu:
+    name: Tests (ubuntu-22.04, x86_64-unknown-linux-gnu)
     runs-on: ubuntu-22.04
     services:
       postgres:
@@ -31,12 +32,12 @@ jobs:
           --health-retries 5
 
     env:
-      WP_STATION_DATABASE__HOST: localhost
-      WP_STATION_DATABASE__PORT: 5432
-      WP_STATION_DATABASE__NAME: wp_station_test
-      WP_STATION_DATABASE__USERNAME: postgres
-      WP_STATION_DATABASE__PASSWORD: 123456
-      WP_STATION_DATABASE__SSL_MODE: disable
+      WP_STATION__DATABASE__HOST: localhost
+      WP_STATION__DATABASE__PORT: 5432
+      WP_STATION__DATABASE__NAME: wp_station_test
+      WP_STATION__DATABASE__USERNAME: postgres
+      WP_STATION__DATABASE__PASSWORD: 123456
+      WP_STATION__DATABASE__SSL_MODE: disable
 
     steps:
       - name: Checkout repository
@@ -68,7 +69,8 @@ jobs:
         run: cargo fmt --check
 
   # macOS：仅验证构建和格式，不跑测试
-  build:
+  build-macos:
+    name: Tests (macos-14, aarch64-apple-darwin)
     runs-on: macos-14
     steps:
       - name: Checkout repository
