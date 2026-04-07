@@ -164,7 +164,7 @@ wp-station/
 ```toml
 [web]
 host = "0.0.0.0"
-port = 8080
+port = 8081
 
 [database]
 host = "localhost"
@@ -234,7 +234,7 @@ npm test
 3. 前端测试基本可跑，但仍有 1 个依赖导入测试失败。
 4. 前端 `web/src/services/config.js` 仍存在“真实接口 + Mock”混用逻辑。
 5. 前端 `web/src/services/debug.js` 里仍保留 `debug/transform`、`debug/decode/base64` 之类遗留调用；后端当前并没有对应完整 API。
-6. `web/vite.config.js` 默认代理到 `http://localhost:8080`，`config/config.toml` 也默认监听 8080；如需切换端口请同步两处配置。
+6. `web/vite.config.js` 默认代理到 `http://localhost:8081`，`config/config.toml` 也默认监听 8081；如需切换端口请同步两处配置。
 7. `web/dist/` 是构建产物，不是源代码；不要把它当成功能修改入口。
 8. `web/src/views/pages/simulate-debug/index-old.jsx` 和 `index-backup.jsx` 是遗留页面，不是当前主入口。
 

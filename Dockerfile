@@ -22,5 +22,5 @@ COPY --chown=appuser:appgroup config /app/config
 RUN chown -R appuser:appgroup /app && chmod +x /app/wp-station
 USER appuser
 
-EXPOSE 8080
+EXPOSE 8081
 CMD ["/app/wp-station"]

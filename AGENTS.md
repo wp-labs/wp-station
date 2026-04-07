@@ -726,7 +726,7 @@
 1. `web/src/services/config.js` 有真实接口与 Mock 并存。
 2. `web/src/services/debug.js` 保留了部分后端未实现的调试接口调用。
 3. `web/src/views/pages/simulate-debug/index-old.jsx` 和 `index-backup.jsx` 是遗留文件。
-4. `web/vite.config.js` 默认代理 `8080`，`config/config.toml` 也默认监听 8080；改端口时务必两端同步。
+4. `web/vite.config.js` 默认代理 `8081`，`config/config.toml` 也默认监听 8081；改端口时务必两端同步。
 5. Rust 测试有一部分仍落后于最新接口定义。
 6. 前端依赖测试当前有 1 个已知失败用例。
 7. `web/dist` 是构建产物，不要当源码改。

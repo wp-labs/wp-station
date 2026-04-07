@@ -19,7 +19,7 @@ fn test_workspace_root_points_to_existing_dir() {
 #[test]
 fn test_setting_default_values() {
     let setting = wp_station::server::setting::Setting::default();
-    assert_eq!(setting.web.port, 8080);
+    assert_eq!(setting.web.port, 8081);
     assert_eq!(setting.database.port, 5432);
     assert_eq!(setting.assist.base_url, String::new());
 }

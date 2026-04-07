@@ -276,8 +276,8 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}:latest
 
             # 运行容器 / Run the container
-            docker run -d -p 18080:8081 ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            # 访问 / Access at: http://localhost:18080
+            docker run -d -p 8081:8081 ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            # 访问 / Access at: http://localhost:8081
             ```
 
             ## 🔐 签名验证 / Verification
