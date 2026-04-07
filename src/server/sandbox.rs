@@ -17,8 +17,8 @@ use crate::db::{
 };
 use crate::error::AppError;
 use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
-    write_operation_log_for_result,
+    OperationLogAction, OperationLogBiz, OperationLogParams, OperationLogStatus, Setting,
+    write_operation_log, write_operation_log_for_result,
 };
 use crate::utils::constants::MAX_LINES;
 
@@ -88,7 +88,8 @@ impl SandboxState {
     /// 执行任务完成后的善后逻辑，包括落库与调度下一条任务。
     pub async fn on_task_completed(&self, handle: Arc<SandboxTaskHandle>) {
         let snapshot = handle.snapshot().await;
-        if let Err(err) = crate::db::update_sandbox_run_record(&snapshot).await {
+        let persist_result = update_sandbox_run_record(&snapshot).await;
+        if let Err(err) = &persist_result {
             warn!("落库沙盒结果失败: {}", err);
         } else {
             info!(
@@ -98,6 +99,7 @@ impl SandboxState {
                 snapshot.status.as_str()
             );
         }
+        log_sandbox_execution_result(&snapshot).await;
         {
             let mut current = self.current.write().await;
             if current
@@ -992,6 +994,54 @@ async fn fetch_release_version(release_id: i32) -> Option<String> {
             None
         }
     }
+}
+
+async fn log_sandbox_execution_result(run: &SandboxRun) {
+    let mut params = OperationLogParams::new()
+        .with_target_id(run.release_id.to_string())
+        .with_field("task_id", run.task_id.clone())
+        .with_field("final_status", run.status.as_str().to_string());
+
+    if let Some(version) = fetch_release_version(run.release_id).await {
+        params = params.with_target_name(version);
+    }
+
+    if let Some(conclusion) = run.conclusion.as_ref() {
+        params = params
+            .with_field("passed", conclusion.passed.to_string())
+            .with_field(
+                "runtime_error_count",
+                conclusion.runtime_error_count.to_string(),
+            )
+            .with_field(
+                "runtime_miss_count",
+                conclusion.runtime_miss_count.to_string(),
+            )
+            .with_field("input_count", conclusion.input_count.to_string());
+
+        if let Some(stage) = conclusion.failed_stage {
+            params = params.with_field("failed_stage", stage.as_str().to_string());
+        }
+    }
+
+    let log_status = if run
+        .conclusion
+        .as_ref()
+        .map(|c| c.passed)
+        .unwrap_or(run.status == TaskStatus::Success)
+    {
+        OperationLogStatus::Success
+    } else {
+        OperationLogStatus::Error
+    };
+
+    write_operation_log(
+        OperationLogBiz::Release,
+        OperationLogAction::Validate,
+        params,
+        log_status,
+    )
+    .await;
 }
 
 fn read_log_content(path: &str) -> Result<String, AppError> {

@@ -237,7 +237,16 @@ impl Setting {
                     );
                 }
 
-                let builder = Config::builder().add_source(File::with_name(config_path));
+                // 环境变量可覆盖配置文件中的任意字段
+                // 格式：WP_STATION_DATABASE__HOST、WP_STATION_DATABASE__NAME 等
+                // 双下划线 __ 对应配置层级分隔符
+                let builder = Config::builder()
+                    .add_source(File::with_name(config_path))
+                    .add_source(
+                        config::Environment::with_prefix("WP_STATION")
+                            .separator("__")
+                            .try_parsing(true),
+                    );
 
                 let config = builder.build().unwrap_or_else(|err| {
                     panic!("读取配置文件 {} 失败: {}", config_path, err);

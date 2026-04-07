@@ -22,9 +22,50 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-14
             target: aarch64-apple-darwin
+
+    # Linux runner 使用 service container 启动 PostgreSQL 并自动建库
+    # macOS runner 不支持 service container，由下方 step 手动启动
+    services:
+      postgres:
+        image: ${{ matrix.os == 'ubuntu-22.04' && 'postgres:16' || '' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wp_station_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # 覆盖 config/config.toml 中的数据库连接配置
+    # 格式：WP_STATION_<节名>__<字段名>，双下划线对应层级分隔
+    env:
+      WP_STATION_DATABASE__HOST: localhost
+      WP_STATION_DATABASE__PORT: 5432
+      WP_STATION_DATABASE__NAME: wp_station_test
+      WP_STATION_DATABASE__USERNAME: postgres
+      WP_STATION_DATABASE__PASSWORD: postgres
+      WP_STATION_DATABASE__SSL_MODE: disable
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Setup PostgreSQL (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew services start postgresql@14
+          # 等待 postgres 就绪
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 && break || sleep 1
+          done
+          # 建 postgres 角色（macOS 默认超级用户是当前系统用户）
+          psql postgres -c "CREATE ROLE postgres WITH LOGIN PASSWORD 'postgres' SUPERUSER;" || true
+          # 建测试库
+          psql postgres -c "CREATE DATABASE wp_station_test OWNER postgres;" || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
