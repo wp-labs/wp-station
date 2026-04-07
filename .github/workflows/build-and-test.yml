@@ -63,7 +63,7 @@ jobs:
         run: cargo build --all
 
       - name: Cargo test
-        run: cargo test --all
+        run: cargo test --all -- --test-threads=1
 
       - name: Cargo fmt
         run: cargo fmt --check
