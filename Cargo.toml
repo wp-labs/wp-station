@@ -1,0 +1,62 @@
+[package]
+name = "wp-station"
+version = "1.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "~1.0"
+actix-web = "~4.4"
+actix-files = "~0.6"
+tracing = "~0.1"
+simple-log = "2.4.0"
+small_ctor = "~0.1"
+cargo_metadata = "~0.20"
+tokio = { version = "~1.48", features = ["full"] }
+rust-embed = "~6.8"
+mime_guess = "~2"
+config = "~0.14"
+toml = "~0.8"
+chrono = { version = "~0.4", features = ["serde"] }
+thiserror = "~1.0"
+strum = { version = "~0.26", features = ["derive"] }
+anyhow = "~1"
+lazy_static = "1.4"
+bcrypt = "~0.15"
+rand = "~0.8"
+regex = "1"
+urlencoding = "2.1"
+
+wp-lang       = { package = "wp-lang",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp_parser     = { package = "wp-parser",     git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp_knowledge  = { package = "wp-knowledge",  git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.18.3" }
+wp-model-core = "0.8"
+wp-parse-api = "0.8"
+wp-data-fmt = "0.2"
+
+# Tree-sitter 支持（用于代码格式化）
+tree-sitter = "0.26.6"
+tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
+
+# PostgreSQL 数据库支持 - SeaORM
+sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono"] }
+wp-station-migrations = { path = "crates/migrations" }
+
+# HTTP 客户端（用于健康检查）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# git支持
+gitea = {package = "gitea", path = "crates/gitea"}
+
+# 命令行辅助
+which = "6.0"
+tokio-util = { version = "0.7", features = ["full"] }
+nix = { version = "0.28", default-features = false, features = ["signal", "process"] }
+
+[build-dependencies]
+serde = { version = "~1.0", features = ["derive"] }
+serde_json = "~1.0"

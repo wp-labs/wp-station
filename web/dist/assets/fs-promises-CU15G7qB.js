@@ -1,0 +1,1 @@
+const e={},r=()=>Promise.reject(new Error("fs/promises not available in browser")),s=()=>Promise.reject(new Error("fs/promises not available in browser"));export{e as default,r as readFile,s as writeFile};

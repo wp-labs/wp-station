@@ -1,0 +1,711 @@
+/**
+ * DiffViewer Component Styles
+ * 
+ * Provides GitHub-style diff viewer styling with visual indicators
+ * for different change types (add, delete, modify, rename)
+ * 
+ * Integrated with project design system:
+ * - Uses CSS variables from theme.css
+ * - Matches project typography and spacing
+ * - Supports both light and dark themes via prefers-color-scheme
+ */
+
+/* Main container */
+.diff-viewer {
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Individual file container - matches project panel style */
+.diff-file {
+  margin-bottom: 24px;
+  border: 1px solid var(--panel-border, #e4e8f1);
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: var(--panel-bg, #ffffff);
+  box-shadow: var(--shadow-sm, 0 8px 24px rgba(33, 47, 75, 0.08));
+}
+
+/* File header - matches project panel header style */
+.diff-file-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background-color: rgba(27, 37, 51, 0.04);
+  border-bottom: 1px solid var(--panel-border, #e4e8f1);
+  font-weight: 600;
+}
+
+.diff-file-path {
+  flex: 1;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--text, #1b2533);
+}
+
+.diff-file-name {
+  color: var(--text, #1b2533);
+}
+
+/* Rename-specific styling - uses project color variables */
+.diff-file-rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diff-file-old-path {
+  color: var(--danger, #f1554c);
+  text-decoration: line-through;
+}
+
+.diff-file-rename-arrow {
+  color: var(--muted, #5d6470);
+  font-weight: normal;
+}
+
+.diff-file-new-path {
+  color: var(--success, #17b26a);
+  font-weight: 600;
+}
+
+/* Change type badges - matches project badge style */
+.change-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Green badge for added files */
+.change-badge-add {
+  background-color: rgba(23, 178, 106, 0.16);
+  color: var(--success, #17b26a);
+  border: 1px solid rgba(23, 178, 106, 0.3);
+}
+
+/* Red badge for deleted files */
+.change-badge-delete {
+  background-color: rgba(241, 85, 76, 0.16);
+  color: var(--danger, #f1554c);
+  border: 1px solid rgba(241, 85, 76, 0.3);
+}
+
+/* Yellow/Orange badge for modified files */
+.change-badge-modify {
+  background-color: rgba(247, 144, 9, 0.18);
+  color: var(--warning, #f79009);
+  border: 1px solid rgba(247, 144, 9, 0.35);
+}
+
+/* Blue badge for renamed files */
+.change-badge-rename {
+  background-color: rgba(39, 94, 254, 0.12);
+  color: var(--primary, #275efe);
+  border: 1px solid rgba(39, 94, 254, 0.3);
+}
+
+/* Default badge */
+.change-badge-default {
+  background-color: rgba(27, 37, 51, 0.08);
+  color: var(--muted, #5d6470);
+  border: 1px solid var(--panel-border, #e4e8f1);
+}
+
+/* Diff content area - uses project monospace font */
+.diff-content {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* Line number gutter styling - matches project code style */
+.diff-gutter {
+  background-color: rgba(27, 37, 51, 0.04);
+  color: var(--muted, #5d6470);
+  text-align: right;
+  padding: 0 10px;
+  user-select: none;
+  min-width: 50px;
+  vertical-align: top;
+  border-right: 1px solid var(--panel-border, #e4e8f1);
+}
+
+/* Split view - separate gutters for old and new */
+.diff-gutter-old {
+  background-color: rgba(241, 85, 76, 0.08);
+}
+
+.diff-gutter-new {
+  background-color: rgba(23, 178, 106, 0.08);
+}
+
+/* Empty gutter cells (for insert/delete in split view) */
+.diff-gutter-empty {
+  background-color: rgba(27, 37, 51, 0.04);
+}
+
+/* Unified view - single gutter with both line numbers */
+.diff-gutter-unified {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.diff-gutter-unified.diff-gutter-delete {
+  background-color: rgba(241, 85, 76, 0.08);
+}
+
+.diff-gutter-unified.diff-gutter-insert {
+  background-color: rgba(23, 178, 106, 0.08);
+}
+
+/* Line number text */
+.diff-line-number {
+  display: inline-block;
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-line-number-empty {
+  display: inline-block;
+  min-width: 40px;
+}
+
+/* Adjust line number width for large files (>9999 lines) */
+.diff-gutter:has(.diff-line-number:nth-child(n+10000)) {
+  min-width: 60px;
+}
+
+.diff-gutter:has(.diff-line-number:nth-child(n+10000)) .diff-line-number {
+  min-width: 50px;
+}
+
+/* Error states - matches project error styling */
+.diff-viewer-error {
+  padding: 40px 20px;
+  text-align: center;
+  background-color: rgba(241, 85, 76, 0.08);
+  border: 1px solid rgba(241, 85, 76, 0.2);
+  border-radius: 16px;
+  margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.diff-file-error {
+  padding: 30px 20px;
+  background-color: rgba(241, 85, 76, 0.08);
+  border: 1px solid rgba(241, 85, 76, 0.2);
+  border-radius: 16px;
+  margin: 10px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+}
+
+.diff-error-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.diff-error-content {
+  flex: 1;
+  text-align: left;
+}
+
+.diff-error-title {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--danger, #f1554c);
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-error-message {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: var(--danger, #f1554c);
+  line-height: 1.5;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-error-button {
+  padding: 8px 16px;
+  background-color: var(--panel-bg, #ffffff);
+  border: 1px solid rgba(241, 85, 76, 0.3);
+  border-radius: 10px;
+  color: var(--danger, #f1554c);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-error-button:hover {
+  background-color: rgba(241, 85, 76, 0.12);
+  border-color: var(--danger, #f1554c);
+}
+
+.diff-error-button:active {
+  background-color: rgba(241, 85, 76, 0.18);
+}
+
+/* Raw text viewer - matches project code block style */
+.diff-raw-text {
+  margin: 10px 0;
+  border: 1px solid var(--panel-border, #e4e8f1);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.diff-raw-text-header {
+  padding: 10px 15px;
+  background-color: rgba(27, 37, 51, 0.04);
+  border-bottom: 1px solid var(--panel-border, #e4e8f1);
+}
+
+.diff-raw-text-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted, #5d6470);
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-raw-text-content {
+  margin: 0;
+  padding: 15px;
+  background-color: #0f172a;
+  overflow-x: auto;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.diff-raw-text-content code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #e2e8f0;
+  white-space: pre;
+  display: block;
+}
+
+/* Empty state - matches project empty state style */
+.diff-viewer-empty {
+  padding: 60px 40px;
+  text-align: center;
+  color: var(--muted, #5d6470);
+  background-color: rgba(27, 37, 51, 0.02);
+  border: 1px solid var(--panel-border, #e4e8f1);
+  border-radius: 18px;
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.diff-empty-icon {
+  color: var(--muted, #5d6470);
+  opacity: 0.6;
+}
+
+.diff-empty-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text, #1b2533);
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-empty-message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted, #5d6470);
+  max-width: 400px;
+  line-height: 1.5;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+/* Loading state - matches project loading style */
+.diff-viewer-loading {
+  padding: 60px 40px;
+  text-align: center;
+  background-color: rgba(27, 37, 51, 0.02);
+  border: 1px solid var(--panel-border, #e4e8f1);
+  border-radius: 18px;
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.diff-loading-spinner {
+  width: 40px;
+  height: 40px;
+}
+
+.diff-spinner-icon {
+  animation: diff-spin 1s linear infinite;
+}
+
+.diff-spinner-track {
+  stroke: var(--panel-border, #e4e8f1);
+}
+
+.diff-spinner-head {
+  stroke: var(--primary, #275efe);
+  stroke-dasharray: 80;
+  stroke-dashoffset: 60;
+  animation: diff-spinner-dash 1.5s ease-in-out infinite;
+}
+
+@keyframes diff-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes diff-spinner-dash {
+  0% {
+    stroke-dashoffset: 80;
+  }
+  50% {
+    stroke-dashoffset: 20;
+  }
+  100% {
+    stroke-dashoffset: 80;
+  }
+}
+
+.diff-loading-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted, #5d6470);
+  font-weight: 500;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+/* Dark mode support - matches project dark theme */
+@media (prefers-color-scheme: dark) {
+  .diff-file {
+    background-color: #0d1117;
+    border-color: #30363d;
+  }
+
+  .diff-file-header {
+    background-color: #161b22;
+    border-bottom-color: #30363d;
+  }
+
+  .diff-file-path,
+  .diff-file-name {
+    color: #c9d1d9;
+  }
+
+  .diff-file-old-path {
+    color: #ff7b72;
+  }
+
+  .diff-file-new-path {
+    color: #7ee787;
+  }
+
+  .diff-file-rename-arrow {
+    color: #8b949e;
+  }
+
+  .change-badge-add {
+    background-color: rgba(126, 231, 135, 0.16);
+    color: #7ee787;
+    border-color: rgba(126, 231, 135, 0.3);
+  }
+
+  .change-badge-delete {
+    background-color: rgba(255, 123, 114, 0.16);
+    color: #ff7b72;
+    border-color: rgba(255, 123, 114, 0.3);
+  }
+
+  .change-badge-modify {
+    background-color: rgba(240, 183, 47, 0.16);
+    color: #f0b72f;
+    border-color: rgba(240, 183, 47, 0.3);
+  }
+
+  .change-badge-rename {
+    background-color: rgba(88, 166, 255, 0.16);
+    color: #58a6ff;
+    border-color: rgba(88, 166, 255, 0.3);
+  }
+
+  .change-badge-default {
+    background-color: #161b22;
+    color: #8b949e;
+    border-color: #30363d;
+  }
+
+  .diff-viewer-error {
+    background-color: rgba(255, 123, 114, 0.12);
+    border-color: rgba(255, 123, 114, 0.3);
+  }
+
+  .diff-file-error {
+    background-color: rgba(255, 123, 114, 0.12);
+    border-color: rgba(255, 123, 114, 0.3);
+  }
+
+  .diff-error-title {
+    color: #ff7b72;
+  }
+
+  .diff-error-message {
+    color: #ffa198;
+  }
+
+  .diff-error-button {
+    background-color: #0d1117;
+    border-color: rgba(255, 123, 114, 0.3);
+    color: #ff7b72;
+  }
+
+  .diff-error-button:hover {
+    background-color: rgba(255, 123, 114, 0.16);
+    border-color: #ff7b72;
+  }
+
+  .diff-error-button:active {
+    background-color: rgba(255, 123, 114, 0.24);
+  }
+
+  /* Raw text viewer dark mode */
+  .diff-raw-text {
+    border-color: #30363d;
+  }
+
+  .diff-raw-text-header {
+    background-color: #161b22;
+    border-bottom-color: #30363d;
+  }
+
+  .diff-raw-text-label {
+    color: #c9d1d9;
+  }
+
+  .diff-raw-text-content {
+    background-color: #0d1117;
+  }
+
+  .diff-raw-text-content code {
+    color: #c9d1d9;
+  }
+
+  .diff-viewer-empty {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #8b949e;
+  }
+
+  .diff-empty-icon {
+    color: #6e7681;
+  }
+
+  .diff-empty-title {
+    color: #c9d1d9;
+  }
+
+  .diff-empty-message {
+    color: #8b949e;
+  }
+
+  .diff-viewer-loading {
+    background-color: #161b22;
+    border-color: #30363d;
+  }
+
+  .diff-spinner-track {
+    stroke: #30363d;
+  }
+
+  .diff-spinner-head {
+    stroke: #58a6ff;
+  }
+
+  .diff-loading-text {
+    color: #8b949e;
+  }
+
+  /* Line number gutters in dark mode */
+  .diff-gutter {
+    background-color: #161b22;
+    color: #8b949e;
+    border-right-color: #30363d;
+  }
+
+  .diff-gutter-old {
+    background-color: rgba(255, 123, 114, 0.12);
+  }
+
+  .diff-gutter-new {
+    background-color: rgba(126, 231, 135, 0.12);
+  }
+
+  .diff-gutter-empty {
+    background-color: #161b22;
+  }
+
+  .diff-gutter-unified.diff-gutter-delete {
+    background-color: rgba(255, 123, 114, 0.12);
+  }
+
+  .diff-gutter-unified.diff-gutter-insert {
+    background-color: rgba(126, 231, 135, 0.12);
+  }
+}
+
+/* Responsive design for mobile */
+@media (max-width: 768px) {
+  .diff-file-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .diff-file-rename {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .diff-file-rename-arrow {
+    transform: rotate(90deg);
+  }
+}
+
+/* Collapsed segment styles - matches project button style */
+.diff-collapsed-segment {
+  background-color: rgba(27, 37, 51, 0.02);
+  border-top: 1px solid var(--panel-border, #e4e8f1);
+  border-bottom: 1px solid var(--panel-border, #e4e8f1);
+  padding: 8px 0;
+  text-align: center;
+  position: relative;
+}
+
+.diff-expand-buttons-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.diff-expand-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: var(--panel-bg, #ffffff);
+  border: 1px solid var(--panel-border, #e4e8f1);
+  border-radius: 10px;
+  color: var(--primary, #275efe);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-expand-button-partial {
+  padding: 6px 10px;
+  min-width: auto;
+}
+
+.diff-expand-button:hover {
+  background-color: rgba(39, 94, 254, 0.08);
+  border-color: var(--primary, #275efe);
+}
+
+.diff-expand-button:active {
+  background-color: rgba(39, 94, 254, 0.12);
+}
+
+.diff-expand-button:focus {
+  outline: 2px solid var(--primary, #275efe);
+  outline-offset: 2px;
+}
+
+.diff-expand-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.diff-expand-text {
+  white-space: nowrap;
+}
+
+/* Dark mode support for collapsed segments */
+@media (prefers-color-scheme: dark) {
+  .diff-collapsed-segment {
+    background-color: #161b22;
+    border-top-color: #30363d;
+    border-bottom-color: #30363d;
+  }
+
+  .diff-expand-button {
+    background-color: #0d1117;
+    border-color: #30363d;
+    color: #58a6ff;
+  }
+
+  .diff-expand-button:hover {
+    background-color: #161b22;
+    border-color: #58a6ff;
+  }
+
+  .diff-expand-button:active {
+    background-color: #21262d;
+  }
+
+  .diff-expand-button:focus {
+    outline-color: #58a6ff;
+  }
+}
+
+/* Mobile responsive for expand button */
+@media (max-width: 768px) {
+  .diff-expand-buttons-group {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .diff-expand-button {
+    font-size: 11px;
+    padding: 5px 10px;
+    width: 100%;
+    max-width: 200px;
+  }
+
+  .diff-expand-button-partial {
+    padding: 5px 8px;
+  }
+
+  .diff-expand-icon {
+    width: 14px;
+    height: 14px;
+  }
+}

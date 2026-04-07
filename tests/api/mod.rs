@@ -1,0 +1,9 @@
+pub mod assist_test;
+pub mod config_test;
+pub mod debug_test;
+pub mod device_test;
+pub mod operation_log_test;
+pub mod release_test;
+pub mod rules_test;
+pub mod system_test;
+pub mod user_test;

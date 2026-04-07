@@ -1,0 +1,9 @@
+[[connectors]]
+id = "kafka_sink"
+type = "kafka"
+allow_override = ["topic", "config", "num_partitions", "replication", "brokers"]
+[connectors.params]
+brokers = "127.0.0.1:9092"
+topic = "wparse_output"
+num_partitions = 1
+replication = 1

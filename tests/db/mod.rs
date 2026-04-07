@@ -1,0 +1,10 @@
+pub mod assist_task_test;
+pub mod default_rules_test;
+pub mod device_test;
+pub mod knowledge_config_test;
+pub mod operation_log_test;
+pub mod performance_test;
+pub mod pool_manager_test;
+pub mod release_test;
+pub mod rule_config_test;
+pub mod user_test;

@@ -1,0 +1,15 @@
+version = "1.0"
+
+[sink_group]
+name = "kafka_sink"
+oml = ["*"]
+parallel = 1
+
+[[sink_group.sinks]]
+name = "all_sink"
+connect = "file_json_sink"
+tags = []
+
+[sink_group.sinks.params]
+base = "./data/out_dat/"
+file = "all.json"
