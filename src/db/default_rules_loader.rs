@@ -60,19 +60,25 @@ async fn init_rule_configs_from_embedded(db: &DatabaseConnection) -> DbResult<()
             let sample_content_sql = sql_value_or_null(sample_content.as_deref());
             let content_escaped = content.replace("'", "''");
 
-            // 插入到数据库
+            // 插入到数据库，用 WHERE NOT EXISTS 保证幂等，无需依赖唯一约束
+            let rule_type_escaped = rule_type.replace("'", "''");
+            let file_name_escaped = file_name.replace("'", "''");
             let sql = format!(
                 r#"INSERT INTO public.rule_configs ("type", file_name, display_name, "content", sample_content, file_size, updated_at, created_at, "version", is_active)
-                VALUES ('{}', '{}', {}, '{}', {}, {}, '{}', '{}', 1, true)
-                ON CONFLICT DO NOTHING;"#,
-                rule_type,
-                file_name,
+                SELECT '{}', '{}', {}, '{}', {}, {}, '{}', '{}', 1, true
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.rule_configs WHERE "type" = '{}' AND file_name = '{}'
+                );"#,
+                rule_type_escaped,
+                file_name_escaped,
                 sql_value_or_null(display_name.as_deref()),
                 content_escaped,
                 sample_content_sql,
                 file_size,
                 now_str,
-                now_str
+                now_str,
+                rule_type_escaped,
+                file_name_escaped,
             );
 
             db.execute(Statement::from_string(backend, sql)).await?;
@@ -141,17 +147,21 @@ async fn init_knowledge_configs_from_embedded(db: &DatabaseConnection) -> DbResu
             || insert_sql.is_some()
             || data_content.is_some()
         {
+            let table_name_escaped = table_name.replace("'", "''");
             let sql = format!(
                 r#"INSERT INTO public.knowledge_configs (file_name, config_content, create_sql, insert_sql, data_content, is_active, updated_at, created_at)
-                VALUES ('{}', {}, {}, {}, {}, true, '{}', '{}')
-                ON CONFLICT DO NOTHING;"#,
-                table_name,
+                SELECT '{}', {}, {}, {}, {}, true, '{}', '{}'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.knowledge_configs WHERE file_name = '{}'
+                );"#,
+                table_name_escaped,
                 sql_value_or_null(config_content.as_deref()),
                 sql_value_or_null(create_sql.as_deref()),
                 sql_value_or_null(insert_sql.as_deref()),
                 sql_value_or_null(data_content.as_deref()),
                 now_str,
-                now_str
+                now_str,
+                table_name_escaped,
             );
 
             db.execute(Statement::from_string(backend, sql)).await?;
