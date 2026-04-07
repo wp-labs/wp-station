@@ -20,7 +20,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: 123456
           POSTGRES_DB: wp_station_test
         ports:
           - 5432:5432
@@ -35,7 +35,7 @@ jobs:
       WP_STATION_DATABASE__PORT: 5432
       WP_STATION_DATABASE__NAME: wp_station_test
       WP_STATION_DATABASE__USERNAME: postgres
-      WP_STATION_DATABASE__PASSWORD: postgres
+      WP_STATION_DATABASE__PASSWORD: 123456
       WP_STATION_DATABASE__SSL_MODE: disable
 
     steps:
