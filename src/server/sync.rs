@@ -139,39 +139,25 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
 
     // 1. 在 Gitea 上创建远程仓库（已存在则跳过）
     info!("在 Gitea 上创建远程仓库: {}", repo_name);
-    let repo_info = match gitea_client.create_repo(repo_name).await {
-        Ok(info) => {
-            info!("远程仓库创建成功");
-            info
-        }
+    match gitea_client.create_repo(repo_name).await {
+        Ok(_) => info!("远程仓库创建成功"),
         Err(e) => {
             let error_msg = e.to_string();
             if error_msg.contains("409") || error_msg.contains("already exists") {
                 info!("远程仓库已存在，跳过创建");
-                use gitea::RepoInfo;
-                let clone_url = format!(
-                    "{}/{}/{}.git",
-                    setting.gitea.base_url.trim_end_matches('/'),
-                    setting.gitea.username,
-                    repo_name
-                );
-                RepoInfo::new(
-                    repo_name.to_string(),
-                    clone_url.clone(),
-                    clone_url.clone(),
-                    clone_url,
-                )
             } else {
                 return Err(AppError::internal(format!("创建远程仓库失败: {}", e)));
             }
         }
     };
 
-    let auth_url = build_auth_url(
-        &repo_info.clone_url,
-        &setting.gitea.username,
-        &setting.gitea.password,
+    let clone_url = format!(
+        "{}/{}/{}.git",
+        setting.gitea.base_url.trim_end_matches('/'),
+        setting.gitea.username,
+        repo_name
     );
+    let auth_url = build_auth_url(&clone_url, &setting.gitea.username, &setting.gitea.password);
 
     // 2. 确保目录存在并初始化本地仓库
     info!("初始化本地 Git 仓库: path={}", project_path.display());
@@ -180,7 +166,7 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
     run_git(&["init", "-b", "main"], &project_path, "git init")?;
 
     // 3. 添加远程（已存在则跳过）
-    info!("添加远程仓库: {}", repo_info.clone_url);
+    info!("添加远程仓库: {}", clone_url);
     match run_git(
         &["remote", "add", "origin", &auth_url],
         &project_path,

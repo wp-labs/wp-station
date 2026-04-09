@@ -119,7 +119,7 @@ impl WarpParseService {
         conf: &WarparseConf,
         target_version: &str,
     ) -> Result<DeployResult, ServiceError> {
-        let url = self.build_url(device, conf, &conf.deploy_path);
+        let url = self.build_url(device, &conf.deploy_path)?;
 
         let body = ReloadRequest {
             wait: true,
@@ -256,7 +256,7 @@ impl WarpParseService {
         device: &Device,
         conf: &WarparseConf,
     ) -> Result<StatusResponse, ServiceError> {
-        let url = self.build_url(device, conf, &conf.status_path);
+        let url = self.build_url(device, &conf.status_path)?;
 
         debug!("调用 WarpParse 状态 API: url={}", url);
 
@@ -294,14 +294,24 @@ impl WarpParseService {
     }
 
     /// 构建完整 URL
-    fn build_url(&self, device: &Device, conf: &WarparseConf, path: &str) -> String {
-        let base = if !device.ip.is_empty() && device.port > 0 {
-            format!("http://{}:{}", device.ip, device.port)
-        } else {
-            conf.base_url.clone()
-        };
+    fn build_url(&self, device: &Device, path: &str) -> Result<String, ServiceError> {
+        let base = Self::device_endpoint(device)?;
+        Ok(format!("{}{}", base, path))
+    }
 
-        format!("{}{}", base, path)
+    fn device_endpoint(device: &Device) -> Result<String, ServiceError> {
+        if device.ip.trim().is_empty() {
+            return Err(ServiceError::InvalidState(
+                "设备未配置 IP，无法连接".to_string(),
+            ));
+        }
+        if device.port <= 0 {
+            return Err(ServiceError::InvalidState(
+                "设备未配置有效端口，无法连接".to_string(),
+            ));
+        }
+
+        Ok(format!("http://{}:{}", device.ip.trim(), device.port))
     }
 }
 

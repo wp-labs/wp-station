@@ -20,14 +20,9 @@ idle_timeout = 600
 ssl_mode = "prefer"
 
 [gitea]
-base_url = "http://localhost:3000"
+base_url = "http://gitea:3000"
 username = "gitea"
 password = "123456"
 
-project_root = "project_root"
-
 [assist]
 base_url = "http://localhost:8888"
-
-[warparse]
-base_url = "http://localhost:19090"

@@ -60,8 +60,6 @@ name = "wp-station"
 username = "postgres"
 password = "123456"
 
-project_root = "project_root"
-
 [gitea]
 base_url = "http://localhost:3000"
 username = "gitea"
@@ -69,10 +67,9 @@ password = "123456"
 
 [assist]
 base_url = "http://localhost:8888"
-
-[warparse]
-base_url = "http://localhost:19090"
 ```
+
+> 未配置 `project_root` 时默认导出到 `./project_root`；WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。
 
 ### 2. 启动后端
 
