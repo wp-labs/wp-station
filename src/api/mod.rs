@@ -6,6 +6,7 @@ pub mod debug;
 pub mod device;
 pub mod knowledge;
 pub mod operation_log;
+pub mod project;
 pub mod release;
 pub mod rules;
 pub mod sandbox;
@@ -26,19 +27,20 @@ pub use device::{
 };
 pub use knowledge::{get_db_list, query};
 pub use operation_log::list_operation_logs;
+pub use project::import_project_from_files;
 pub use release::{
     create_release, get_release_detail, get_release_diff, list_releases, publish_release,
     retry_release, rollback_release, validate_release,
 };
 pub use rules::{
-    create_rule_file, delete_rule_file, get_rule_content, get_rule_files, save_knowledge_rule,
-    save_rule, validate_rule,
+    create_rule_file, delete_rule_file, get_knowdb_config, get_rule_content, get_rule_files,
+    save_knowdb_config, save_knowledge_rule, save_rule, validate_rule,
 };
 pub use sandbox::{
     create_sandbox_run, get_latest_sandbox_run, get_sandbox_run, get_sandbox_stage_logs,
     list_sandbox_history, stop_sandbox_run,
 };
-pub use system::{get_version, hello};
+pub use system::{get_features_config, get_version, hello};
 pub use user::{
     change_user_password, create_user, delete_user, list_users, login, reset_user_password,
     update_user, update_user_status,

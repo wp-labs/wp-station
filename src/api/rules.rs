@@ -6,8 +6,9 @@ use urlencoding::decode;
 use crate::error::AppError;
 use crate::server::{
     CreateRuleFileRequest, DeleteRuleFileQuery, RuleContentQuery, RuleFilesQuery,
-    SaveKnowledgeRuleRequest, SaveRuleRequest, ValidateRuleRequest, create_rule_file_logic,
-    delete_rule_file_logic, get_rule_content_logic, get_rule_files_logic,
+    SaveKnowdbConfigRequest, SaveKnowledgeRuleRequest, SaveRuleRequest, ValidateRuleRequest,
+    create_rule_file_logic, delete_rule_file_logic, get_knowdb_config_logic,
+    get_rule_content_logic, get_rule_files_logic, save_knowdb_config_logic,
     save_knowledge_rule_logic, save_rule_logic, validate_rule_logic,
 };
 
@@ -103,6 +104,25 @@ pub async fn save_knowledge_rule(
         operator,
     )
     .await?;
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
+/// 配置管理-知识库配置：获取 knowdb
+#[get("/api/config/knowledge/knowdb")]
+pub async fn get_knowdb_config() -> Result<HttpResponse, AppError> {
+    let resp = get_knowdb_config_logic().await?;
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+/// 配置管理-知识库配置：保存 knowdb
+#[post("/api/config/knowledge/knowdb")]
+pub async fn save_knowdb_config(
+    http_req: HttpRequest,
+    req: web::Json<SaveKnowdbConfigRequest>,
+) -> Result<HttpResponse, AppError> {
+    let operator = operator_from_request(&http_req);
+    save_knowdb_config_logic(req.content.clone(), operator).await?;
 
     Ok(HttpResponse::NoContent().finish())
 }

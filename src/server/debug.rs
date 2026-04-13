@@ -142,7 +142,7 @@ pub async fn debug_transform_logic(
     }
     .ok_or(AppError::NoParseResult)?;
 
-    let transformed = crate::utils::oml::convert_record(&oml, record)?;
+    let transformed = crate::utils::oml::convert_record(&oml, record).await?;
     let formatter = FormatType::Json(Json);
     let json_string = formatter.fmt_record(&transformed);
 
@@ -180,6 +180,7 @@ pub async fn debug_knowledge_query_logic(
     }
 
     let fields = sql_query(&_sql)
+        .await
         .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))?;
 
     let columns: Vec<String> = fields.iter().map(|f| f.get_name().to_string()).collect();

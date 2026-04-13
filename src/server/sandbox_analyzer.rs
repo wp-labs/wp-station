@@ -37,7 +37,7 @@ pub struct RuntimeMetrics {
     pub input_count: usize,
     pub miss_count: usize,
     pub error_count: usize,
-    pub success_count: usize,
+    pub output_count: usize,
     pub daemon_ready: bool,
     pub wpgen_exit_code: Option<i32>,
     pub wpgen_generated: Option<usize>,
@@ -95,6 +95,9 @@ pub fn analyse_runtime_output(
 ) -> Result<RuntimeAnalysis, StageError> {
     let output_checks =
         collect_output_checks(project_dir).map_err(|err| StageError::new(err.to_string()))?;
+    let success_output_path = project_dir.join("data/out_dat/all.json");
+    let output_count = count_file_lines(&success_output_path)
+        .map_err(|err| StageError::new(format!("统计 all.json 输出条数失败: {}", err)))?;
 
     let stdout = std::fs::read_to_string(daemon_stdout).unwrap_or_default();
     let lower_stdout = stdout.to_lowercase();
@@ -102,7 +105,7 @@ pub fn analyse_runtime_output(
     let metrics = RuntimeMetrics {
         miss_count: lower_stdout.matches("rule miss").count(),
         error_count: lower_stdout.matches(" error ").count(),
-        success_count: lower_stdout.matches("success").count(),
+        output_count,
         ..Default::default()
     };
 
@@ -124,10 +127,13 @@ pub fn analyse_runtime_output(
         }
         log_lines.push(String::new());
     }
+    log_lines.push("$ cat data/out_dat/all.json | wc -l".to_string());
+    log_lines.push(format!("结果: {} 行（成功输出数据）", metrics.output_count));
+    log_lines.push(String::new());
 
     log_lines.push("wparse 日志指标：".to_string());
-    log_lines.push(format!("期望成功解析条数: {}", expected_success));
-    log_lines.push(format!("success 日志次数: {}", metrics.success_count));
+    log_lines.push(format!("模拟发送数量 {} 条", expected_success));
+    log_lines.push(format!("成功输出数量 {} 条", metrics.output_count));
     log_lines.push(format!("rule miss 次数: {}", metrics.miss_count));
     log_lines.push(format!("ERROR 次数: {}", metrics.error_count));
     if metrics.miss_count > 0 {
@@ -139,7 +145,9 @@ pub fn analyse_runtime_output(
             metrics.error_count
         ));
     }
-    let passed = output_checks.iter().all(|item| item.is_empty) && metrics.error_count == 0;
+    let passed = output_checks.iter().all(|item| item.is_empty)
+        && metrics.error_count == 0
+        && metrics.output_count == expected_success;
 
     Ok(RuntimeAnalysis {
         output_checks,
@@ -175,6 +183,14 @@ fn read_tail_snippet(path: &Path, max_chars: usize) -> Option<String> {
     Some(snippet)
 }
 
+fn count_file_lines(path: &Path) -> Result<usize, std::io::Error> {
+    if !path.exists() {
+        return Ok(0);
+    }
+    let content = std::fs::read_to_string(path)?;
+    Ok(content.lines().count())
+}
+
 /// 依据运行指标得出最终结论。
 pub fn finalize_conclusion(
     output_checks: &[OutputFileStatus],
@@ -190,11 +206,18 @@ pub fn finalize_conclusion(
     conclusion.input_count = metrics.input_count;
     conclusion.runtime_miss_count = metrics.miss_count;
     conclusion.runtime_error_count = metrics.error_count;
+    conclusion.runtime_output_count = metrics.output_count;
     conclusion.daemon_ready = Some(metrics.daemon_ready);
     conclusion.wpgen_exit_code = metrics.wpgen_exit_code;
     conclusion.wpgen_generated_count = metrics.wpgen_generated;
-    conclusion.passed =
-        output_checks.iter().all(|item| item.is_empty) && conclusion.runtime_error_count == 0;
+    let output_matches_input = if conclusion.input_count > 0 {
+        conclusion.runtime_output_count == conclusion.input_count
+    } else {
+        true
+    };
+    conclusion.passed = output_checks.iter().all(|item| item.is_empty)
+        && conclusion.runtime_error_count == 0
+        && output_matches_input;
 
     conclusion
 }

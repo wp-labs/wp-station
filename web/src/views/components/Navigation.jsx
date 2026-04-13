@@ -2,7 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from 'antd';
-import { RedditOutlined, SlackOutlined, GithubOutlined, WechatOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import {
+  RedditOutlined,
+  SlackOutlined,
+  GithubOutlined,
+  WechatOutlined,
+  QuestionCircleOutlined,
+} from '@ant-design/icons';
 import { getSessionUser, logout } from '@/services/auth';
 import httpRequest from '@/services/request';
 import LanguageSwitcher from '@/views/components/LanguageSwitcher';
@@ -39,7 +45,7 @@ function Navigation({ children, onLocaleChange }) {
         const response = await httpRequest.get('/version');
         setVersionInfo({
           warpStation: response?.wp_station || '',
-          warpParse: response?.warp_parse || '',
+          warpParse: response?.wp_parse || '',
         });
       } catch (_error) {
         // 忽略版本获取失败，不影响主流程
@@ -106,6 +112,8 @@ function Navigation({ children, onLocaleChange }) {
     return <>{children}</>;
   }
 
+  const hasVersionInfo = Boolean(versionInfo.warpStation || versionInfo.warpParse);
+
   return (
     // 应用整体布局：头部固定在上方，下面内容区域单独滚动
     <div className="app-shell">
@@ -114,14 +122,21 @@ function Navigation({ children, onLocaleChange }) {
           <img src="/assets/images/index.png" alt="WarpStation" className="logo" style={{ height: '70px' }} />
           <span className="divider">|</span>
           <span className="subtitle">{t('navigation.controlPlatform')}</span>
-          {versionInfo.warpStation || versionInfo.warpParse ? (
+          {hasVersionInfo ? (
             <span
               className="version-info"
-              style={{ marginLeft: 8, fontSize: 12, color: '#fff' }}
+              style={{
+                marginLeft: 8,
+                fontSize: 12,
+                color: '#ffffff',
+                display: 'inline-flex',
+                flexDirection: 'column',
+                lineHeight: 1.3,
+              }}
             >
               {versionInfo.warpStation && (
                 <span style={{ marginRight: 8 }}>wp-station: {versionInfo.warpStation}</span>
-              )}<br/>
+              )}
               {versionInfo.warpParse && <span>warp-parse: {versionInfo.warpParse}</span>}
             </span>
           ) : null}

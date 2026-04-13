@@ -1,22 +1,70 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
 use crate::db::{
-    KnowledgeConfig, RuleConfig, RuleType, find_all_knowledge_configs,
-    find_knowledge_config_by_file_name, find_rule_by_type_and_name, find_rules_by_type,
+    KnowledgeConfig, NewKnowledgeConfig, NewRuleConfig, RuleConfig, RuleType,
+    find_all_knowledge_configs, find_knowledge_config_by_file_name, find_rule_by_type_and_name,
+    find_rules_by_type,
 };
 use crate::error::AppError;
+use crate::server::Setting;
 use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
 use sea_orm::DatabaseConnection;
+
+#[derive(Default)]
+pub struct ProjectSnapshot {
+    pub rules: Vec<NewRuleConfig>,
+    pub knowledge: Vec<NewKnowledgeConfig>,
+    pub rule_stats: HashMap<RuleType, usize>,
+    pub warnings: Vec<String>,
+    pub failed_files: usize,
+}
+
+impl ProjectSnapshot {
+    fn add_rule(
+        &mut self,
+        rule_type: RuleType,
+        file_name: String,
+        content: Option<String>,
+        sample_content: Option<String>,
+        display_name: Option<String>,
+    ) {
+        let file_size = content.as_ref().map(|c| c.len() as i32);
+        self.rules.push(NewRuleConfig {
+            rule_type,
+            file_name,
+            display_name,
+            content,
+            sample_content,
+            file_size,
+        });
+        *self.rule_stats.entry(rule_type).or_insert(0) += 1;
+    }
+
+    fn add_knowledge(&mut self, config: NewKnowledgeConfig) {
+        self.knowledge.push(config);
+    }
+
+    pub fn rule_breakdown(&self) -> Vec<(RuleType, usize)> {
+        let mut items: Vec<(RuleType, usize)> = self
+            .rule_stats
+            .iter()
+            .map(|(ty, count)| (*ty, *count))
+            .collect();
+        items.sort_by_key(|(ty, _)| ty.as_ref().to_string());
+        items
+    }
+}
 
 /// 从数据库导出配置到 project_root 目录（全局共享，无连接隔离）
 pub async fn export_project_from_db(
     _db: &DatabaseConnection,
     project_root: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
 
     export_project_to_dir(&project_dir).await?;
 
@@ -29,7 +77,7 @@ pub async fn export_rule_to_project(
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
 
     let rule = find_rule_by_type_and_name(rule_type.as_ref(), file_name)
         .await
@@ -72,7 +120,7 @@ pub fn touch_rule_in_project(
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
 
     if matches!(rule_type, RuleType::Wpl) {
         let (parse_path, sample_path) = wpl_rule_paths(&project_dir, file_name)?;
@@ -96,7 +144,7 @@ pub async fn export_knowledge_to_project(
     project_root: &str,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
     let knowledge_root = project_dir.join("models").join("knowledge");
     let table_dir = knowledge_root.join(file_name);
 
@@ -139,7 +187,7 @@ pub fn delete_rule_from_project(
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
 
     if matches!(rule_type, RuleType::Wpl) {
         let dir = project_dir.join("models").join("wpl").join(file_name);
@@ -169,7 +217,7 @@ pub async fn delete_knowledge_from_project(
     project_root: &str,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = PathBuf::from(project_root);
+    let project_dir = resolve_project_root(project_root);
     let knowledge_root = project_dir.join("models").join("knowledge");
     let table_dir = knowledge_root.join(file_name);
 
@@ -400,6 +448,16 @@ fn wpl_rule_paths(project_dir: &Path, name: &str) -> Result<(PathBuf, PathBuf), 
     Ok((dir.join(WPL_PARSE_FILENAME), dir.join(WPL_SAMPLE_FILENAME)))
 }
 
+/// 统一将配置中的 project_root 解析成工作区下的稳定路径，避免相对路径受当前工作目录影响。
+fn resolve_project_root(project_root: &str) -> PathBuf {
+    let path = PathBuf::from(project_root);
+    if path.is_absolute() {
+        path
+    } else {
+        Setting::workspace_root().join(path)
+    }
+}
+
 /// 若文件名未包含指定扩展名则自动追加扩展名
 fn with_extension(file_name: &str, extension: &str) -> String {
     if file_name.ends_with(extension) {
@@ -432,4 +490,349 @@ fn write_if_some(path: PathBuf, content: Option<String>) -> Result<Option<PathBu
     }
 
     Ok(None)
+}
+
+/// 从项目目录加载规则与知识库快照
+pub fn load_project_snapshot(project_root: &Path) -> Result<ProjectSnapshot, AppError> {
+    if !project_root.exists() {
+        return Err(AppError::validation(format!(
+            "project_root 不存在: {}",
+            project_root.display()
+        )));
+    }
+
+    let mut snapshot = ProjectSnapshot::default();
+
+    load_parse_and_wpgen(project_root, &mut snapshot)?;
+    load_connector_rules(project_root, &mut snapshot)?;
+    load_topology_rules(project_root, &mut snapshot)?;
+    load_wpl_rules(project_root, &mut snapshot)?;
+    load_oml_rules(project_root, &mut snapshot)?;
+    load_knowledge_tables(project_root, &mut snapshot)?;
+
+    Ok(snapshot)
+}
+
+fn load_parse_and_wpgen(
+    project_root: &Path,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<(), AppError> {
+    let conf_dir = project_root.join("conf");
+
+    let wparse_path = conf_dir.join("wparse.toml");
+    if let Some(content) = read_file_if_exists(&wparse_path)? {
+        snapshot.add_rule(
+            RuleType::Parse,
+            "wparse.toml".to_string(),
+            Some(content),
+            None,
+            None,
+        );
+    }
+
+    let wpgen_path = conf_dir.join("wpgen.toml");
+    if let Some(content) = read_file_if_exists(&wpgen_path)? {
+        snapshot.add_rule(
+            RuleType::Wpgen,
+            "wpgen.toml".to_string(),
+            Some(content),
+            None,
+            None,
+        );
+    }
+
+    Ok(())
+}
+
+fn load_connector_rules(
+    project_root: &Path,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<(), AppError> {
+    let source_dir = project_root.join("connectors").join("source.d");
+    if source_dir.exists() {
+        for entry in fs::read_dir(&source_dir).map_err(AppError::internal)? {
+            let entry = entry.map_err(AppError::internal)?;
+            let path = entry.path();
+            if path.is_file() && is_toml_file(&path) {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let content = fs::read_to_string(&path).map_err(|e| {
+                    AppError::internal(format!("读取 {} 失败: {}", path.display(), e))
+                })?;
+                snapshot.add_rule(
+                    RuleType::SourceConnect,
+                    file_name,
+                    Some(content),
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
+    let sink_dir = project_root.join("connectors").join("sink.d");
+    if sink_dir.exists() {
+        for entry in fs::read_dir(&sink_dir).map_err(AppError::internal)? {
+            let entry = entry.map_err(AppError::internal)?;
+            let path = entry.path();
+            if path.is_file() && is_toml_file(&path) {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let content = fs::read_to_string(&path).map_err(|e| {
+                    AppError::internal(format!("读取 {} 失败: {}", path.display(), e))
+                })?;
+                snapshot.add_rule(RuleType::SinkConnect, file_name, Some(content), None, None);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn load_topology_rules(
+    project_root: &Path,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<(), AppError> {
+    let sources_dir = project_root.join("topology").join("sources");
+    for (relative, file_path) in collect_relative_files(&sources_dir)? {
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", file_path.display(), e)))?;
+        snapshot.add_rule(RuleType::Source, relative, Some(content), None, None);
+    }
+
+    let sinks_dir = project_root.join("topology").join("sinks");
+    for (relative, file_path) in collect_relative_files(&sinks_dir)? {
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", file_path.display(), e)))?;
+        snapshot.add_rule(RuleType::Sink, relative, Some(content), None, None);
+    }
+
+    Ok(())
+}
+
+fn load_wpl_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result<(), AppError> {
+    let wpl_dir = project_root.join("models").join("wpl");
+    if !wpl_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&wpl_dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let rule_name = entry.file_name().to_string_lossy().to_string();
+        let parse_path = path.join(WPL_PARSE_FILENAME);
+        if !parse_path.exists() {
+            snapshot.failed_files += 1;
+            snapshot.warnings.push(format!(
+                "WPL 规则 {} 缺少 {}",
+                rule_name, WPL_PARSE_FILENAME
+            ));
+            continue;
+        }
+
+        let parse_content = fs::read_to_string(&parse_path).map_err(|e| {
+            AppError::internal(format!("读取 {} 失败: {}", parse_path.display(), e))
+        })?;
+        let sample_path = path.join(WPL_SAMPLE_FILENAME);
+        let sample_content = read_file_if_exists(&sample_path)?;
+
+        snapshot.add_rule(
+            RuleType::Wpl,
+            rule_name,
+            Some(parse_content),
+            sample_content,
+            None,
+        );
+    }
+
+    Ok(())
+}
+
+fn load_oml_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result<(), AppError> {
+    let oml_dir = project_root.join("models").join("oml");
+    if !oml_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&oml_dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        if entry
+            .file_name()
+            .to_str()
+            .map(|name| name.starts_with('.'))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let rule_name = entry.file_name().to_string_lossy().to_string();
+        let found = load_oml_rule_dir(&path, &rule_name, snapshot)?;
+        if !found {
+            snapshot.failed_files += 1;
+            snapshot
+                .warnings
+                .push(format!("OML 规则 {} 缺少 adm.oml", rule_name));
+        }
+    }
+
+    Ok(())
+}
+
+fn load_oml_rule_dir(
+    current_dir: &Path,
+    relative_name: &str,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<bool, AppError> {
+    let mut found_rule = false;
+    let adm_path = current_dir.join("adm.oml");
+    if adm_path.exists() {
+        let content = fs::read_to_string(&adm_path)
+            .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", adm_path.display(), e)))?;
+        snapshot.add_rule(
+            RuleType::Oml,
+            relative_name.to_string(),
+            Some(content),
+            None,
+            None,
+        );
+        found_rule = true;
+    }
+
+    for entry in fs::read_dir(current_dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        if entry
+            .file_name()
+            .to_str()
+            .map(|name| name.starts_with('.'))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let child_name = entry.file_name().to_string_lossy().to_string();
+        let relative = format!("{}/{}", relative_name, child_name);
+        if load_oml_rule_dir(&path, &relative, snapshot)? {
+            found_rule = true;
+        }
+    }
+
+    Ok(found_rule)
+}
+
+fn load_knowledge_tables(
+    project_root: &Path,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<(), AppError> {
+    let knowledge_root = project_root.join("models").join("knowledge");
+    if !knowledge_root.exists() {
+        return Ok(());
+    }
+
+    let config_content = read_file_if_exists(&knowledge_root.join("knowdb.toml"))?;
+
+    for entry in fs::read_dir(&knowledge_root).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let table_name = match entry.file_name().to_str() {
+            Some(name) if !name.is_empty() => name.to_string(),
+            _ => continue,
+        };
+
+        let create_sql = read_file_if_exists(&path.join("create.sql"))?;
+        let insert_sql = read_file_if_exists(&path.join("insert.sql"))?;
+        let data_content = read_file_if_exists(&path.join("data.csv"))?;
+
+        if create_sql.is_none() && insert_sql.is_none() && data_content.is_none() {
+            snapshot.failed_files += 1;
+            snapshot.warnings.push(format!(
+                "知识库 {} 未找到 create.sql/insert.sql/data.csv，已跳过",
+                table_name
+            ));
+            continue;
+        }
+
+        snapshot.add_knowledge(NewKnowledgeConfig {
+            file_name: table_name,
+            config_content: config_content.clone(),
+            create_sql,
+            insert_sql,
+            data_content,
+        });
+    }
+
+    Ok(())
+}
+
+fn collect_relative_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, AppError> {
+    fn walk(
+        base: &Path,
+        current: &Path,
+        result: &mut Vec<(String, PathBuf)>,
+    ) -> Result<(), AppError> {
+        for entry in fs::read_dir(current).map_err(AppError::internal)? {
+            let entry = entry.map_err(AppError::internal)?;
+            let file_name = entry.file_name();
+            if file_name
+                .to_str()
+                .map(|name| name.starts_with('.'))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, result)?;
+            } else if path.is_file()
+                && let Ok(relative) = path.strip_prefix(base)
+            {
+                let rel = relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
+                result.push((rel, path));
+            }
+        }
+        Ok(())
+    }
+
+    let mut result = Vec::new();
+    if !dir.exists() {
+        return Ok(result);
+    }
+
+    walk(dir, dir, &mut result)?;
+    Ok(result)
+}
+
+fn read_file_if_exists(path: &Path) -> Result<Option<String>, AppError> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", path.display(), e)))?;
+    Ok(Some(content))
+}
+
+fn is_toml_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("toml"))
+        .unwrap_or(false)
 }

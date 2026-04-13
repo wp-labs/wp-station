@@ -2,8 +2,9 @@
 // AI 与人工提单共用同一套逻辑，Station 只负责存储任务和提供 reply 接口
 
 use crate::db::{
-    AssistTargetRule, AssistTaskStatus, AssistTaskType, NewAssistTask, create_assist_task,
-    find_assist_task_by_id, list_assist_tasks, update_assist_task_reply, update_assist_task_status,
+    AssistTargetRule, AssistTask, AssistTaskStatus, AssistTaskType, NewAssistTask,
+    create_assist_task, find_assist_task_by_id, list_assist_tasks, update_assist_task_reply,
+    update_assist_task_status,
 };
 use crate::error::AppError;
 use crate::server::{
@@ -12,7 +13,7 @@ use crate::server::{
 };
 use crate::utils::AssistServiceError;
 use crate::utils::pagination::{PageQuery, PageResponse};
-use crate::utils::{AiAnalyzeRequest, AssistService, ManualTicketRequest};
+use crate::utils::{AiAnalyzeRequest, AssistResultResponse, AssistService, ManualTicketRequest};
 use chrono::Utc;
 use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
@@ -97,6 +98,180 @@ fn build_callback_url(setting: &Setting) -> String {
         "http://{}:{}/api/assist/reply",
         setting.web.host, setting.web.port
     )
+}
+
+fn build_assist_task_detail(task: AssistTask) -> AssistTaskDetail {
+    let wait_seconds = (Utc::now() - task.created_at).num_seconds();
+
+    AssistTaskDetail {
+        task_id: task.task_id,
+        task_type: task.task_type,
+        target_rule: task.target_rule,
+        status: task.status,
+        wpl_suggestion: task.wpl_suggestion,
+        oml_suggestion: task.oml_suggestion,
+        explanation: task.explanation,
+        error_message: task.error_message,
+        created_at: task.created_at.to_rfc3339(),
+        updated_at: task.updated_at.to_rfc3339(),
+        wait_seconds,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RemoteTaskStatus {
+    Pending,
+    Processing,
+    Success,
+    Error,
+    Cancelled,
+}
+
+fn parse_remote_task_status(status: &str) -> Option<RemoteTaskStatus> {
+    match status.trim().to_ascii_lowercase().as_str() {
+        "pending" | "queued" | "submitted" => Some(RemoteTaskStatus::Pending),
+        "processing" | "running" | "in_progress" => Some(RemoteTaskStatus::Processing),
+        "done" | "success" | "completed" => Some(RemoteTaskStatus::Success),
+        "error" | "failed" | "fail" => Some(RemoteTaskStatus::Error),
+        "cancelled" | "canceled" => Some(RemoteTaskStatus::Cancelled),
+        _ => None,
+    }
+}
+
+fn remote_result_matches_task(task_id: &str, remote_result: &AssistResultResponse) -> bool {
+    remote_result
+        .data
+        .as_ref()
+        .and_then(|data| data.task_id.as_deref())
+        .map(|remote_task_id| remote_task_id == task_id)
+        .unwrap_or(true)
+}
+
+fn build_remote_error_message(task_id: &str, remote_result: &AssistResultResponse) -> String {
+    remote_result
+        .data
+        .as_ref()
+        .and_then(|data| {
+            data.error_message
+                .clone()
+                .or_else(|| data.explanation.clone())
+        })
+        .unwrap_or_else(|| {
+            format!(
+                "远端辅助任务执行失败: task_id={}, status={}",
+                task_id, remote_result.status
+            )
+        })
+}
+
+async fn try_sync_assist_task_result(task: &AssistTask) {
+    let setting = Setting::load();
+    let assist_base_url = setting.assist.base_url.trim().to_string();
+    if assist_base_url.is_empty() {
+        return;
+    }
+
+    let service = match AssistService::new() {
+        Ok(service) => service,
+        Err(err) => {
+            warn!(
+                "构建辅助任务结果查询客户端失败: task_id={}, error={}",
+                task.task_id, err
+            );
+            return;
+        }
+    };
+
+    let remote_result = match service
+        .query_task_result(&assist_base_url, &task.task_id)
+        .await
+    {
+        Ok(result) => result,
+        Err(AssistServiceError::ResponseError { status: 404, .. }) => {
+            debug!("远端辅助任务结果暂未返回: task_id={}", task.task_id);
+            return;
+        }
+        Err(err) => {
+            warn!(
+                "查询远端辅助任务结果失败: task_id={}, error={}",
+                task.task_id, err
+            );
+            return;
+        }
+    };
+
+    if !remote_result_matches_task(&task.task_id, &remote_result) {
+        warn!(
+            "远端辅助任务结果 task_id 不匹配: expected={}, remote_status={}",
+            task.task_id, remote_result.status
+        );
+        return;
+    }
+
+    match parse_remote_task_status(&remote_result.status) {
+        Some(RemoteTaskStatus::Success) => {
+            let data = remote_result.data.unwrap_or_default();
+            if let Err(err) = update_assist_task_reply(
+                &task.task_id,
+                data.wpl_suggestion,
+                data.oml_suggestion,
+                data.explanation,
+            )
+            .await
+            {
+                warn!(
+                    "同步远端辅助任务结果失败: task_id={}, error={}",
+                    task.task_id, err
+                );
+                return;
+            }
+
+            info!("同步远端辅助任务结果成功: task_id={}", task.task_id);
+        }
+        Some(RemoteTaskStatus::Error) => {
+            let error_message = build_remote_error_message(&task.task_id, &remote_result);
+            if let Err(err) = update_assist_task_status(
+                &task.task_id,
+                AssistTaskStatus::Error,
+                Some(error_message),
+            )
+            .await
+            {
+                warn!(
+                    "同步远端辅助任务失败状态失败: task_id={}, error={}",
+                    task.task_id, err
+                );
+                return;
+            }
+
+            info!("同步远端辅助任务失败状态成功: task_id={}", task.task_id);
+        }
+        Some(RemoteTaskStatus::Cancelled) => {
+            if let Err(err) =
+                update_assist_task_status(&task.task_id, AssistTaskStatus::Cancelled, None).await
+            {
+                warn!(
+                    "同步远端辅助任务取消状态失败: task_id={}, error={}",
+                    task.task_id, err
+                );
+                return;
+            }
+
+            info!("同步远端辅助任务取消状态成功: task_id={}", task.task_id);
+        }
+        Some(RemoteTaskStatus::Pending | RemoteTaskStatus::Processing) => {
+            debug!(
+                "远端辅助任务仍在处理中: task_id={}, remote_status={}",
+                task.task_id, remote_result.status
+            );
+        }
+        None => {
+            warn!(
+                "远端辅助任务状态无法识别: task_id={}, remote_status={}",
+                task.task_id, remote_result.status
+            );
+        }
+    }
 }
 
 async fn spawn_manual_ticket_dispatch(
@@ -335,25 +510,22 @@ pub async fn assist_submit_logic(
 
 /// 查询辅助任务详情及当前状态
 pub async fn assist_get_logic(task_id: String) -> Result<AssistTaskDetail, AppError> {
-    let task = find_assist_task_by_id(&task_id)
+    let mut task = find_assist_task_by_id(&task_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("辅助任务 {} 不存在", task_id)))?;
 
-    let wait_seconds = (Utc::now() - task.created_at).num_seconds();
+    let task_status = parse_task_status(&task.status)?;
+    if matches!(
+        task_status,
+        AssistTaskStatus::Pending | AssistTaskStatus::Processing
+    ) {
+        try_sync_assist_task_result(&task).await;
+        task = find_assist_task_by_id(&task_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("辅助任务 {} 不存在", task_id)))?;
+    }
 
-    Ok(AssistTaskDetail {
-        task_id: task.task_id,
-        task_type: task.task_type,
-        target_rule: task.target_rule,
-        status: task.status,
-        wpl_suggestion: task.wpl_suggestion,
-        oml_suggestion: task.oml_suggestion,
-        explanation: task.explanation,
-        error_message: task.error_message,
-        created_at: task.created_at.to_rfc3339(),
-        updated_at: task.updated_at.to_rfc3339(),
-        wait_seconds,
-    })
+    Ok(build_assist_task_detail(task))
 }
 
 /// 分页查询辅助任务列表
@@ -362,25 +534,7 @@ pub async fn assist_list_logic(query: AssistListQuery) -> Result<AssistListRespo
 
     let (tasks, total) = list_assist_tasks(page as u64, page_size as u64).await?;
 
-    let items = tasks
-        .into_iter()
-        .map(|task| {
-            let wait_seconds = (Utc::now() - task.created_at).num_seconds();
-            AssistTaskDetail {
-                task_id: task.task_id,
-                task_type: task.task_type,
-                target_rule: task.target_rule,
-                status: task.status,
-                wpl_suggestion: task.wpl_suggestion,
-                oml_suggestion: task.oml_suggestion,
-                explanation: task.explanation,
-                error_message: task.error_message,
-                created_at: task.created_at.to_rfc3339(),
-                updated_at: task.updated_at.to_rfc3339(),
-                wait_seconds,
-            }
-        })
-        .collect();
+    let items = tasks.into_iter().map(build_assist_task_detail).collect();
 
     Ok(AssistListResponse::from_db(
         items,

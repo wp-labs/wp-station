@@ -1,11 +1,9 @@
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use wp_model_core::model::DataRecord;
-use wp_parser::comment::CommentParser;
+use wp_primitives::comment::CommentParser;
 
-use wp_lang::{
-    AnnotationType, WplEvaluator, WplExpress, WplPackage, WplStatementType, wpl_package,
-};
+use wpl::{AnnotationType, WplEvaluator, WplExpress, WplPackage, WplStatementType, wpl_package};
 
 type RunParseProc = (WplExpress, Vec<AnnotationType>);
 

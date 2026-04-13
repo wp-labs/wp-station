@@ -1,13 +1,15 @@
 use crate::error::AppError;
+use crate::server::Setting;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use tracing::{debug, info};
-use wp_data_utils::cache::FieldQueryCache;
+use wp_knowledge::cache::FieldQueryCache;
 use wp_knowledge::facade;
 use wp_model_core::model::{DataField, DataRecord};
-use wp_oml::{DataRecordRef, core::FieldExtractor, language::SqlQuery, types::AnyResult};
+use wp_oml::{AsyncFieldExtractor, DataRecordRef, language::SqlQuery, types::AnyResult};
 
 lazy_static! {
     /// 全局知识库是否已加载的标志（共享配置，无连接隔离）
@@ -19,27 +21,31 @@ pub fn db_init() -> AnyResult<Vec<DataField>> {
     Ok(vec![])
 }
 
-pub fn sql_query(sql: &str) -> AnyResult<Vec<DataField>> {
+pub async fn sql_query(sql: &str) -> AnyResult<Vec<DataField>> {
     let cache = &mut FieldQueryCache::default();
     let query = SqlQuery::new(sql.to_string(), HashMap::default());
-    let result = query.extract_more(
-        &mut DataRecordRef::from(&DataRecord::default()),
-        &DataRecord::default(),
-        cache,
-    );
+    let result = query
+        .extract_more_async(
+            &mut DataRecordRef::from(&DataRecord::default()),
+            &DataRecord::default(),
+            cache,
+        )
+        .await;
     debug!("知识库工具执行 SQL 查询完成");
     Ok(result)
 }
 
-pub fn sql_knowdb_list() -> AnyResult<Vec<String>> {
+pub async fn sql_knowdb_list() -> AnyResult<Vec<String>> {
     let sql = r#"SELECT GROUP_CONCAT(name, ', ') as name FROM sqlite_master WHERE type='table'"#;
     let cache = &mut FieldQueryCache::default();
     let query = SqlQuery::new(sql.to_string(), HashMap::default());
-    let result = query.extract_more(
-        &mut DataRecordRef::from(&DataRecord::default()),
-        &DataRecord::default(),
-        cache,
-    );
+    let result = query
+        .extract_more_async(
+            &mut DataRecordRef::from(&DataRecord::default()),
+            &DataRecord::default(),
+            cache,
+        )
+        .await;
     debug!("知识库工具查询数据表列表完成");
     match result.first() {
         Some(value) => {
@@ -68,13 +74,37 @@ pub fn load_knowledge(project_dir: &str) -> AnyResult<()> {
         return Ok(());
     }
 
-    let root = PathBuf::from(&project_dir).canonicalize().map_err(|e| {
-        error!("无法解析项目目录路径: {}", e);
-        AppError::internal(e)
-    })?;
+    let resolved_root = resolve_project_root(project_dir)?;
+    let Some(root) = resolved_root else {
+        return Ok(());
+    };
 
-    let knowdb_path = root.join("models/knowledge/knowdb.toml");
-    let auth_path = root.join(".run/authority.sqlite");
+    let knowledge_root = root.join("models").join("knowledge");
+    if !knowledge_root.exists() {
+        warn!(
+            "项目中未找到知识库目录，跳过初始化: {}",
+            knowledge_root.display()
+        );
+        return Ok(());
+    }
+
+    let knowdb_path = knowledge_root.join("knowdb.toml");
+    if !knowdb_path.exists() {
+        warn!(
+            "未检测到知识库配置文件，跳过加载: {}",
+            knowdb_path.display()
+        );
+        return Ok(());
+    }
+
+    let run_dir = root.join(".run");
+    if !run_dir.exists() {
+        fs::create_dir_all(&run_dir).map_err(|e| {
+            error!("创建运行目录失败: {}", e);
+            AppError::internal(e)
+        })?;
+    }
+    let auth_path = run_dir.join("authority.sqlite");
 
     // 清理旧的 authority 文件
     if auth_path.exists() {
@@ -124,4 +154,25 @@ pub fn unload_knowledge() {
 pub fn reload_knowledge(project_dir: &str) -> AnyResult<()> {
     unload_knowledge();
     load_knowledge(project_dir)
+}
+
+fn resolve_project_root(project_dir: &str) -> Result<Option<PathBuf>, AppError> {
+    let input_path = PathBuf::from(project_dir);
+    let absolute_path = if input_path.is_absolute() {
+        input_path
+    } else {
+        Setting::workspace_root().join(input_path)
+    };
+
+    if !absolute_path.exists() {
+        warn!("知识库目录不存在，跳过初始化: {}", absolute_path.display());
+        return Ok(None);
+    }
+
+    let canonical = absolute_path.canonicalize().map_err(|e| {
+        error!("无法解析项目目录路径: {}", e);
+        AppError::internal(e)
+    })?;
+
+    Ok(Some(canonical))
 }

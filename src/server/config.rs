@@ -10,7 +10,10 @@ use crate::server::sync::{handle_draft_release, sync_delete_to_gitea, sync_to_gi
 use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
 };
-use crate::utils::{delete_rule_from_project, export_rule_to_project, touch_rule_in_project};
+use crate::utils::{
+    constants::fallback_sink_display, delete_rule_from_project, export_rule_to_project,
+    touch_rule_in_project,
+};
 use serde::{Deserialize, Serialize};
 
 // ============ 请求参数结构体 ============
@@ -96,6 +99,13 @@ async fn refresh_draft_release_after_config_change(
     }
 }
 
+fn fallback_display_name(rule_type: RuleType, file_name: &str) -> Option<String> {
+    if matches!(rule_type, RuleType::Sink) {
+        return fallback_sink_display(file_name).map(|label| label.to_string());
+    }
+    None
+}
+
 /// 获取配置文件列表
 pub async fn get_config_files_logic(
     rule_type: RuleType,
@@ -103,6 +113,13 @@ pub async fn get_config_files_logic(
 ) -> Result<ConfigFilesResponse, AppError> {
     // 查询规则配置列表
     let list = find_rules_by_type(rule_type.as_ref()).await?;
+    let should_filter_default_sink = matches!(rule_type, RuleType::Sink);
+
+    // `defaults.toml` 仅作为内部默认配置，不在 sink 文件列表中展示。
+    let list: Vec<_> = list
+        .into_iter()
+        .filter(|rule| !(should_filter_default_sink && rule.file_name == "defaults.toml"))
+        .collect();
 
     // 如提供 keyword，则在内存中按文件名包含关系进行过滤
     let list = if let Some(keyword) = &keyword {
@@ -127,11 +144,17 @@ pub async fn get_config_files_logic(
 
     let items: Vec<ConfigFileItem> = list
         .into_iter()
-        .map(|rule| ConfigFileItem {
-            file: rule.file_name,
-            display_name: rule.display_name,
-            file_size: rule.file_size,
-            last_modified: Some(rule.updated_at.to_rfc3339()),
+        .map(|rule| {
+            let display_name = rule
+                .display_name
+                .clone()
+                .or_else(|| fallback_display_name(rule_type, &rule.file_name));
+            ConfigFileItem {
+                file: rule.file_name,
+                display_name,
+                file_size: rule.file_size,
+                last_modified: Some(rule.updated_at.to_rfc3339()),
+            }
         })
         .collect();
 
@@ -147,10 +170,14 @@ pub async fn get_config_logic(
         let result = find_rule_by_type_and_name(rule_type.as_ref(), file).await?;
 
         return if let Some(rule) = result {
+            let display_name = rule
+                .display_name
+                .clone()
+                .or_else(|| fallback_display_name(rule_type, &rule.file_name));
             let item = ConfigItem {
                 rule_type,
                 file: file.clone(),
-                display_name: rule.display_name,
+                display_name,
                 content: rule.content,
                 last_modified: Some(rule.updated_at.to_rfc3339()),
             };

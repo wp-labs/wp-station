@@ -1,41 +1,32 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input, message, Modal, Pagination } from 'antd';
-import { RuleType, fetchRuleFiles, fetchRuleConfig, validateRuleConfig, saveRuleConfig, createRuleFile, deleteRuleFile, saveKnowledgeRule } from '@/services/config';
+import {
+  RuleType,
+  fetchRuleFiles,
+  fetchRuleConfig,
+  validateRuleConfig,
+  saveRuleConfig,
+  createRuleFile,
+  deleteRuleFile,
+  saveKnowledgeRule,
+  fetchKnowdbConfig,
+  saveKnowdbConfig,
+} from '@/services/config';
 import { wplCodeFormat, omlCodeFormat } from '@/services/debug';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 
-const REPO_PAGE_SIZE = 15;
+const WPL_PAGE_SIZE = 15;
+const OML_PAGE_SIZE_DEFAULT = 15;
+const OML_FETCH_PAGE_SIZE = 50;
 const KNOWLEDGE_PAGE_SIZE = 15;
-const EMPTY_KNOWLEDGE_CONFIG = Object.freeze({
-  config: '',
+const EMPTY_KNOWLEDGE_DATASET = Object.freeze({
   createSql: '',
   insertSql: '',
   data: '',
 });
 
-const SINK_FILE_LABELS = Object.freeze({
-  'business.d/sink.toml': '输出配置',
-  'infra.d/error.toml': '异常数据',
-  'infra.d/miss.toml': '未命中WPL数据',
-  'infra.d/default.toml': '未命中OML数据',
-  'infra.d/monitor.toml': '监控数据',
-  'infra.d/residue.toml': '残留数据',
-});
-
-const SINK_FILE_ORDER = Object.freeze([
-  'business.d/sink.toml',
-  'infra.d/error.toml',
-  'infra.d/miss.toml',
-  'infra.d/default.toml',
-  'infra.d/monitor.toml',
-  'infra.d/residue.toml',
-]);
-
-const HIDDEN_SINK_FILES = new Set([
-  'defaults.toml',
-  'infra.d/intercept.toml',
-]);
+const KNOWLEDGE_CONFIG_FILE = 'knowdb.toml';
 
 const WPL_PARSE_FILE = 'parse.wpl';
 const WPL_SAMPLE_FILE = 'sample.dat';
@@ -60,10 +51,16 @@ const normalizeWplEntry = (value) => {
   return `${rule}/${sub}`;
 };
 
-const normalizeWplList = (items) =>
-  (Array.isArray(items) ? items : [])
-    .map((item) => normalizeWplEntry(item))
-    .filter((entry) => !!entry);
+const normalizeWplList = (items) => {
+  const deduped = new Set();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const entry = normalizeWplEntry(item);
+    if (entry) {
+      deduped.add(entry);
+    }
+  });
+  return Array.from(deduped);
+};
 
 const getWplEntryParts = (entry) => {
   if (!entry) {
@@ -128,17 +125,101 @@ const buildWplTreeData = (items) => {
 
 const getFirstWplEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
 
-const getSinkFileLabel = (filePath) => {
-  if (!filePath) {
+const buildOmlTreeData = (items) => {
+  const groups = new Map();
+  (Array.isArray(items) ? items : []).forEach((entry) => {
+    if (typeof entry !== 'string') {
+      return;
+    }
+    const normalized = entry.trim();
+    if (!normalized) {
+      return;
+    }
+    const parts = normalized.split('/').filter(Boolean);
+    if (!parts.length) {
+      return;
+    }
+    const [group, ...rest] = parts;
+    const files = groups.get(group) || [];
+    files.push({
+      value: normalized,
+      label: rest.length ? rest.join('/') : 'adm.oml',
+    });
+    groups.set(group, files);
+  });
+
+  return Array.from(groups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([group, files]) => ({
+      group,
+      files: files.sort((a, b) => a.label.localeCompare(b.label)),
+    }));
+};
+
+const normalizeOmlList = (items) => {
+  const deduped = new Set();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (typeof item !== 'string') {
+      return;
+    }
+    const normalized = item.trim();
+    if (normalized) {
+      deduped.add(normalized);
+    }
+  });
+  return Array.from(deduped);
+};
+
+// OML 分页按文件夹原子展示，避免同一文件夹被拆到多页。
+const buildOmlTreePages = (treeData, pageSize) => {
+  const normalizedPageSize = pageSize > 0 ? pageSize : OML_PAGE_SIZE_DEFAULT;
+  const pages = [];
+  let currentPage = [];
+  let currentCount = 0;
+
+  (Array.isArray(treeData) ? treeData : []).forEach((node) => {
+    const fileCount = Array.isArray(node.files) ? node.files.length : 0;
+    if (currentPage.length && currentCount + fileCount > normalizedPageSize) {
+      pages.push(currentPage);
+      currentPage = [node];
+      currentCount = fileCount;
+      return;
+    }
+    currentPage = [...currentPage, node];
+    currentCount += fileCount;
+  });
+
+  if (currentPage.length) {
+    pages.push(currentPage);
+  }
+
+  return pages;
+};
+
+const getOmlEntriesFromTreeData = (treeData) =>
+  (Array.isArray(treeData) ? treeData : []).flatMap((node) =>
+    (Array.isArray(node.files) ? node.files : [])
+      .map((item) => item.value)
+      .filter(Boolean),
+  );
+
+const findOmlPageByFile = (pagePlans, file) =>
+  (Array.isArray(pagePlans) ? pagePlans : []).findIndex((page) =>
+    page.some((node) => node.files.some((item) => item.value === file)),
+  );
+
+const getFirstOmlEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
+
+const findOmlGroupForFile = (treeData, file) => {
+  if (!file) {
     return '';
   }
-
-  if (SINK_FILE_LABELS[filePath]) {
-    return SINK_FILE_LABELS[filePath];
+  for (const node of treeData || []) {
+    if (node.files.some((item) => item.value === file)) {
+      return node.group;
+    }
   }
-
-  const fileName = filePath.split('/').pop() || filePath;
-  return fileName.replace(/\.toml$/i, '');
+  return '';
 };
 
 /**
@@ -190,8 +271,11 @@ function RuleManagePage() {
   const [activeOmlFile, setActiveOmlFile] = useState('');
   const [localOmlFiles, setLocalOmlFiles] = useState([]);
   const [omlPage, setOmlPage] = useState(1);
+  const omlPageSize = OML_PAGE_SIZE_DEFAULT;
   const [wplTotal, setWplTotal] = useState(0);
   const [omlTotal, setOmlTotal] = useState(0);
+  const [omlTree, setOmlTree] = useState([]);
+  const [omlExpandedGroups, setOmlExpandedGroups] = useState([]);
   
   // knowledge 配置的数据集列表
   const [knowledgeDatasets, setKnowledgeDatasets] = useState([]);
@@ -200,8 +284,15 @@ function RuleManagePage() {
   const [knowledgePage, setKnowledgePage] = useState(1);
   const [knowledgeTotal, setKnowledgeTotal] = useState(0);
   
-  // knowledge 配置的4块内容
-  const [knowledgeConfig, setKnowledgeConfig] = useState({ ...EMPTY_KNOWLEDGE_CONFIG });
+  // knowledge 数据集内容 & 全局 knowdb
+  const [knowledgeDatasetConfig, setKnowledgeDatasetConfig] = useState({
+    ...EMPTY_KNOWLEDGE_DATASET,
+  });
+  const [originalKnowledgeDatasetConfig, setOriginalKnowledgeDatasetConfig] = useState({
+    ...EMPTY_KNOWLEDGE_DATASET,
+  });
+  const [knowdbConfig, setKnowdbConfig] = useState('');
+  const [originalKnowdbConfig, setOriginalKnowdbConfig] = useState('');
   
   const [addModal, setAddModal] = useState({
     visible: false,
@@ -215,7 +306,7 @@ function RuleManagePage() {
   // 跟踪内容是否已修改
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
-  const [originalKnowledgeConfig, setOriginalKnowledgeConfig] = useState({ ...EMPTY_KNOWLEDGE_CONFIG });
+  const isKnowdbSelected = activeKey === RuleType.KNOWLEDGE && activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE;
 
   // 跟踪 wpl/oml 列表当前悬停的文件名，用于展示删除按钮
   const [hoveredRepoFile, setHoveredRepoFile] = useState('');
@@ -233,25 +324,36 @@ function RuleManagePage() {
           pageSize: KNOWLEDGE_PAGE_SIZE,
         });
         const knowledgeList = Array.isArray(result?.items) ? result.items : [];
-        setKnowledgeDatasets(knowledgeList);
-        setKnowledgeTotal(result?.total || knowledgeList.length);
-        setActiveKnowledgeDataset((prev) => prev || knowledgeList[0] || '');
+        const normalizedList = knowledgeList.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+        setKnowledgeDatasets(normalizedList);
+        setKnowledgeTotal(result?.total || normalizedList.length);
+        setActiveKnowledgeDataset((prev) => prev || KNOWLEDGE_CONFIG_FILE);
         setKnowledgePage(result?.page || 1);
       } catch (error) {
         message.error('加载规则列表失败：' + error.message);
+      }
+
+      try {
+        const resp = await fetchKnowdbConfig();
+        const content = resp?.content || '';
+        setKnowdbConfig(content);
+        setOriginalKnowdbConfig(content);
+      } catch (error) {
+        message.warn('加载 knowdb 配置失败：' + (error.message || ''));
       }
     };
     initRuleLists();
   }, []);
 
-  const totalWplPages = Math.max(1, Math.ceil(Math.max(wplTotal, 1) / REPO_PAGE_SIZE));
-  const totalOmlPages = Math.max(1, Math.ceil(Math.max(omlTotal, 1) / REPO_PAGE_SIZE));
-  const pagedOmlFiles = omlFiles; // 当前页数据由后端提供
   const totalKnowledgePages = Math.max(
     1,
     Math.ceil(Math.max(knowledgeTotal, 1) / KNOWLEDGE_PAGE_SIZE),
   );
   const pagedKnowledgeDatasets = knowledgeDatasets; // 当前页数据由后端提供
+  const knowledgeListForDisplay = React.useMemo(() => {
+    const datasets = Array.isArray(pagedKnowledgeDatasets) ? pagedKnowledgeDatasets : [];
+    return [KNOWLEDGE_CONFIG_FILE, ...datasets];
+  }, [pagedKnowledgeDatasets]);
   
   // sink 配置的文件列表（从后端加载）
   const [sinkFiles, setSinkFiles] = useState([]);
@@ -287,7 +389,22 @@ function RuleManagePage() {
       options.file = activeOmlFile;
     } else if (activeKey === RuleType.KNOWLEDGE) {
       if (!activeKnowledgeDataset) {
-        setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+        setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+        return;
+      }
+      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        setLoading(true);
+        try {
+          const resp = await fetchKnowdbConfig();
+          const content = resp?.content || '';
+          setKnowdbConfig(content);
+          setOriginalKnowdbConfig(content);
+          setHasUnsavedChanges(false);
+        } catch (error) {
+          message.error('加载 knowdb 配置失败：' + (error.message || ''));
+        } finally {
+          setLoading(false);
+        }
         return;
       }
       options.file = activeKnowledgeDataset;
@@ -302,14 +419,23 @@ function RuleManagePage() {
     try {
       const response = await fetchRuleConfig(options);
       if (activeKey === 'knowledge') {
-        const newConfig = {
-          config: response.config || '',
-          createSql: response.createSql || '',
-          insertSql: response.insertSql || '',
-          data: response.data || '',
-        };
-        setKnowledgeConfig(newConfig);
-        setOriginalKnowledgeConfig(newConfig);
+        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+          const content = response?.content || '';
+          setKnowdbConfig(content);
+          setOriginalKnowdbConfig(content);
+        } else {
+          const newConfig = {
+            createSql: response.createSql || '',
+            insertSql: response.insertSql || '',
+            data: response.data || '',
+          };
+          setKnowledgeDatasetConfig(newConfig);
+          setOriginalKnowledgeDatasetConfig(newConfig);
+          if (typeof response.config === 'string' && response.config !== '') {
+            setKnowdbConfig(response.config);
+            setOriginalKnowdbConfig(response.config);
+          }
+        }
         setHasUnsavedChanges(false);
       } else {
         const newContent = response.content || '';
@@ -322,8 +448,13 @@ function RuleManagePage() {
       message.error(t('configManage.loadFailed', { message: error?.message || error }));
       // 加载失败时设置为空
       if (activeKey === 'knowledge') {
-        setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
-        setOriginalKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+          setKnowdbConfig('');
+          setOriginalKnowdbConfig('');
+        } else {
+          setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+          setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+        }
       } else {
         setContent('');
         setOriginalContent('');
@@ -382,9 +513,130 @@ function RuleManagePage() {
     [activeWplFile],
   );
 
+  const applyOmlListState = useCallback(
+    (rawItems, options = {}) => {
+      const { preferredActive, preserveActive, page } = options;
+      const normalizedList = normalizeOmlList(rawItems);
+      const treeData = buildOmlTreeData(normalizedList);
+      const pagePlans = buildOmlTreePages(treeData, omlPageSize);
+      const totalPages = pagePlans.length;
+
+      setOmlFiles(normalizedList);
+      setOmlTotal(totalPages * omlPageSize);
+
+      if (!normalizedList.length) {
+        setOmlTree([]);
+        setOmlPage(1);
+        setOmlExpandedGroups([]);
+        setActiveOmlFile('');
+        return;
+      }
+
+      const normalizedPreferred =
+        preferredActive && normalizedList.includes(preferredActive) ? preferredActive : '';
+      const normalizedActive = normalizedList.includes(activeOmlFile) ? activeOmlFile : '';
+
+      let nextPage = typeof page === 'number' && page > 0 ? page : null;
+      if (!nextPage && normalizedPreferred) {
+        const preferredPageIndex = findOmlPageByFile(pagePlans, normalizedPreferred);
+        if (preferredPageIndex >= 0) {
+          nextPage = preferredPageIndex + 1;
+        }
+      }
+      if (!nextPage && preserveActive && normalizedActive) {
+        const activePageIndex = findOmlPageByFile(pagePlans, normalizedActive);
+        if (activePageIndex >= 0) {
+          nextPage = activePageIndex + 1;
+        }
+      }
+      const currentPage = Math.min(Math.max(nextPage || 1, 1), totalPages);
+      const currentTreeData = pagePlans[currentPage - 1] || [];
+      const currentPageFiles = getOmlEntriesFromTreeData(currentTreeData);
+
+      let nextActive = currentPageFiles.includes(normalizedPreferred) ? normalizedPreferred : '';
+      if (!nextActive && preserveActive && currentPageFiles.includes(normalizedActive)) {
+        nextActive = normalizedActive;
+      }
+      if (!nextActive) {
+        nextActive = getFirstOmlEntry(currentTreeData) || currentPageFiles[0] || '';
+      }
+
+      setOmlTree(currentTreeData);
+      setOmlPage(currentPage);
+      setActiveOmlFile(nextActive);
+      const expandedGroups = currentTreeData.map((node) => node.group);
+      const activeGroup = findOmlGroupForFile(currentTreeData, nextActive);
+      setOmlExpandedGroups(
+        activeGroup && !expandedGroups.includes(activeGroup)
+          ? [...expandedGroups, activeGroup]
+          : expandedGroups,
+      );
+    },
+    [activeOmlFile, omlPageSize],
+  );
+
+  const fetchAllOmlFiles = useCallback(async (keyword) => {
+    const normalizedKeyword =
+      typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
+    const collected = [];
+    const seen = new Set();
+    let currentPage = 1;
+
+    while (true) {
+      const result = await fetchRuleFiles({
+        type: RuleType.OML,
+        page: currentPage,
+        pageSize: OML_FETCH_PAGE_SIZE,
+        keyword: normalizedKeyword,
+      });
+      const items = normalizeOmlList(result?.items || []);
+      const pageSize =
+        typeof result?.pageSize === 'number' && result.pageSize > 0
+          ? result.pageSize
+          : OML_FETCH_PAGE_SIZE;
+      const total = typeof result?.total === 'number' ? result.total : 0;
+      const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+
+      items.forEach((item) => {
+        if (!seen.has(item)) {
+          seen.add(item);
+          collected.push(item);
+        }
+      });
+
+      if (!items.length || items.length < pageSize || (totalPages && currentPage >= totalPages)) {
+        break;
+      }
+      currentPage += 1;
+    }
+
+    return collected;
+  }, []);
+
+  const refreshOmlFiles = useCallback(
+    async (options = {}) => {
+      const {
+        keyword = omlSearch,
+        page,
+        preferredActive,
+        preserveActive = true,
+      } = options;
+      const files = await fetchAllOmlFiles(keyword);
+      applyOmlListState(files, { page, preferredActive, preserveActive });
+      return files;
+    },
+    [applyOmlListState, fetchAllOmlFiles, omlSearch],
+  );
+
   const toggleWplRule = (rule) => {
     setWplExpandedRules((prev) =>
       prev.includes(rule) ? prev.filter((item) => item !== rule) : [...prev, rule],
+    );
+  };
+
+  const toggleOmlGroup = (group) => {
+    setOmlExpandedGroups((prev) =>
+      prev.includes(group) ? prev.filter((item) => item !== group) : [...prev, group],
     );
   };
 
@@ -401,7 +653,7 @@ function RuleManagePage() {
           const refreshed = await fetchRuleFiles({
             type: 'wpl',
             page: wplPage,
-            pageSize: REPO_PAGE_SIZE,
+            pageSize: WPL_PAGE_SIZE,
             keyword: wplSearch || undefined,
           });
           applyWplListState(refreshed?.items || [], { preserveActive: true });
@@ -425,7 +677,7 @@ function RuleManagePage() {
       const result = await fetchRuleFiles({
         type: RuleType.WPL,
         page: 1,
-        pageSize: REPO_PAGE_SIZE,
+        pageSize: WPL_PAGE_SIZE,
         keyword: wplSearch || undefined,
       });
       applyWplListState(result?.items || [], { preserveActive: true });
@@ -434,17 +686,7 @@ function RuleManagePage() {
       return;
     }
     if (repoType === RuleType.OML) {
-      const result = await fetchRuleFiles({
-        type: RuleType.OML,
-        page: 1,
-        pageSize: REPO_PAGE_SIZE,
-        keyword: omlSearch || undefined,
-      });
-      const files = Array.isArray(result?.items) ? result.items : [];
-      setOmlFiles(files);
-      setOmlTotal(result?.total || files.length);
-      setActiveOmlFile((prev) => prev || files[0] || '');
-      setOmlPage(result?.page || 1);
+      await refreshOmlFiles({ preserveActive: true, page: omlPage });
     }
   };
 
@@ -457,9 +699,7 @@ function RuleManagePage() {
     activeOmlFile,
     activeKnowledgeDataset,
     activeSinkFile,
-    localWplFiles,
-    localOmlFiles,
-    // 注意：localKnowledgeDatasets 不在依赖中，因为 knowledge 不使用本地文件概念
+    // 注意：localWplFiles/localOmlFiles 不放入依赖，避免一次加载导致重复请求
   ]);
 
   /**
@@ -495,16 +735,28 @@ function RuleManagePage() {
    */
   useEffect(() => {
     if (activeKey === 'knowledge') {
-      const hasChanges = 
-        knowledgeConfig.config !== originalKnowledgeConfig.config ||
-        knowledgeConfig.createSql !== originalKnowledgeConfig.createSql ||
-        knowledgeConfig.insertSql !== originalKnowledgeConfig.insertSql ||
-        knowledgeConfig.data !== originalKnowledgeConfig.data;
-      setHasUnsavedChanges(hasChanges);
+      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        setHasUnsavedChanges(knowdbConfig !== originalKnowdbConfig);
+      } else {
+        const hasChanges =
+          knowledgeDatasetConfig.createSql !== originalKnowledgeDatasetConfig.createSql ||
+          knowledgeDatasetConfig.insertSql !== originalKnowledgeDatasetConfig.insertSql ||
+          knowledgeDatasetConfig.data !== originalKnowledgeDatasetConfig.data;
+        setHasUnsavedChanges(hasChanges);
+      }
     } else {
       setHasUnsavedChanges(content !== originalContent);
     }
-  }, [content, originalContent, knowledgeConfig, originalKnowledgeConfig, activeKey]);
+  }, [
+    content,
+    originalContent,
+    knowledgeDatasetConfig,
+    originalKnowledgeDatasetConfig,
+    knowdbConfig,
+    originalKnowdbConfig,
+    activeKey,
+    activeKnowledgeDataset,
+  ]);
 
   /**
    * 处理配置校验
@@ -514,6 +766,10 @@ function RuleManagePage() {
     const fileInfo = getCurrentFileInfo();
     if (!fileInfo.file) {
       message.warning(t('ruleManage.noFileToValidate'));
+      return;
+    }
+    if (activeKey === 'knowledge' && activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+      message.info('knowdb.toml 不需要执行独立校验');
       return;
     }
     const currentContent = buildCurrentContent();
@@ -616,13 +872,19 @@ function RuleManagePage() {
 
     try {
       if (activeKey === 'knowledge') {
-        await saveKnowledgeRule({
-          file: activeKnowledgeDataset,
-          config: knowledgeConfig.config,
-          createSql: knowledgeConfig.createSql,
-          insertSql: knowledgeConfig.insertSql,
-          data: knowledgeConfig.data,
-        });
+        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+          await saveKnowdbConfig(knowdbConfig);
+          setOriginalKnowdbConfig(knowdbConfig);
+        } else {
+          await saveKnowledgeRule({
+            file: activeKnowledgeDataset,
+            config: knowdbConfig,
+            createSql: knowledgeDatasetConfig.createSql,
+            insertSql: knowledgeDatasetConfig.insertSql,
+            data: knowledgeDatasetConfig.data,
+          });
+          setOriginalKnowledgeDatasetConfig({ ...knowledgeDatasetConfig });
+        }
       } else {
         // 直接调用服务层保存配置（使用对象参数），不再弹出确认框
         await saveRuleConfig({
@@ -633,9 +895,7 @@ function RuleManagePage() {
       }
 
       // 保存成功后重置未保存状态
-      if (activeKey === 'knowledge') {
-        setOriginalKnowledgeConfig({ ...knowledgeConfig });
-      } else {
+      if (activeKey !== 'knowledge') {
         setOriginalContent(content);
       }
       setHasUnsavedChanges(false);
@@ -761,7 +1021,7 @@ function RuleManagePage() {
       const refreshed = await fetchRuleFiles({
         type: RuleType.WPL,
         page: 1,
-        pageSize: REPO_PAGE_SIZE,
+        pageSize: WPL_PAGE_SIZE,
         keyword: wplSearch || undefined,
       });
       applyWplListState(refreshed?.items || [], {
@@ -781,19 +1041,12 @@ function RuleManagePage() {
       }
       await createRuleFile({ type: RuleType.OML, file: normalizedName });
       await saveRuleConfig({ type: RuleType.OML, file: normalizedName, content: '' });
-      const refreshed = await fetchRuleFiles({
-        type: RuleType.OML,
-        page: 1,
-        pageSize: REPO_PAGE_SIZE,
-        keyword: omlSearch || undefined,
+      await refreshOmlFiles({
+        preferredActive: normalizedName,
+        preserveActive: false,
       });
-      const files = Array.isArray(refreshed?.items) ? refreshed.items : [];
-      setOmlFiles(files);
-      setOmlTotal(refreshed?.total || files.length);
       setLocalOmlFiles((prev) => prev.filter((name) => name !== normalizedName));
-      setActiveOmlFile(normalizedName);
       setContent('');
-      setOmlPage(1);
     }
     return true;
   };
@@ -822,10 +1075,12 @@ function RuleManagePage() {
           keyword: knowledgeSearch || undefined,
         });
         const datasets = Array.isArray(refreshed?.items) ? refreshed.items : [];
-        setKnowledgeDatasets(datasets);
-        setKnowledgeTotal(refreshed?.total || datasets.length);
+        const normalizedDatasets = datasets.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+        setKnowledgeDatasets(normalizedDatasets);
+        setKnowledgeTotal(refreshed?.total || normalizedDatasets.length);
         setActiveKnowledgeDataset(normalizedName);
-        setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+        setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+        setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
         setKnowledgePage(1);
       })
       .catch((error) => {
@@ -895,7 +1150,10 @@ function RuleManagePage() {
       const displayName = activeOmlFile ? `${activeOmlFile}.oml` : '';
       return { file: activeOmlFile || '', display: displayName };
     }
-    if (activeKey === 'knowledge') {
+  if (activeKey === 'knowledge') {
+      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        return { file: KNOWLEDGE_CONFIG_FILE, display: KNOWLEDGE_CONFIG_FILE };
+      }
       const datasetName = activeKnowledgeDataset ? `${activeKnowledgeDataset}.dataset` : '';
       return { file: datasetName, display: datasetName };
     }
@@ -907,11 +1165,13 @@ function RuleManagePage() {
 
   const buildCurrentContent = () => {
     if (activeKey === 'knowledge') {
+      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        return knowdbConfig || '';
+      }
       return [
-        knowledgeConfig.config ?? '',
-        knowledgeConfig.createSql ?? '',
-        knowledgeConfig.insertSql ?? '',
-        knowledgeConfig.data ?? '',
+        knowledgeDatasetConfig.createSql ?? '',
+        knowledgeDatasetConfig.insertSql ?? '',
+        knowledgeDatasetConfig.data ?? '',
       ]
         .filter((section) => section !== undefined && section !== null)
         .join('\n\n');
@@ -928,11 +1188,21 @@ function RuleManagePage() {
       return [];
     }
 
-    const sinkFileSet = new Set(
-      sinkFiles.filter((file) => typeof file === 'string' && file && !HIDDEN_SINK_FILES.has(file)),
-    );
-
-    return SINK_FILE_ORDER.filter((file) => sinkFileSet.has(file));
+    return sinkFiles
+      .map((item) => {
+        if (!item || !item.file) {
+          return null;
+        }
+        const label =
+          typeof item.displayName === 'string' && item.displayName.trim()
+            ? item.displayName.trim()
+            : item.file;
+        return {
+          file: item.file,
+          displayName: label,
+        };
+      })
+      .filter(Boolean);
   }, [sinkFiles]);
 
   return (
@@ -967,8 +1237,6 @@ function RuleManagePage() {
           onClick={() => handleNavigation('oml', async () => {
             try {
               await loadRepoFilesIfNeeded('oml');
-              setActiveOmlFile((current) => current || omlFiles[0] || '');
-              setOmlPage(1);
               setLocalOmlFiles([]);
             } catch (error) {
               message.error(t('ruleManage.loadOmlFailed', { message: error.message }));
@@ -989,14 +1257,21 @@ function RuleManagePage() {
                 keyword: knowledgeSearch || undefined,
               });
               const datasets = Array.isArray(result?.items) ? result.items : [];
-              setKnowledgeDatasets(datasets);
-              setKnowledgeTotal(result?.total || datasets.length);
-              const nextActive = datasets[0] || '';
+              const normalizedDatasets = datasets.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+              setKnowledgeDatasets(normalizedDatasets);
+              setKnowledgeTotal(result?.total || normalizedDatasets.length);
+              const nextActive = normalizedDatasets.includes(activeKnowledgeDataset)
+                ? activeKnowledgeDataset
+                : KNOWLEDGE_CONFIG_FILE;
               setActiveKnowledgeDataset(nextActive);
-              if (!nextActive) {
-                setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+              if (nextActive !== KNOWLEDGE_CONFIG_FILE && !normalizedDatasets.length) {
+                setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
               }
               setKnowledgePage(result?.page || 1);
+              const knowdbResp = await fetchKnowdbConfig();
+              const content = knowdbResp?.content || '';
+              setKnowdbConfig(content);
+              setOriginalKnowdbConfig(content);
             } catch (error) {
               message.error(t('ruleManage.loadKnowledgeFailed', { message: error.message }));
             }
@@ -1013,7 +1288,7 @@ function RuleManagePage() {
                 const result = await fetchRuleFiles({ type: 'sink' });
                 const files = Array.isArray(result?.items) ? result.items : [];
                 setSinkFiles(files);
-                setActiveSinkFile((prev) => prev || files[0] || '');
+                setActiveSinkFile((prev) => prev || files[0]?.file || '');
               } catch (error) {
                 message.error('加载 sink 配置列表失败：' + error.message);
               }
@@ -1090,13 +1365,20 @@ function RuleManagePage() {
                             const datasets = Array.isArray(result?.items)
                               ? result.items
                               : [];
-                            setKnowledgeDatasets(datasets);
-                            setKnowledgeTotal(result?.total || datasets.length);
-                            if (!datasets.includes(activeKnowledgeDataset)) {
-                              const nextActive = datasets[0] || '';
+                            const normalized = datasets.filter(
+                              (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                            );
+                            setKnowledgeDatasets(normalized);
+                            setKnowledgeTotal(result?.total || normalized.length);
+                            if (
+                              activeKnowledgeDataset !== KNOWLEDGE_CONFIG_FILE &&
+                              !normalized.includes(activeKnowledgeDataset)
+                            ) {
+                              const nextActive = normalized[0] || KNOWLEDGE_CONFIG_FILE;
                               setActiveKnowledgeDataset(nextActive);
-                              if (!nextActive) {
-                                setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+                              if (nextActive === KNOWLEDGE_CONFIG_FILE) {
+                                setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+                                setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                               }
                             }
                           })
@@ -1107,112 +1389,133 @@ function RuleManagePage() {
                     />
                   </div>
                   <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
-                    {pagedKnowledgeDatasets.map((dataset) => (
-                      <div
-                        key={dataset}
-                        className="repo-file-row"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          position: 'relative',
-                        }}
-                        onMouseEnter={() => setHoveredRepoFile(dataset)}
-                        onMouseLeave={() => setHoveredRepoFile('')}
-                      >
-                        <button
-                          type="button"
-                          className={`repo-file ${activeKnowledgeDataset === dataset ? 'is-active' : ''}`}
-                          onClick={() => {
-                            if (hasUnsavedChanges && dataset !== activeKnowledgeDataset) {
-                              Modal.confirm({
-                                title: t('ruleManage.leaveConfirm'),
-                                content: t('ruleManage.leaveConfirmMessage'),
-                                okText: t('common.confirm'),
-                                cancelText: t('common.cancel'),
-                                onOk: () => {
-                                  setActiveKnowledgeDataset(dataset);
-                                },
-                              });
-                            } else {
-                              setActiveKnowledgeDataset(dataset);
-                            }
-                          }}
-                          style={{ 
-                            flex: 1, 
-                            textAlign: 'left',
-                            paddingRight: hoveredRepoFile === dataset ? '28px' : '8px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {dataset}
-                        </button>
-                        <button
-                          type="button"
-                          className="repo-file-delete"
+                    {knowledgeListForDisplay.map((dataset) => {
+                      const isConfigEntry = dataset === KNOWLEDGE_CONFIG_FILE;
+                      return (
+                        <div
+                          key={dataset}
+                          className="repo-file-row"
                           style={{
-                            position: 'absolute',
-                            right: '4px',
-                            minWidth: 20,
-                            width: 20,
-                            height: 20,
-                            borderRadius: '50%',
-                            border: 'none',
-                            backgroundColor: '#ff4d4f',
-                            color: '#fff',
-                            fontSize: 16,
-                            padding: 0,
-                            cursor: 'pointer',
-                            display: hoveredRepoFile === dataset ? 'inline-flex' : 'none',
+                            display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            position: 'relative',
                           }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            const filename = dataset;
-                            Modal.confirm({
-                              title: t('ruleManage.deleteConfirm'),
-                              content: t('ruleManage.deleteConfirmMessage', { filename }),
-                              okText: t('common.delete'),
-                              okButtonProps: { danger: true },
-                              cancelText: t('common.cancel'),
-                              onOk: async () => {
-                                try {
-                                  await deleteRuleFile({ type: 'knowledge', file: filename });
-                                  // 计算删除后的页码
-                                  const nextPage = Math.min(knowledgePage, totalKnowledgePages);
-                                  const refreshed = await fetchRuleFiles({
-                                    type: 'knowledge',
-                                    page: nextPage,
-                                    pageSize: KNOWLEDGE_PAGE_SIZE,
-                                  });
-                                  const datasets = Array.isArray(refreshed?.items)
-                                    ? refreshed.items
-                                    : [];
-                                  setKnowledgeDatasets(datasets);
-                                  setKnowledgeTotal(refreshed?.total || datasets.length);
-                                  if (filename === activeKnowledgeDataset) {
-                                    const nextActive = datasets[0] || '';
-                                    setActiveKnowledgeDataset(nextActive);
-                                    if (!nextActive) {
-                                      setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
-                                    }
-                                  }
-                                  setKnowledgePage(refreshed?.page || nextPage);
-                                } catch (error) {
-                                  message.error(t('ruleManage.deleteDatasetFailed', { message: error.message }));
-                                }
-                              },
-                            });
-                          }}
+                          onMouseEnter={() => setHoveredRepoFile(dataset)}
+                          onMouseLeave={() => setHoveredRepoFile('')}
                         >
-                          -
-                        </button>
-                      </div>
-                    ))}
+                          <button
+                            type="button"
+                            className={`repo-file ${activeKnowledgeDataset === dataset ? 'is-active' : ''}`}
+                            onClick={() => {
+                              if (hasUnsavedChanges && dataset !== activeKnowledgeDataset) {
+                                Modal.confirm({
+                                  title: t('ruleManage.leaveConfirm'),
+                                  content: t('ruleManage.leaveConfirmMessage'),
+                                  okText: t('common.confirm'),
+                                  cancelText: t('common.cancel'),
+                                  onOk: () => {
+                                    setActiveKnowledgeDataset(dataset);
+                                  },
+                                });
+                              } else {
+                                setActiveKnowledgeDataset(dataset);
+                              }
+                            }}
+                            style={{
+                              flex: 1,
+                              textAlign: 'left',
+                              paddingRight:
+                                hoveredRepoFile === dataset && !isConfigEntry ? '28px' : '8px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {isConfigEntry ? KNOWLEDGE_CONFIG_FILE : dataset}
+                          </button>
+                          {!isConfigEntry && (
+                            <button
+                              type="button"
+                              className="repo-file-delete"
+                              style={{
+                                position: 'absolute',
+                                right: '4px',
+                                minWidth: 20,
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                border: 'none',
+                                backgroundColor: '#ff4d4f',
+                                color: '#fff',
+                                fontSize: 16,
+                                padding: 0,
+                                cursor: 'pointer',
+                                display: hoveredRepoFile === dataset ? 'inline-flex' : 'none',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                const filename = dataset;
+                                Modal.confirm({
+                                  title: t('ruleManage.deleteConfirm'),
+                                  content: t('ruleManage.deleteConfirmMessage', { filename }),
+                                  okText: t('common.delete'),
+                                  okButtonProps: { danger: true },
+                                  cancelText: t('common.cancel'),
+                                  onOk: async () => {
+                                    try {
+                                      await deleteRuleFile({ type: 'knowledge', file: filename });
+                                      const nextPage = Math.min(
+                                        knowledgePage,
+                                        totalKnowledgePages,
+                                      );
+                                      const refreshed = await fetchRuleFiles({
+                                        type: 'knowledge',
+                                        page: nextPage,
+                                        pageSize: KNOWLEDGE_PAGE_SIZE,
+                                      });
+                                      const datasets = Array.isArray(refreshed?.items)
+                                        ? refreshed.items
+                                        : [];
+                                      const normalized = datasets.filter(
+                                        (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                                      );
+                                      setKnowledgeDatasets(normalized);
+                                      setKnowledgeTotal(refreshed?.total || normalized.length);
+                                      if (filename === activeKnowledgeDataset) {
+                                        const nextActive =
+                                          normalized[0] || KNOWLEDGE_CONFIG_FILE;
+                                        setActiveKnowledgeDataset(nextActive);
+                                        if (nextActive !== KNOWLEDGE_CONFIG_FILE && !normalized.length) {
+                                          setKnowledgeDatasetConfig({
+                                            ...EMPTY_KNOWLEDGE_DATASET,
+                                          });
+                                          setOriginalKnowledgeDatasetConfig({
+                                            ...EMPTY_KNOWLEDGE_DATASET,
+                                          });
+                                        }
+                                      }
+                                      setKnowledgePage(refreshed?.page || nextPage);
+                                    } catch (error) {
+                                      message.error(
+                                        t('ruleManage.deleteDatasetFailed', {
+                                          message: error.message,
+                                        }),
+                                      );
+                                    }
+                                  },
+                                });
+                              }}
+                            >
+                              -
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                   {knowledgeTotal > KNOWLEDGE_PAGE_SIZE ? (
                     <div className="repo-pagination">
@@ -1222,6 +1525,7 @@ function RuleManagePage() {
                         current={knowledgePage}
                         pageSize={KNOWLEDGE_PAGE_SIZE}
                         total={knowledgeTotal}
+                        showSizeChanger={false}
                         onChange={(page) => {
                           setKnowledgePage(page);
                           fetchRuleFiles({
@@ -1234,13 +1538,20 @@ function RuleManagePage() {
                               const datasets = Array.isArray(result?.items)
                                 ? result.items
                                 : [];
-                              setKnowledgeDatasets(datasets);
-                              setKnowledgeTotal(result?.total || datasets.length);
-                              if (!datasets.includes(activeKnowledgeDataset)) {
-                                const nextActive = datasets[0] || '';
+                              const normalized = datasets.filter(
+                                (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                              );
+                              setKnowledgeDatasets(normalized);
+                              setKnowledgeTotal(result?.total || normalized.length);
+                              if (
+                                activeKnowledgeDataset !== KNOWLEDGE_CONFIG_FILE &&
+                                !normalized.includes(activeKnowledgeDataset)
+                              ) {
+                                const nextActive = normalized[0] || KNOWLEDGE_CONFIG_FILE;
                                 setActiveKnowledgeDataset(nextActive);
-                                if (!nextActive) {
-                                  setKnowledgeConfig({ ...EMPTY_KNOWLEDGE_CONFIG });
+                                if (nextActive === KNOWLEDGE_CONFIG_FILE) {
+                                  setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+                                  setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                                 }
                               }
                             })
@@ -1256,7 +1567,11 @@ function RuleManagePage() {
                   <section className={`knowledge-detail ${activeKnowledgeDataset ? 'is-visible' : ''}`}>
                     <div className="editor-toolbar">
                       <span className="editor-label">
-                        {activeKnowledgeDataset ? t('ruleManage.datasetLabel', { name: activeKnowledgeDataset }) : t('ruleManage.datasets')}
+                        {activeKnowledgeDataset
+                          ? activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE
+                            ? KNOWLEDGE_CONFIG_FILE
+                            : t('ruleManage.datasetLabel', { name: activeKnowledgeDataset })
+                          : t('ruleManage.datasets')}
                       </span>
                       <div className="editor-actions">
                         <button type="button" className="btn tertiary" onClick={handleValidate}>
@@ -1267,60 +1582,65 @@ function RuleManagePage() {
                         </button>
                       </div>
                     </div>
-                    <div className="knowledge-block">
-                      <span className="editor-subtitle">{t('ruleManage.configToml')}</span>
-                      <CodeEditor
-                        key="knowledge-config"
-                        className="code-area code-area--large"
-                        value={knowledgeConfig.config || ''}
-                        onChange={(value) =>
-                          setKnowledgeConfig((prev) => ({ ...prev, config: value }))
-                        }
-                        language="toml"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                    <div className="knowledge-block">
-                      <span className="editor-subtitle">{t('ruleManage.createSql')}</span>
-                      <CodeEditor
-                        key="knowledge-create-sql"
-                        className="code-area code-area--large"
-                        value={knowledgeConfig.createSql || ''}
-                        onChange={(value) =>
-                          setKnowledgeConfig((prev) => ({ ...prev, createSql: value }))
-                        }
-                        language="sql"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                    <div className="knowledge-block">
-                      <span className="editor-subtitle">{t('ruleManage.insertSql')}</span>
-                      <CodeEditor
-                        key="knowledge-insert-sql"
-                        className="code-area code-area--large"
-                        value={knowledgeConfig.insertSql || ''}
-                        onChange={(value) =>
-                          setKnowledgeConfig((prev) => ({ ...prev, insertSql: value }))
-                        }
-                        language="sql"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                    <div className="knowledge-block">
-                      <span className="editor-subtitle">
-                        {activeKnowledgeDataset ? t('ruleManage.dataCsv', { name: activeKnowledgeDataset }) : t('ruleManage.datasetCsv')}
-                      </span>
-                      <CodeEditor
-                        key="knowledge-data"
-                        className="code-area code-area--large"
-                        value={knowledgeConfig.data || ''}
-                        onChange={(value) =>
-                          setKnowledgeConfig((prev) => ({ ...prev, data: value }))
-                        }
-                        language="plain"
-                        theme="vscodeDark"
-                      />
-                    </div>
+                    {activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE ? (
+                      <div className="knowledge-block">
+                        <span className="editor-subtitle">knowdb.toml</span>
+                        <CodeEditor
+                          key="knowledge-config"
+                          className="code-area code-area--large"
+                          value={knowdbConfig}
+                          onChange={(value) => setKnowdbConfig(value)}
+                          language="toml"
+                          theme="vscodeDark"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="knowledge-block">
+                          <span className="editor-subtitle">{t('ruleManage.createSql')}</span>
+                          <CodeEditor
+                            key="knowledge-create-sql"
+                            className="code-area code-area--large"
+                            value={knowledgeDatasetConfig.createSql || ''}
+                            onChange={(value) =>
+                              setKnowledgeDatasetConfig((prev) => ({ ...prev, createSql: value }))
+                            }
+                            language="sql"
+                            theme="vscodeDark"
+                          />
+                        </div>
+                        <div className="knowledge-block">
+                          <span className="editor-subtitle">{t('ruleManage.insertSql')}</span>
+                          <CodeEditor
+                            key="knowledge-insert-sql"
+                            className="code-area code-area--large"
+                            value={knowledgeDatasetConfig.insertSql || ''}
+                            onChange={(value) =>
+                              setKnowledgeDatasetConfig((prev) => ({ ...prev, insertSql: value }))
+                            }
+                            language="sql"
+                            theme="vscodeDark"
+                          />
+                        </div>
+                        <div className="knowledge-block">
+                          <span className="editor-subtitle">
+                            {activeKnowledgeDataset
+                              ? t('ruleManage.dataCsv', { name: activeKnowledgeDataset })
+                              : t('ruleManage.datasetCsv')}
+                          </span>
+                          <CodeEditor
+                            key="knowledge-data"
+                            className="code-area code-area--large"
+                            value={knowledgeDatasetConfig.data || ''}
+                            onChange={(value) =>
+                              setKnowledgeDatasetConfig((prev) => ({ ...prev, data: value }))
+                            }
+                            language="plain"
+                            theme="vscodeDark"
+                          />
+                        </div>
+                      </>
+                    )}
                   </section>
                 </div>
               </div>
@@ -1356,7 +1676,7 @@ function RuleManagePage() {
                     fetchRuleFiles({
                         type: RuleType.WPL,
                         page: nextPage,
-                        pageSize: REPO_PAGE_SIZE,
+                        pageSize: WPL_PAGE_SIZE,
                         keyword: value || undefined,
                       })
                         .then((result) => {
@@ -1368,26 +1688,11 @@ function RuleManagePage() {
                         });
                     } else {
                       setOmlSearch(value);
-                      const nextPage = 1;
-                      setOmlPage(nextPage);
-                      fetchRuleFiles({
-                        type: RuleType.OML,
-                        page: nextPage,
-                        pageSize: REPO_PAGE_SIZE,
-                        keyword: value || undefined,
+                      refreshOmlFiles({
+                        keyword: value,
+                        page: 1,
+                        preserveActive: true,
                       })
-                        .then((result) => {
-                          const files = Array.isArray(result?.items) ? result.items : [];
-                          setOmlFiles(files);
-                          setOmlTotal(result?.total || files.length);
-                          if (!files.includes(activeOmlFile)) {
-                            const nextActive = files[0] || '';
-                            setActiveOmlFile(nextActive);
-                            if (!nextActive) {
-                              setContent('');
-                            }
-                          }
-                        })
                         .catch((error) => {
                           message.error('加载 OML 规则列表失败：' + error.message);
                         });
@@ -1489,12 +1794,6 @@ function RuleManagePage() {
                                     position: 'relative',
                                   }}
                                 >
-                                  <span
-                                    aria-hidden="true"
-                                    style={{ position: 'absolute', left: 6, fontSize: 12 }}
-                                  >
-                                    •
-                                  </span>
                                   {file.label}
                                 </button>
                               ))}
@@ -1503,151 +1802,170 @@ function RuleManagePage() {
                         </div>
                       );
                     })
-                  : pagedOmlFiles.map((file) => (
-                      <div
-                        key={file}
-                        className="repo-file-row"
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8,
-                          position: 'relative',
-                        }}
-                        onMouseEnter={() => setHoveredRepoFile(file)}
-                        onMouseLeave={() => setHoveredRepoFile('')}
-                      >
-                        <button
-                          type="button"
-                          className={`repo-file ${activeOmlFile === file ? 'is-active' : ''}`}
-                          onClick={() => {
-                            if (hasUnsavedChanges && file !== activeOmlFile) {
-                              Modal.confirm({
-                                title: t('ruleManage.leaveConfirm'),
-                                content: t('ruleManage.leaveConfirmMessage'),
-                                okText: t('common.confirm'),
-                                cancelText: t('common.cancel'),
-                                onOk: () => {
-                                  setActiveOmlFile(file);
-                                },
-                              });
-                            } else {
-                              setActiveOmlFile(file);
-                            }
-                          }}
-                          style={{
-                            flex: 1,
-                            textAlign: 'left',
-                            paddingRight: hoveredRepoFile === file ? '28px' : '8px',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
+                  : omlTree.map((node) => {
+                      const expanded = omlExpandedGroups.includes(node.group);
+                      return (
+                        <div
+                          key={node.group}
+                          className="repo-file-group"
+                          onMouseEnter={() => setHoveredRepoFile(node.group)}
+                          onMouseLeave={() => setHoveredRepoFile('')}
                         >
-                          {file}
-                        </button>
-                        <button
-                          type="button"
-                          className="repo-file-delete"
-                          style={{
-                            position: 'absolute',
-                            right: '4px',
-                            minWidth: 20,
-                            width: 20,
-                            height: 20,
-                            borderRadius: '50%',
-                            border: 'none',
-                            backgroundColor: '#ff4d4f',
-                            color: '#fff',
-                            fontSize: 16,
-                            padding: 0,
-                            cursor: 'pointer',
-                            display: hoveredRepoFile === file ? 'inline-flex' : 'none',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            Modal.confirm({
-                              title: t('ruleManage.deleteConfirm'),
-                              content: t('ruleManage.deleteConfirmMessage', { filename: file }),
-                              okText: t('common.delete'),
-                              okButtonProps: { danger: true },
-                              cancelText: t('common.cancel'),
-                              onOk: async () => {
-                                try {
-                                  await deleteRuleFile({ type: RuleType.OML, file });
-                                  const updated = omlFiles.filter((name) => name !== file);
-                                  setOmlFiles(updated);
-                                  if (activeOmlFile === file) {
-                                    const next = updated[0] || '';
-                                    setActiveOmlFile(next);
-                                    if (!next) {
-                                      setContent('');
-                                    }
-                                  }
-                                } catch (error) {
-                                  message.error(t('ruleManage.deleteFailed', { message: error.message }));
-                                  throw error;
-                                }
-                              },
-                            });
-                          }}
-                        >
-                          -
-                        </button>
-                      </div>
-                    ))}
+                          <button
+                            type="button"
+                            className="repo-file repo-file--folder"
+                            onClick={() => toggleOmlGroup(node.group)}
+                            style={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span aria-hidden="true">{expanded ? '📂' : '📁'}</span>
+                              {node.group}
+                            </span>
+                            <span style={{ fontSize: 12, color: '#999' }}>{node.files.length}</span>
+                          </button>
+                          {expanded ? (
+                            <div style={{ marginLeft: 24, marginTop: 4 }}>
+                              {node.files.map((file) => (
+                                <div
+                                  key={file.value}
+                                  style={{ position: 'relative' }}
+                                  onMouseEnter={() => setHoveredRepoFile(file.value)}
+                                  onMouseLeave={() => setHoveredRepoFile('')}
+                                >
+                                  <button
+                                    type="button"
+                                    className={`repo-file ${
+                                      activeOmlFile === file.value ? 'is-active' : ''
+                                    }`}
+                                    onClick={() => {
+                                      if (hasUnsavedChanges && file.value !== activeOmlFile) {
+                                        Modal.confirm({
+                                          title: t('ruleManage.leaveConfirm'),
+                                          content: t('ruleManage.leaveConfirmMessage'),
+                                          okText: t('common.confirm'),
+                                          cancelText: t('common.cancel'),
+                                          onOk: () => {
+                                            setActiveOmlFile(file.value);
+                                          },
+                                        });
+                                      } else {
+                                        setActiveOmlFile(file.value);
+                                      }
+                                    }}
+                                    style={{
+                                      textAlign: 'left',
+                                      paddingLeft: 32,
+                                      paddingRight: hoveredRepoFile === file.value ? '28px' : '12px',
+                                      position: 'relative',
+                                    }}
+                                  >
+                                    {file.label}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="repo-file-delete"
+                                    style={{
+                                      position: 'absolute',
+                                      right: '4px',
+                                      minWidth: 20,
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: '50%',
+                                      border: 'none',
+                                      backgroundColor: '#ff4d4f',
+                                      color: '#fff',
+                                      fontSize: 16,
+                                      padding: 0,
+                                      cursor: 'pointer',
+                                      display: hoveredRepoFile === file.value ? 'inline-flex' : 'none',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      Modal.confirm({
+                                        title: t('ruleManage.deleteConfirm'),
+                                        content: t('ruleManage.deleteConfirmMessage', {
+                                          filename: file.value,
+                                        }),
+                                        okText: t('common.delete'),
+                                        okButtonProps: { danger: true },
+                                        cancelText: t('common.cancel'),
+                                        onOk: async () => {
+                                          try {
+                                            await deleteRuleFile({ type: RuleType.OML, file: file.value });
+                                            const updated = omlFiles.filter(
+                                              (name) => name !== file.value,
+                                            );
+                                            applyOmlListState(updated, {
+                                              page: omlPage,
+                                              preserveActive: false,
+                                            });
+                                          } catch (error) {
+                                            message.error(
+                                              t('ruleManage.deleteFailed', { message: error.message }),
+                                            );
+                                            throw error;
+                                          }
+                                        },
+                                      });
+                                    }}
+                                  >
+                                    -
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
               </div>
-              {(activeKey === 'wpl' ? wplTotal : omlTotal) > REPO_PAGE_SIZE ? (
+              {(activeKey === 'wpl'
+                ? wplTotal > WPL_PAGE_SIZE
+                : omlTotal > omlPageSize) ? (
                 <div className="repo-pagination">
                   <Pagination
                     size="small"
                     simple
                     current={activeKey === 'wpl' ? wplPage : omlPage}
-                    pageSize={REPO_PAGE_SIZE}
+                    pageSize={activeKey === 'wpl' ? WPL_PAGE_SIZE : omlPageSize}
                     total={activeKey === 'wpl' ? wplTotal : omlTotal}
+                    showSizeChanger={false}
                     onChange={(page) => {
                       if (activeKey === 'wpl') {
                         setWplPage(page);
                         fetchRuleFiles({
                           type: 'wpl',
                           page,
-                          pageSize: REPO_PAGE_SIZE,
+                          pageSize: WPL_PAGE_SIZE,
                           keyword: wplSearch || undefined,
                         })
                           .then((result) => {
                             applyWplListState(result?.items || [], { preserveActive: true });
                             setWplTotal(
-                              result?.total || (Array.isArray(result?.items) ? result.items.length : 0),
+                              result?.total ||
+                                (Array.isArray(result?.items) ? result.items.length : 0),
                             );
                           })
                           .catch((error) => {
                             message.error(t('ruleManage.loadWplFailed', { message: error.message }));
                           });
-                      } else {
-                        setOmlPage(page);
-                        fetchRuleFiles({
-                          type: 'oml',
-                          page,
-                          pageSize: REPO_PAGE_SIZE,
-                          keyword: omlSearch || undefined,
-                        })
-                          .then((result) => {
-                            const files = Array.isArray(result?.items) ? result.items : [];
-                            setOmlFiles(files);
-                            setOmlTotal(result?.total || files.length);
-                            if (!files.includes(activeOmlFile)) {
-                              setActiveOmlFile(files[0] || '');
-                              if (!files[0]) {
-                                setContent('');
-                              }
-                            }
-                          })
-                          .catch((error) => {
-                            message.error(t('ruleManage.loadOmlFailed', { message: error.message }));
-                          });
+                        return;
                       }
+
+                      refreshOmlFiles({
+                        page,
+                        preserveActive: true,
+                      })
+                        .catch((error) => {
+                          message.error(t('ruleManage.loadOmlFailed', { message: error.message }));
+                        });
                     }}
                   />
                 </div>
@@ -1694,29 +2012,29 @@ function RuleManagePage() {
             <aside className="repo-tree" aria-label="sink 源配置文件列表">
               <h3>{t('ruleManage.configFiles')}</h3>
               <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
-                {displayedSinkFiles.map((file) => (
+                {displayedSinkFiles.map((item) => (
                   <button
-                    key={file}
+                    key={item.file}
                     type="button"
-                    className={`repo-file ${activeSinkFile === file ? 'is-active' : ''}`}
+                    className={`repo-file ${activeSinkFile === item.file ? 'is-active' : ''}`}
                     onClick={() => {
-                      if (hasUnsavedChanges && file !== activeSinkFile) {
+                      if (hasUnsavedChanges && item.file !== activeSinkFile) {
                         Modal.confirm({
                           title: t('ruleManage.leaveConfirm'),
                           content: t('ruleManage.leaveConfirmMessage'),
                           okText: t('common.confirm'),
                           cancelText: t('common.cancel'),
                           onOk: () => {
-                            setActiveSinkFile(file);
+                            setActiveSinkFile(item.file);
                           },
                         });
                       } else {
-                        setActiveSinkFile(file);
+                        setActiveSinkFile(item.file);
                       }
                     }}
                     style={{ textAlign: 'left' }}
                   >
-                    {getSinkFileLabel(file)}
+                    {item.displayName}
                   </button>
                 ))}
               </div>

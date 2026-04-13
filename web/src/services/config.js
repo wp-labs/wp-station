@@ -835,13 +835,25 @@ export async function fetchRuleFiles(options) {
     });
 
     const items = Array.isArray(response?.items) ? response.items : [];
-    const files = uniqueNames(items.map((item) => item.file));
+    const seen = new Map();
+    items.forEach((item) => {
+      const file = typeof item?.file === 'string' ? item.file : '';
+      if (!file || seen.has(file)) {
+        return;
+      }
+      const displayName =
+        typeof item?.display_name === 'string' && item.display_name.trim()
+          ? item.display_name.trim()
+          : undefined;
+      seen.set(file, { file, displayName });
+    });
+    const normalizedItems = Array.from(seen.values());
 
     return {
-      items: files,
-      total: files.length,
+      items: normalizedItems,
+      total: normalizedItems.length,
       page: 1,
-      pageSize: files.length || 1,
+      pageSize: normalizedItems.length || 1,
     };
   }
 
@@ -1173,6 +1185,25 @@ export async function saveKnowledgeRule(options) {
   return {
     success: true,
     fileSize,
+    message: '保存成功',
+  };
+}
+
+export async function fetchKnowdbConfig() {
+  const response = await httpRequest.get('/config/knowledge/knowdb');
+  return {
+    file: response?.file || 'knowdb.toml',
+    content: response?.content || '',
+    lastModified: response?.last_modified || null,
+  };
+}
+
+export async function saveKnowdbConfig(content) {
+  await httpRequest.post('/config/knowledge/knowdb', {
+    content: content ?? '',
+  });
+  return {
+    success: true,
     message: '保存成功',
   };
 }

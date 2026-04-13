@@ -5,7 +5,7 @@ connect = "syslog_udp_src"
 
 [sources.params]
 addr = "0.0.0.0"
-port = 31600
+port = 31601
 protocol = "udp"
 header_mode = "strip"
 

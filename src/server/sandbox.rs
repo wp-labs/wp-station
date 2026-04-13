@@ -389,6 +389,8 @@ pub struct Conclusion {
     pub input_count: usize,
     pub runtime_miss_count: usize,
     pub runtime_error_count: usize,
+    #[serde(default)]
+    pub runtime_output_count: usize,
     pub suspected_files: Vec<String>,
     pub top_suggestions: Vec<String>,
     pub daemon_ready: Option<bool>,
@@ -406,6 +408,7 @@ impl Conclusion {
             input_count: 0,
             runtime_miss_count: 0,
             runtime_error_count: 0,
+            runtime_output_count: 0,
             suspected_files: Vec::new(),
             top_suggestions: Vec::new(),
             daemon_ready: Some(true),
@@ -1012,6 +1015,10 @@ async fn log_sandbox_execution_result(run: &SandboxRun) {
             .with_field(
                 "runtime_error_count",
                 conclusion.runtime_error_count.to_string(),
+            )
+            .with_field(
+                "runtime_output_count",
+                conclusion.runtime_output_count.to_string(),
             )
             .with_field(
                 "runtime_miss_count",

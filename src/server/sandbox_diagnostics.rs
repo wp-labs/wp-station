@@ -83,6 +83,20 @@ impl StageMatcher {
 
 const DIAGNOSTIC_RULES: &[DiagnosticRule] = &[
     DiagnosticRule {
+        stage: StageMatcher::Exact(SandboxStage::PreflightCheck),
+        keyword: "UDP 端口 31601 不可用",
+        suggestion: "UDP 端口 31601 被占用，先释放监听该端口的进程，再重新执行沙盒预发布。",
+        log: LogSource::StageLog,
+        priority: 5,
+    },
+    DiagnosticRule {
+        stage: StageMatcher::Exact(SandboxStage::StartDaemon),
+        keyword: "UDP 端口 31601 不可用",
+        suggestion: "UDP 端口 31601 被占用，先释放监听该端口的进程，再重新启动 wparse。",
+        log: LogSource::StageLog,
+        priority: 5,
+    },
+    DiagnosticRule {
         stage: StageMatcher::Exact(SandboxStage::StartDaemon),
         keyword: "configuration error",
         suggestion: "检查 conf/wparse.toml 的配置格式，exit code 300 表示配置解析失败",

@@ -462,10 +462,10 @@ function SystemReleasePage() {
               pageSize: pageSize,
               total: total,
               onChange: handlePageChange,
-              showSizeChanger: true,
+              showSizeChanger: false,
               showQuickJumper: true,
               showTotal: (total) => t('systemRelease.total', { count: total }),
-              position: ['bottomRight'],
+              position: ['bottomCenter'],
             }}
             size="small"
             className="data-table release-table"

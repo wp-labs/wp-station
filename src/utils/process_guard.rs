@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -184,6 +185,14 @@ pub async fn command_version_output(cmd: &str) -> Result<String, AppError> {
             }
         )))
     }
+}
+
+/// 检查指定 UDP 端口当前是否可绑定，用于预先识别残留进程占用。
+pub fn ensure_udp_port_available(port: u16) -> Result<(), AppError> {
+    let bind_addr = format!("0.0.0.0:{port}");
+    UdpSocket::bind(&bind_addr)
+        .map_err(|err| AppError::validation(format!("UDP 端口 {} 不可用: {}", port, err)))?;
+    Ok(())
 }
 
 /// 在指定目录执行 `wproj check` 并返回输出。

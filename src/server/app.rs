@@ -21,6 +21,28 @@ pub type SharedRecord = Arc<Mutex<Option<DataRecord>>>;
 #[folder = "web/dist"]
 struct WebAssets;
 
+/// 为高噪音依赖追加模块级日志过滤，避免校验接口刷出大量中间过程日志。
+fn build_runtime_log_level(level: &str) -> String {
+    let base_level = if level.trim().is_empty() {
+        "debug"
+    } else {
+        level.trim()
+    };
+
+    let noisy_targets = ["orion_error", "wp_config", "wp_engine"];
+
+    let mut runtime_level = base_level.to_string();
+    for target in noisy_targets {
+        if !base_level.contains(&format!("{target}=")) {
+            runtime_level.push(',');
+            runtime_level.push_str(target);
+            runtime_level.push_str("=warn");
+        }
+    }
+
+    runtime_level
+}
+
 // 处理静态资源
 async fn static_files(req: HttpRequest) -> Result<HttpResponse> {
     let mut path = req.path().trim_start_matches('/');
@@ -94,7 +116,8 @@ fn spawn_health_check_task() {
 
 pub async fn start() -> std::io::Result<()> {
     let setting = Setting::load();
-    simple_log::quick!(&setting.log.level);
+    let runtime_log_level = build_runtime_log_level(&setting.log.level);
+    simple_log::quick!(&runtime_log_level);
 
     info!("启动 WarpStation 服务器");
     info!("Web 地址: {}:{}", setting.web.host, setting.web.port);
@@ -222,6 +245,8 @@ pub async fn start() -> std::io::Result<()> {
             // 系统 API
             .service(api::hello)
             .service(api::get_version)
+            .service(api::get_features_config)
+            .service(api::import_project_from_files)
             // 设备管理 API
             .service(api::list_online_devices)
             .service(api::list_devices)
@@ -236,6 +261,8 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::delete_rule_file)
             .service(api::save_rule)
             .service(api::save_knowledge_rule)
+            .service(api::get_knowdb_config)
+            .service(api::save_knowdb_config)
             .service(api::validate_rule)
             // 配置管理 API（解析配置也复用配置接口）
             .service(api::get_config_files)

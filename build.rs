@@ -76,7 +76,7 @@ fn main() {
 
     // 补充版本号
     let app_name = env!("CARGO_PKG_NAME");
-    let wp_parse_pkg_name = "wp-parser";
+    let wp_parse_pkg_name = "wp-engine";
 
     let packages = metadata
         .get("packages")

@@ -1,7 +1,9 @@
 /**
  * AI 辅助规则编写服务模块
  * AI 分析和人工提单共用同一套接口，Station 统一存储任务状态
- * 结果均通过 reply 接口写回，前端轮询 getAssistTask 获取最新状态
+ * 结果支持两条链路：
+ * 1. 远端服务主动回调 /assist/reply 写回
+ * 2. 前端轮询 /assist/{taskId} 时，后端按 task_id 主动补查远端 /result/{task_id}
  */
 
 import httpRequest from './request';

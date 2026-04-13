@@ -2,7 +2,7 @@ version = "1.0"
 
 [generator]
 mode = "rule"
-count = 1
+count = 10
 speed = 1000
 parallel = 1
 
@@ -11,12 +11,8 @@ connect = "syslog_udp_sink"
 
 [output.params]
 addr = "0.0.0.0"
-port = 31600
+port = 31601
 protocol = "udp"
-
-# [output.params]
-# base = "data/in_dat"
-# file = "gen.dat"
 
 [logging]
 level = ""

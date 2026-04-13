@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Table, Modal, Form, Input, Select, message } from 'antd';
 import { fetchUsers, createUser, updateUser, updateUserStatus, resetUserPassword, changeUserPassword, deleteUser } from '@/services/user';
 import { fetchOperationLogs } from '@/services/operation_log';
+import { importProjectFromFiles } from '@/services/project';
 import ConnectionManage from './ConnectionManage';
 
 /**
@@ -39,6 +41,12 @@ function SystemManagePage() {
     startDate: '',
     endDate: '',
   });
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
 
   /**
    * 加载用户列表数据
@@ -89,6 +97,51 @@ function SystemManagePage() {
     }
     // connections 由 ConnectionManage 组件自行管理数据加载
   }, [activeKey]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('initImport') === '1') {
+      setImportModalVisible(true);
+      setImportResult(null);
+      setImportError('');
+      params.delete('initImport');
+      const nextSearch = params.toString();
+      navigate(
+        { pathname: location.pathname, search: nextSearch ? `?${nextSearch}` : '' },
+        { replace: true }
+      );
+    }
+  }, [location.pathname, location.search, navigate]);
+
+  const openImportModal = () => {
+    setImportModalVisible(true);
+    setImportResult(null);
+    setImportError('');
+  };
+
+  const closeImportModal = () => {
+    if (importLoading) return;
+    setImportModalVisible(false);
+    setImportResult(null);
+    setImportError('');
+  };
+
+  const handleStartImport = async () => {
+    setImportLoading(true);
+    setImportResult(null);
+    setImportError('');
+    try {
+      const response = await importProjectFromFiles();
+      setImportResult(response);
+      message.success(t('systemManage.initImportSuccess'));
+    } catch (error) {
+      const errMsg = error?.message || t('systemManage.initImportFailure');
+      setImportError(errMsg);
+      message.error(errMsg);
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   /**
    * 处理搜索按钮点击
@@ -361,6 +414,20 @@ function SystemManagePage() {
       ),
     },
   ];
+  const warningItems = t('systemManage.initImportWarningList', { returnObjects: true });
+  const importSummary = importResult?.summary;
+  const importValidation = importResult?.validation;
+  const importStatCards = [
+    { key: 'rules', label: t('systemManage.initImportRulesLabel'), value: importSummary?.rules_imported || 0 },
+    { key: 'knowledge', label: t('systemManage.initImportKnowledgeLabel'), value: importSummary?.knowledge_imported || 0 },
+    { key: 'rulesDeleted', label: t('systemManage.initImportRulesDeletedLabel'), value: importSummary?.rules_deleted || 0 },
+    { key: 'knowledgeDeleted', label: t('systemManage.initImportKnowledgeDeletedLabel'), value: importSummary?.knowledge_deleted || 0 },
+  ];
+  const importSuccessCount =
+    (importSummary?.rules_imported || 0) + (importSummary?.knowledge_imported || 0);
+  const importFailureCount = importSummary?.failed_files || 0;
+  const breakdownItems = importSummary?.rule_breakdown || [];
+  const summaryWarnings = importSummary?.warnings || [];
 
   const menuItems = [
     { key: 'connections', label: t('connectionManage.title') },
@@ -420,9 +487,27 @@ function SystemManagePage() {
             <header className="panel-header">
               <h2>{getPageTitle()}</h2>
               {activeKey === 'users' && (
-                <button type="button" className="btn primary" onClick={handleAddUser}>
-                  新增用户
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="btn primary" onClick={handleAddUser}>
+                    新增用户
+                  </button>
+                </div>
+              )}
+              {activeKey === 'connections' && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={openImportModal}
+                    style={{
+                      background: '#fee2e2',
+                      borderColor: '#fecaca',
+                      color: '#b91c1c',
+                    }}
+                  >
+                    {t('systemManage.initImport')}
+                  </button>
+                </div>
               )}
             </header>
           )}
@@ -666,6 +751,236 @@ function SystemManagePage() {
           </section>
         </article>
       </section>
+
+      <Modal
+        title={t('systemManage.initImport')}
+        open={importModalVisible}
+        onCancel={closeImportModal}
+        footer={null}
+        maskClosable={!importLoading}
+        closable={!importLoading}
+      >
+        {!importResult && !importError && (
+          <>
+            <p style={{ color: '#f97316', marginBottom: 12 }}>{t('systemManage.initImportWarningTitle')}</p>
+            <ol style={{ paddingLeft: 20, color: '#4b5563', lineHeight: 1.6 }}>
+              {Array.isArray(warningItems) &&
+                warningItems.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+            </ol>
+          </>
+        )}
+
+        {importResult && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  background: '#ecfdf5',
+                  border: '1px solid #a7f3d0',
+                  borderRadius: 10,
+                  padding: '10px 16px',
+                  minWidth: 180,
+                }}
+              >
+                <p style={{ margin: 0, color: '#047857', fontSize: 13 }}>
+                  {t('systemManage.initImportResultSuccess', { count: importSuccessCount })}
+                </p>
+                <p style={{ margin: 0, fontWeight: 600, color: '#065f46', fontSize: 18 }}>
+                  {importSuccessCount}
+                </p>
+              </div>
+              <div
+                style={{
+                  background: '#fff7ed',
+                  border: '1px solid #fed7aa',
+                  borderRadius: 10,
+                  padding: '10px 16px',
+                  minWidth: 180,
+                }}
+              >
+                <p style={{ margin: 0, color: '#c2410c', fontSize: 13 }}>
+                  {t('systemManage.initImportResultFailure', { count: importFailureCount })}
+                </p>
+                <p style={{ margin: 0, fontWeight: 600, color: '#b45309', fontSize: 18 }}>
+                  {importFailureCount}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: '#f8fafc',
+                borderRadius: 12,
+                padding: 16,
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <p style={{ marginBottom: 12, fontWeight: 600 }}>
+                {t('systemManage.initImportSummaryTitle')}
+              </p>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {importStatCards.map((card) => (
+                  <div
+                    key={card.key}
+                    style={{
+                      background: '#fff',
+                      borderRadius: 10,
+                      border: '1px solid #e5e7eb',
+                      padding: '10px 12px',
+                      boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+                    }}
+                  >
+                    <p style={{ margin: 0, color: '#64748b', fontSize: 12 }}>{card.label}</p>
+                    <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+                      {card.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {breakdownItems.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ marginBottom: 8, fontWeight: 500 }}>
+                    {t('systemManage.initImportRuleBreakdownTitle')}
+                  </p>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                      gap: 8,
+                    }}
+                  >
+                    {breakdownItems.map((item) => (
+                      <div
+                        key={item.rule_type}
+                        style={{
+                          border: '1px dashed #cbd5f5',
+                          borderRadius: 8,
+                          padding: '8px 10px',
+                          background: '#fff',
+                          fontSize: 13,
+                          color: '#1e293b',
+                        }}
+                      >
+                        <div style={{ fontWeight: 500 }}>{item.rule_type}</div>
+                        <div style={{ fontSize: 16, fontWeight: 600 }}>{item.count}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 16 }}>
+                <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>
+                  {t('systemManage.initImportProjectRoot')}
+                </p>
+                <code
+                  style={{
+                    display: 'block',
+                    marginTop: 6,
+                    padding: '8px 10px',
+                    background: '#fff',
+                    borderRadius: 8,
+                    border: '1px solid #e2e8f0',
+                    fontFamily: 'monospace',
+                    color: '#0f172a',
+                  }}
+                >
+                  {importSummary?.project_root || '-'}
+                </code>
+              </div>
+            </div>
+
+            {summaryWarnings.length > 0 && (
+              <div style={{ background: '#fff7ed', borderRadius: 8, padding: 12 }}>
+                <p style={{ marginBottom: 6, color: '#c2410c', fontWeight: 500 }}>
+                  {t('systemManage.initImportWarnings')}
+                </p>
+                <ul style={{ paddingLeft: 16, margin: 0, color: '#9a3412', lineHeight: 1.6 }}>
+                  {summaryWarnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {importValidation && (
+              <div
+                style={{
+                  background: importValidation.passed ? '#ecfdf5' : '#fef2f2',
+                  color: importValidation.passed ? '#047857' : '#b91c1c',
+                  borderRadius: 8,
+                  padding: 12,
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  {importValidation.passed
+                    ? t('systemManage.initImportValidationPassed')
+                    : t('systemManage.initImportValidationFailed')}
+                </p>
+                <p style={{ margin: '4px 0 0', fontSize: 13 }}>
+                  {importValidation.message}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {importError && (
+          <div
+            style={{
+              background: '#fef2f2',
+              color: '#b91c1c',
+              borderRadius: 8,
+              padding: 12,
+            }}
+          >
+            {importError}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+          {importResult || importError ? (
+            <>
+              <button type="button" className="btn ghost" onClick={closeImportModal} disabled={importLoading}>
+                {t('systemManage.initImportClose')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={handleStartImport}
+                disabled={importLoading}
+              >
+                {t('systemManage.initImportRetry')}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn ghost" onClick={closeImportModal} disabled={importLoading}>
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={handleStartImport}
+                disabled={importLoading}
+              >
+                {importLoading
+                  ? t('systemManage.initImportProcessing')
+                  : t('systemManage.initImportConfirm')}
+              </button>
+            </>
+          )}
+        </div>
+      </Modal>
 
       {/* 新增/编辑用户弹窗 */}
       <Modal

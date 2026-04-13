@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Modal } from 'antd';
+import { Modal, Pagination, Select } from 'antd';
 import { fetchReleaseDetail, fetchReleaseDiff, rollbackRelease } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
 import { parseDiffText } from '@/components/diff/diffUtils';
+
+const DEFAULT_DIFF_PAGE_SIZE = 10;
+const DIFF_PAGE_SIZE_OPTIONS = [5, 10, 20];
 
 /**
  * Adapt old diff data format to new DiffViewer format
@@ -168,6 +171,8 @@ function ReleaseDetailPage() {
   const [detail, setDetail] = useState(null);
   const [diffData, setDiffData] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [diffPage, setDiffPage] = useState(1);
+  const [diffPageSize, setDiffPageSize] = useState(DEFAULT_DIFF_PAGE_SIZE);
   const [error, setError] = useState(null);
 
   /**
@@ -215,6 +220,7 @@ function ReleaseDetailPage() {
     try {
       const response = await fetchReleaseDiff(releaseId);
       setDiffData(response?.files || []);
+      setDiffPage(1);
     } catch (err) {
       console.error('Failed to load release diff:', err);
       setDiffData([]);
@@ -257,16 +263,36 @@ function ReleaseDetailPage() {
     loadDetail();
   }, [releaseId]);
 
+  const adaptedDiffFiles = useMemo(
+    () => (Array.isArray(diffData) ? adaptDiffData(diffData) : []),
+    [diffData],
+  );
+  const totalDiffItems = adaptedDiffFiles.length;
+  const pagedDiffFiles = useMemo(() => {
+    if (!totalDiffItems) {
+      return [];
+    }
+    const start = (diffPage - 1) * diffPageSize;
+    return adaptedDiffFiles.slice(start, start + diffPageSize);
+  }, [adaptedDiffFiles, diffPage, diffPageSize, totalDiffItems]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(Math.max(totalDiffItems, 0) / diffPageSize));
+    if (diffPage > totalPages) {
+      setDiffPage(totalPages);
+    }
+  }, [totalDiffItems, diffPageSize, diffPage]);
+
   // 调试：打印 diffData 数据
   useEffect(() => {
     if (diffData) {
       console.log('Release diff data:', {
         diffCount: diffData.length,
         diff: diffData,
-        adaptedDiff: adaptDiffData(diffData)
+        adaptedDiff: adaptedDiffFiles,
       });
     }
-  }, [diffData]);
+  }, [diffData, adaptedDiffFiles]);
 
   // 加载中状态
   if (loading) {
@@ -545,13 +571,59 @@ function ReleaseDetailPage() {
 
         {/* 版本差异 */}
         <div className="release-diff">
-          <header className="release-diff-header">
-            <h4>{t('systemRelease.versionDiff')}</h4>
-            <span className="release-diff-hint">{t('systemRelease.currentVersion')} vs {t('systemRelease.previousVersion')}</span>
+          <header
+            className="release-diff-header"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div>
+              <h4 style={{ marginBottom: 4 }}>{t('systemRelease.versionDiff')}</h4>
+              <span className="release-diff-hint">
+                {t('systemRelease.currentVersion')} vs {t('systemRelease.previousVersion')}
+              </span>
+            </div>
+            {totalDiffItems > 0 ? (
+              <div
+                className="release-diff-controls"
+                style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
+              >
+                <span style={{ fontSize: 12, color: '#666' }}>
+                  {t('systemRelease.diffPageSizeLabel')}
+                </span>
+                <Select
+                  size="small"
+                  value={diffPageSize}
+                  style={{ width: 140 }}
+                  options={DIFF_PAGE_SIZE_OPTIONS.map((size) => ({
+                    value: size,
+                    label: `${size} ${t('systemRelease.diffPageSizeUnit')}`,
+                  }))}
+                  onChange={(value) => {
+                    setDiffPageSize(value);
+                    setDiffPage(1);
+                  }}
+                />
+                {totalDiffItems > diffPageSize ? (
+                  <Pagination
+                    size="small"
+                    simple
+                    pageSize={diffPageSize}
+                    current={diffPage}
+                    total={totalDiffItems}
+                    onChange={(page) => setDiffPage(page)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </header>
           <div className="release-diff-grid" id="release-diff">
             <DiffViewer
-              files={diffData ? adaptDiffData(diffData) : []}
+              files={pagedDiffFiles}
               viewType="split"
               loading={diffLoading}
             />

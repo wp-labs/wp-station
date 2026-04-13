@@ -3,9 +3,9 @@
 use crate::db::{
     NewKnowledgeConfig, NewRuleConfig, RuleType, create_knowledge_config, create_rule_config,
     delete_rule_config, find_knowledge_config_by_file_name, find_rule_by_type_and_name,
-    find_rules_by_type, get_knowledge_config_status_list, get_pool, get_rule_file_names,
-    update_knowledge_config, update_knowledge_config_active, update_rule_content,
-    update_rule_sample_content,
+    find_rules_by_type, get_knowdb_config_entry, get_knowledge_config_status_list, get_pool,
+    get_rule_file_names, update_knowdb_config, update_knowledge_config,
+    update_knowledge_config_active, update_rule_content, update_rule_sample_content,
 };
 use crate::error::AppError;
 use crate::server::sync::{handle_draft_release, sync_delete_to_gitea, sync_to_gitea};
@@ -14,7 +14,7 @@ use crate::server::{
     write_operation_log_for_result,
 };
 use crate::utils::check::check_component;
-use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
+use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
 use crate::utils::knowledge::load_knowledge;
 use crate::utils::pagination::{MemoryPaginate, PageQuery, PageResponse};
 use serde::{Deserialize, Serialize};
@@ -70,6 +70,11 @@ pub struct SaveKnowledgeRuleRequest {
 }
 
 #[derive(Deserialize)]
+pub struct SaveKnowdbConfigRequest {
+    pub content: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct ValidateRuleRequest {
     pub rule_type: RuleType,
     pub file: String,
@@ -89,6 +94,7 @@ pub struct RuleContentResponse {
 #[derive(Serialize)]
 pub struct RuleFileItem {
     pub file: String,
+    pub display_name: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -99,6 +105,13 @@ pub struct KnowledgeRuleContentResponse {
     pub create_sql: Option<String>,
     pub insert_sql: Option<String>,
     pub data: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct KnowdbConfigResponse {
+    pub file: String,
+    pub content: Option<String>,
+    pub last_modified: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -175,7 +188,14 @@ pub async fn get_rule_files_logic(query: RuleFilesQuery) -> Result<RuleFilesResp
 
     let items: Vec<RuleFileItem> = files
         .into_iter()
-        .map(|file| RuleFileItem { file })
+        .map(|file| {
+            let display_name = if matches!(rule_type, RuleType::Sink) {
+                fallback_sink_display(&file).map(|label| label.to_string())
+            } else {
+                None
+            };
+            RuleFileItem { file, display_name }
+        })
         .collect();
 
     Ok(items.paginate(page, page_size))
@@ -627,6 +647,59 @@ pub async fn save_knowledge_rule_logic(
                 },
             )
             .with_field("data", if data_clone.is_some() { "yes" } else { "no" })
+            .with_field("sync", "project+gitea")
+            .with_field("knowledge_reload", "yes"),
+        &result,
+    )
+    .await;
+
+    result
+}
+
+/// 获取 knowdb.toml 内容
+pub async fn get_knowdb_config_logic() -> Result<KnowdbConfigResponse, AppError> {
+    let entry = get_knowdb_config_entry().await?;
+    let response = KnowdbConfigResponse {
+        file: "knowdb.toml".to_string(),
+        content: entry.as_ref().and_then(|cfg| cfg.config_content.clone()),
+        last_modified: entry.as_ref().map(|cfg| cfg.updated_at.to_rfc3339()),
+    };
+    Ok(response)
+}
+
+/// 保存 knowdb.toml（全局知识库配置）
+pub async fn save_knowdb_config_logic(
+    content: Option<String>,
+    operator: Option<String>,
+) -> Result<(), AppError> {
+    info!("保存 knowdb 配置");
+    let operator_cloned = operator.clone();
+
+    let result = async move {
+        update_knowdb_config(content).await?;
+
+        let setting = Setting::load();
+        let exported_path =
+            crate::utils::export_project_from_db(get_pool().inner(), &setting.project_root).await?;
+        info!("所有配置导出成功: path={}", exported_path);
+
+        load_knowledge(&setting.project_root).map_err(AppError::internal)?;
+
+        let commit_message = "知识库改动: knowdb.toml".to_string();
+        sync_to_gitea(&commit_message).await;
+
+        handle_draft_release(operator_cloned.as_deref()).await?;
+
+        Ok::<_, AppError>(())
+    }
+    .await;
+
+    write_operation_log_for_result(
+        OperationLogBiz::KnowledgeConfig,
+        OperationLogAction::Update,
+        OperationLogParams::new()
+            .with_target_name("knowdb.toml")
+            .with_field("config_only", "yes")
             .with_field("sync", "project+gitea")
             .with_field("knowledge_reload", "yes"),
         &result,

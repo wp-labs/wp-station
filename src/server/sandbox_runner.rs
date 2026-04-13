@@ -11,6 +11,7 @@ use crate::error::AppError;
 use crate::server::sandbox_analyzer::{self, RuntimeMetrics, StageError};
 use crate::server::sandbox_diagnostics;
 use crate::utils::{
+    constants::SANDBOX_RUNTIME_UDP_PORT,
     process_guard::{self, DaemonProcess},
     sandbox_workspace::SandboxWorkspace,
 };
@@ -154,6 +155,25 @@ async fn stage_prepare_workspace(
         Ok(tree) => log_lines.push(tree),
         Err(err) => log_lines.push(format!("生成目录树失败: {}", err)),
     }
+    log_lines.push("\n沙盒运行时 UDP 配置:".to_string());
+    log_lines.push(format!(
+        "{} -> connect=syslog_udp_src, port={}",
+        workspace.display_relative(&workspace.project_dir.join("topology/sources/wpsrc.toml")),
+        SANDBOX_RUNTIME_UDP_PORT
+    ));
+    log_lines.push(format!(
+        "{} -> connect=syslog_udp_sink, port={}",
+        workspace.display_relative(&workspace.project_dir.join("conf/wpgen.toml")),
+        SANDBOX_RUNTIME_UDP_PORT
+    ));
+    log_lines.push(format!(
+        "{} -> 已固定复写为沙盒输出 sink",
+        workspace.display_relative(
+            &workspace
+                .project_dir
+                .join("topology/sinks/business.d/sink.toml"),
+        )
+    ));
     let log_path = workspace
         .write_text_log("prepare.log", &log_lines.join("\n"))
         .map_err(to_stage_error)?;
@@ -219,6 +239,31 @@ async fn stage_preflight_check(
                 &log_lines,
                 "命令检查失败，请点击查看详情",
                 "PREFLIGHT_CHECK_FAILED",
+            )
+            .await;
+        }
+    }
+
+    log_lines.push(format!("\n检查 UDP 端口 {}", SANDBOX_RUNTIME_UDP_PORT));
+    match process_guard::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+        Ok(_) => {
+            log_lines.push(format!("UDP 端口 {} 可用", SANDBOX_RUNTIME_UDP_PORT));
+        }
+        Err(err) => {
+            log_lines.push(format!(
+                "UDP 端口 {} 不可用: {}",
+                SANDBOX_RUNTIME_UDP_PORT, err
+            ));
+            let summary = format!(
+                "UDP 端口 {} 已被占用，请点击查看详情",
+                SANDBOX_RUNTIME_UDP_PORT
+            );
+            return fail_preflight_check(
+                task,
+                &workspace,
+                &log_lines,
+                &summary,
+                "SANDBOX_UDP_PORT_UNAVAILABLE",
             )
             .await;
         }
@@ -327,6 +372,30 @@ async fn stage_start_daemon(
 ) -> Result<String, StageError> {
     let workspace = resources.workspace()?.clone();
     let log_path = workspace.log_path("wparse.log");
+    if let Err(err) = process_guard::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+        let log_text = format!(
+            "启动 wparse 前检查 UDP 端口失败\nUDP 端口 {} 不可用: {}\n",
+            SANDBOX_RUNTIME_UDP_PORT, err
+        );
+        let written_log = workspace
+            .write_text_log("wparse.log", &log_text)
+            .map_err(to_stage_error)?;
+        set_stage_log_path(
+            task,
+            SandboxStage::StartDaemon,
+            &written_log,
+            Some(&workspace),
+        )
+        .await;
+        return Err(StageError::with_code(
+            format!(
+                "UDP 端口 {} 已被占用，请点击查看详情",
+                SANDBOX_RUNTIME_UDP_PORT
+            ),
+            "SANDBOX_UDP_PORT_UNAVAILABLE",
+        ));
+    }
+
     let mut daemon = process_guard::spawn_daemon(&workspace.project_dir, &log_path)
         .await
         .map_err(to_stage_error)?;
@@ -418,7 +487,7 @@ async fn stage_analyse_runtime_output(
     let metrics_mut = resources.metrics_mut();
     metrics_mut.miss_count = analysis.metrics.miss_count;
     metrics_mut.error_count = analysis.metrics.error_count;
-    metrics_mut.success_count = analysis.metrics.success_count;
+    metrics_mut.output_count = analysis.metrics.output_count;
 
     let mut log_text = format!("等待 {}ms 收集 wparse 输出\n\n", wait_ms);
     log_text.push_str(&analysis.log_text);
@@ -434,7 +503,10 @@ async fn stage_analyse_runtime_output(
     .await;
 
     if analysis.passed {
-        Ok(format!("已模拟{}条消息，都已成功解析。", expected_success))
+        Ok(format!(
+            "已模拟{}条消息，成功输出{}条。",
+            expected_success, analysis.metrics.output_count
+        ))
     } else {
         let mut details: Vec<String> = analysis
             .output_checks
@@ -451,10 +523,10 @@ async fn stage_analyse_runtime_output(
         if analysis.metrics.miss_count > 0 {
             details.push(format!("rule miss 日志 {} 条", analysis.metrics.miss_count));
         }
-        if analysis.metrics.success_count < expected_success {
+        if analysis.metrics.output_count != expected_success {
             details.push(format!(
-                "success 日志 {} 条，低于期望 {} 条",
-                analysis.metrics.success_count, expected_success
+                "成功输出数量 {} 条，期望 {} 条",
+                analysis.metrics.output_count, expected_success
             ));
         }
         let summary = if details.is_empty() {

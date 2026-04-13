@@ -12,7 +12,9 @@ use wp_station_migrations::entity::rule_config::{ActiveModel, Column, Entity, Mo
 pub type RuleConfig = Model;
 
 // 规则类型 / 连接配置类型：wpl / oml / knowledge / source / sink / parse / wpgen / source_connect / sink_connect 等
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display, EnumString, AsRefStr)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, Display, EnumString, AsRefStr, PartialEq, Eq, Hash,
+)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum RuleType {
@@ -241,6 +243,18 @@ pub async fn delete_rule_config(rule_type: &str, file_name: &str) -> DbResult<()
 
     info!("规则配置删除成功");
     Ok(())
+}
+
+/// 删除所有规则配置（硬删除），返回删除条数
+pub async fn delete_all_rule_configs() -> DbResult<u64> {
+    info!("准备清空 rule_configs 表");
+
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let result = Entity::delete_many().exec(db).await?;
+    info!("rule_configs 已清空: rows={}", result.rows_affected);
+    Ok(result.rows_affected)
 }
 /// 检查 rule_configs 表是否为空
 pub async fn is_rule_configs_empty() -> DbResult<bool> {

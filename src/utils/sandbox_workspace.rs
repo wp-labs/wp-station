@@ -4,7 +4,11 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
-use crate::utils::constants::{BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, WPSRC_SOURCE_OVERRIDE};
+use crate::utils::constants::{
+    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_HEADER_MODE, SANDBOX_RUNTIME_OUTPUT_ADDR,
+    SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_PROTOCOL, SANDBOX_RUNTIME_SOURCE_ADDR,
+    SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_SOURCE_KEY, SANDBOX_RUNTIME_UDP_PORT,
+};
 
 /// 管理沙盒运行时的临时项目目录与日志目录。
 #[derive(Debug, Clone)]
@@ -34,8 +38,9 @@ impl SandboxWorkspace {
         let project_root = resolve_project_root(&setting);
         copy_dir_recursive(&project_root, &project_dir)?;
 
-        apply_static_overrides(&project_dir)?;
         apply_overrides(&project_dir, overrides)?;
+        apply_static_overrides(&project_dir)?;
+        ensure_sandbox_runtime_configs(&project_dir)?;
 
         Ok(SandboxWorkspace {
             root: base_dir,
@@ -163,11 +168,6 @@ fn apply_static_overrides(project_dir: &Path) -> Result<(), AppError> {
         "topology/sinks/business.d/sink.toml",
         BUSINESS_SINK_OVERRIDE,
     )?;
-    write_override_file(
-        project_dir,
-        "topology/sources/wpsrc.toml",
-        WPSRC_SOURCE_OVERRIDE,
-    )?;
     Ok(())
 }
 
@@ -179,6 +179,72 @@ fn write_override_file(project_dir: &Path, relative: &str, content: &str) -> Res
     }
     fs::write(&target, content).map_err(AppError::internal)?;
     Ok(())
+}
+
+fn ensure_sandbox_runtime_configs(project_dir: &Path) -> Result<(), AppError> {
+    let sandbox_source_override = build_sandbox_udp_source_override();
+    write_override_file(
+        project_dir,
+        "topology/sources/wpsrc.toml",
+        &sandbox_source_override,
+    )?;
+    let sandbox_wpgen_override = build_sandbox_wpgen_override();
+    write_override_file(project_dir, "conf/wpgen.toml", &sandbox_wpgen_override)?;
+    Ok(())
+}
+
+fn build_sandbox_udp_source_override() -> String {
+    format!(
+        r#"[[sources]]
+key = "{key}"
+enable = true
+connect = "{connect}"
+
+[sources.params]
+addr = "{addr}"
+port = {port}
+protocol = "{protocol}"
+header_mode = "{header_mode}"
+"#,
+        key = SANDBOX_RUNTIME_SOURCE_KEY,
+        connect = SANDBOX_RUNTIME_SOURCE_CONNECTOR,
+        addr = SANDBOX_RUNTIME_SOURCE_ADDR,
+        port = SANDBOX_RUNTIME_UDP_PORT,
+        protocol = SANDBOX_RUNTIME_PROTOCOL,
+        header_mode = SANDBOX_RUNTIME_HEADER_MODE,
+    )
+}
+
+fn build_sandbox_wpgen_override() -> String {
+    format!(
+        r#"version = "1.0"
+
+[generator]
+mode = "rule"
+count = 10
+speed = 1000
+
+[output]
+connect = "{connect}"
+
+[output.params]
+addr = "{addr}"
+port = {port}
+protocol = "{protocol}"
+
+[logging]
+level = ""
+module_levels = []
+output = ""
+file_path = "./data/logs"
+
+[presets]
+"#,
+        connect = SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
+        addr = SANDBOX_RUNTIME_OUTPUT_ADDR,
+        port = SANDBOX_RUNTIME_UDP_PORT,
+        protocol = SANDBOX_RUNTIME_PROTOCOL,
+    )
 }
 
 fn resolve_project_root(setting: &Setting) -> PathBuf {

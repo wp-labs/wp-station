@@ -1,10 +1,9 @@
 use crate::error::AppError;
-use wp_data_utils::cache::FieldQueryCache;
+use wp_knowledge::cache::FieldQueryCache;
 use wp_model_core::model::DataRecord;
-use wp_oml::core::DataTransformer;
-use wp_oml::oml_parse_raw;
+use wp_oml::{AsyncDataTransformer, oml_parse_raw};
 
-pub fn convert_record(oml: &str, record: DataRecord) -> Result<DataRecord, AppError> {
+pub async fn convert_record(oml: &str, record: DataRecord) -> Result<DataRecord, AppError> {
     // 预处理：去除注释
     let filter_oml = oml
         .lines()
@@ -19,9 +18,10 @@ pub fn convert_record(oml: &str, record: DataRecord) -> Result<DataRecord, AppEr
         .join("\n");
 
     let model = oml_parse_raw(&mut filter_oml.as_str())
+        .await
         .map_err(|e| AppError::oml_transform(format!("OML 语法解析错误: {:?}", e)))?;
     let mut cache = FieldQueryCache::with_capacity(10);
-    let target = model.transform(record, &mut cache);
+    let target = model.transform_async(record, &mut cache).await;
     Ok(target)
 }
 /// OML 代码格式化器：保持语义不变，统一缩进/空行/行内空格。

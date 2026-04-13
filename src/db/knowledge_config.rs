@@ -147,3 +147,51 @@ pub async fn get_knowledge_config_status_list() -> DbResult<Vec<(String, bool)>>
 
     Ok(status_list)
 }
+
+/// 删除所有知识库配置，返回删除条数
+pub async fn delete_all_knowledge_configs() -> DbResult<u64> {
+    info!("准备清空 knowledge_configs 表");
+
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let result = Entity::delete_many().exec(db).await?;
+    info!("knowledge_configs 已清空: rows={}", result.rows_affected);
+    Ok(result.rows_affected)
+}
+
+/// 获取一份用于 knowdb.toml 的配置（任意一条记录）
+pub async fn get_knowdb_config_entry() -> DbResult<Option<KnowledgeConfig>> {
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let entry = Entity::find()
+        .filter(Column::ConfigContent.is_not_null())
+        .order_by_desc(Column::UpdatedAt)
+        .one(db)
+        .await?;
+
+    Ok(entry)
+}
+
+/// 将同一份 knowdb 配置更新到所有知识库记录
+pub async fn update_knowdb_config(content: Option<String>) -> DbResult<()> {
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let configs = Entity::find().all(db).await?;
+    if configs.is_empty() {
+        // 没有数据集时直接返回，避免生成孤立目录
+        info!("没有知识库数据集，跳过 knowdb 配置更新");
+        return Ok(());
+    }
+
+    for config in configs {
+        let mut active_model: ActiveModel = config.into();
+        active_model.config_content = Set(content.clone());
+        active_model.updated_at = Set(Utc::now());
+        active_model.update(db).await?;
+    }
+
+    Ok(())
+}

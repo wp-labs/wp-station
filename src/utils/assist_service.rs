@@ -1,5 +1,5 @@
 use reqwest::Client;
-use serde::Serialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 /// AI 分析请求体
 #[derive(Debug, Serialize)]
@@ -9,6 +9,24 @@ pub struct AiAnalyzeRequest {
     pub log_data: String,
     pub current_rule: Option<String>,
     pub callback_url: String,
+}
+
+/// Assist 远端结果数据
+#[derive(Debug, Deserialize, Default)]
+pub struct AssistResultData {
+    pub task_id: Option<String>,
+    pub wpl_suggestion: Option<String>,
+    pub oml_suggestion: Option<String>,
+    pub explanation: Option<String>,
+    pub error_message: Option<String>,
+}
+
+/// Assist 远端结果响应
+#[derive(Debug, Deserialize)]
+pub struct AssistResultResponse {
+    pub status: String,
+    #[serde(default)]
+    pub data: Option<AssistResultData>,
 }
 
 /// 人工工单请求体
@@ -27,6 +45,7 @@ pub struct ManualTicketRequest {
 pub enum AssistServiceError {
     RequestBuild(String),
     RequestFailed(String),
+    ResponseDecode(String),
     ResponseError {
         status: u16,
         body_preview: Option<String>,
@@ -38,6 +57,7 @@ impl std::fmt::Display for AssistServiceError {
         match self {
             AssistServiceError::RequestBuild(msg) => write!(f, "构建 HTTP 客户端失败: {}", msg),
             AssistServiceError::RequestFailed(msg) => write!(f, "请求外部服务失败: {}", msg),
+            AssistServiceError::ResponseDecode(msg) => write!(f, "解析外部服务响应失败: {}", msg),
             AssistServiceError::ResponseError {
                 status,
                 body_preview,
@@ -75,7 +95,7 @@ impl AssistService {
         base_url: &str,
         payload: &AiAnalyzeRequest,
     ) -> Result<(), AssistServiceError> {
-        self.post_json(format!("{}/analyze", base_url), payload)
+        self.post_json(join_endpoint(base_url, "analyze"), payload)
             .await
     }
 
@@ -85,7 +105,17 @@ impl AssistService {
         base_url: &str,
         payload: &ManualTicketRequest,
     ) -> Result<(), AssistServiceError> {
-        self.post_json(format!("{}/ticket", base_url), payload)
+        self.post_json(join_endpoint(base_url, "ticket"), payload)
+            .await
+    }
+
+    /// 查询任务结果
+    pub async fn query_task_result(
+        &self,
+        base_url: &str,
+        task_id: &str,
+    ) -> Result<AssistResultResponse, AssistServiceError> {
+        self.get_json(join_endpoint(base_url, &format!("result/{}", task_id)))
             .await
     }
 
@@ -118,6 +148,34 @@ impl AssistService {
             body_preview,
         })
     }
+
+    async fn get_json<T: DeserializeOwned>(&self, url: String) -> Result<T, AssistServiceError> {
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| AssistServiceError::RequestFailed(err.to_string()))?;
+
+        if response.status().is_success() {
+            return response
+                .json::<T>()
+                .await
+                .map_err(|err| AssistServiceError::ResponseDecode(err.to_string()));
+        }
+
+        let status = response.status().as_u16();
+        let body_preview = response
+            .text()
+            .await
+            .ok()
+            .map(|body| truncate_body(&body, 200));
+
+        Err(AssistServiceError::ResponseError {
+            status,
+            body_preview,
+        })
+    }
 }
 
 fn truncate_body(body: &str, limit: usize) -> String {
@@ -128,4 +186,12 @@ fn truncate_body(body: &str, limit: usize) -> String {
     } else {
         preview
     }
+}
+
+fn join_endpoint(base_url: &str, path: &str) -> String {
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }

@@ -1,7 +1,7 @@
 // 系统 API - HTTP 请求处理层
 
 use crate::error::AppError;
-use crate::server::{get_version_logic, hello_logic};
+use crate::server::{get_features_config_logic, get_version_logic, hello_logic};
 use actix_web::{HttpResponse, get};
 
 /// 系统：健康检查接口
@@ -14,4 +14,10 @@ pub async fn hello() -> Result<HttpResponse, AppError> {
 #[get("/api/version")]
 pub async fn get_version() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(get_version_logic()))
+}
+
+/// 系统：获取特性配置，例如数据采集监控地址
+#[get("/api/features/config")]
+pub async fn get_features_config() -> Result<HttpResponse, AppError> {
+    Ok(HttpResponse::Ok().json(get_features_config_logic()))
 }

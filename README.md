@@ -67,6 +67,9 @@ password = "123456"
 
 [assist]
 base_url = "http://localhost:8888"
+
+[features]
+data_collect_url = "http://localhost:18080/wp-monitor"
 ```
 
 > 未配置 `project_root` 时默认导出到 `./project_root`；WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。

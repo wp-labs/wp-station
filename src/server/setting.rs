@@ -190,6 +190,24 @@ fn default_max_retries_warparse() -> u32 {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct FeaturesConf {
+    #[serde(default = "default_data_collect_url")]
+    pub data_collect_url: String,
+}
+
+impl Default for FeaturesConf {
+    fn default() -> Self {
+        FeaturesConf {
+            data_collect_url: default_data_collect_url(),
+        }
+    }
+}
+
+fn default_data_collect_url() -> String {
+    "http://localhost:18080/wp-monitor".to_string()
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Setting {
     pub log: LogConf,
     pub web: WebConf,
@@ -202,6 +220,8 @@ pub struct Setting {
     pub assist: AssistConf,
     #[serde(default)]
     pub warparse: WarparseConf,
+    #[serde(default)]
+    pub features: FeaturesConf,
 }
 
 fn default_project_root() -> String {
@@ -218,6 +238,7 @@ impl Default for Setting {
             gitea: GiteaConf::default(),
             assist: AssistConf::default(),
             warparse: WarparseConf::default(),
+            features: FeaturesConf::default(),
         }
     }
 }

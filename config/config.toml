@@ -20,9 +20,13 @@ idle_timeout = 600
 ssl_mode = "prefer"
 
 [gitea]
-base_url = "http://gitea:3000"
+base_url = "http://localhost:3000"
 username = "gitea"
 password = "123456"
 
 [assist]
-base_url = "http://localhost:8888"
+# base_url = "http://117.72.103.91:8888"
+base_url = "http://127.0.0.1:8888"
+
+[features]
+data_collect_url = "http://159.75.67.240:18080/"

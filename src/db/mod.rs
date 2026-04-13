@@ -43,14 +43,16 @@ pub use device::{
 
 // 导出 rule_config 函数
 pub use rule_config::{
-    create_rule_config, delete_rule_config, find_rule_by_type_and_name, find_rules_by_type,
-    get_rule_file_names, is_rule_configs_empty, update_rule_content, update_rule_sample_content,
+    create_rule_config, delete_all_rule_configs, delete_rule_config, find_rule_by_type_and_name,
+    find_rules_by_type, get_rule_file_names, is_rule_configs_empty, update_rule_content,
+    update_rule_sample_content,
 };
 
 // 导出 knowledge_config 函数
 pub use knowledge_config::{
-    create_knowledge_config, find_all_knowledge_configs, find_knowledge_config_by_file_name,
-    get_knowledge_config_status_list, update_knowledge_config, update_knowledge_config_active,
+    create_knowledge_config, delete_all_knowledge_configs, find_all_knowledge_configs,
+    find_knowledge_config_by_file_name, get_knowdb_config_entry, get_knowledge_config_status_list,
+    update_knowdb_config, update_knowledge_config, update_knowledge_config_active,
 };
 
 // 导出 release 函数
