@@ -1,103 +1,60 @@
-use crate::common::{rand_suffix, setup_db, unique_name};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use wp_station::db::{
-    NewRuleConfig, RuleType, create_rule_config, delete_rule_config, find_rule_by_type_and_name,
-    find_rules_by_type, get_rule_file_names, is_rule_configs_empty, update_rule_content,
+use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root, unique_name};
+use wp_station::db::RuleType;
+use wp_station::utils::{
+    delete_rule_from_project, list_rule_files, read_rule_content, touch_rule_in_project,
+    write_rule_content,
 };
-use wp_station_migrations::entity::rule_config::{Column as RuleColumn, Entity as RuleEntity};
 
-async fn cleanup_rule(file: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = RuleEntity::delete_many()
-        .filter(RuleColumn::FileName.eq(file))
-        .exec(pool.inner())
-        .await;
-}
-
-async fn create_sample_rule(rule_type: RuleType) -> String {
-    setup_db().await;
-    let file = format!("{}-{}.toml", unique_name("rule"), rand_suffix());
-    let new_rule = NewRuleConfig {
-        rule_type,
-        file_name: file.clone(),
-        display_name: None,
-        content: Some("initial".to_string()),
-        sample_content: None,
-        file_size: Some(7),
-    };
-    create_rule_config(new_rule)
-        .await
-        .expect("create rule config");
-    file
+fn project_root_str() -> String {
+    test_project_root().to_string_lossy().to_string()
 }
 
 #[tokio::test]
-async fn test_create_and_find_rule_config() {
-    let file = create_sample_rule(RuleType::Wpl).await;
+async fn test_create_and_read_rule_project_file() {
+    setup_db().await;
+    let root = project_root_str();
+    let file = format!("{}-{}.toml", unique_name("rule"), rand_suffix());
 
-    let result = find_rule_by_type_and_name(RuleType::Wpl.as_ref(), &file)
-        .await
-        .expect("find rule")
-        .expect("rule exists");
-    assert_eq!(result.file_name, file);
-    assert_eq!(result.content.as_deref(), Some("initial"));
+    write_rule_content(&root, RuleType::Source, &file, "initial").expect("write source rule");
+    let (content, _) = read_rule_content(&root, RuleType::Source, &file)
+        .expect("read source rule")
+        .unwrap();
+    assert_eq!(content, "initial");
 
-    cleanup_rule(&file).await;
+    remove_project_path(format!("topology/sources/{file}"));
 }
 
 #[tokio::test]
 async fn test_update_rule_content_and_listings() {
-    let file = create_sample_rule(RuleType::Oml).await;
+    setup_db().await;
+    let root = project_root_str();
+    let file = format!("{}-{}.toml", unique_name("oml"), rand_suffix());
 
-    update_rule_content(RuleType::Oml.as_ref(), &file, "updated", 7)
-        .await
-        .expect("update rule");
+    write_rule_content(&root, RuleType::Oml, &file, "initial").expect("write oml");
+    write_rule_content(&root, RuleType::Oml, &file, "updated").expect("update oml");
 
-    let updated = find_rule_by_type_and_name(RuleType::Oml.as_ref(), &file)
-        .await
-        .expect("find updated")
-        .expect("exists");
-    assert_eq!(updated.content.as_deref(), Some("updated"));
+    let (updated, _) = read_rule_content(&root, RuleType::Oml, &file)
+        .expect("read updated")
+        .unwrap();
+    assert_eq!(updated, "updated");
 
-    let list = find_rules_by_type(RuleType::Oml.as_ref())
-        .await
-        .expect("list rules");
-    assert!(list.iter().any(|rule| rule.file_name == file));
-
-    let file_names = get_rule_file_names(RuleType::Oml.as_ref())
-        .await
-        .expect("file names");
+    let file_names = list_rule_files(&root, RuleType::Oml).expect("list oml files");
     assert!(file_names.contains(&file));
 
-    cleanup_rule(&file).await;
+    remove_project_path(format!("models/oml/{file}"));
 }
 
 #[tokio::test]
-async fn test_delete_rule_config() {
-    let file = create_sample_rule(RuleType::Sink).await;
+async fn test_delete_rule_project_file() {
+    setup_db().await;
+    let root = project_root_str();
+    let file = format!("{}-{}.toml", unique_name("sink"), rand_suffix());
 
-    delete_rule_config(RuleType::Sink.as_ref(), &file)
-        .await
-        .expect("delete rule");
+    touch_rule_in_project(&root, RuleType::Sink, &file).expect("touch sink");
+    delete_rule_from_project(&root, RuleType::Sink, &file).expect("delete sink");
 
-    let missing = find_rule_by_type_and_name(RuleType::Sink.as_ref(), &file)
-        .await
-        .expect("find after delete");
+    let missing = read_rule_content(&root, RuleType::Sink, &file).expect("read deleted");
     assert!(missing.is_none());
-
-    cleanup_rule(&file).await;
-}
-
-#[tokio::test]
-async fn test_is_rule_configs_empty_flag() {
-    let file = create_sample_rule(RuleType::Source).await;
-    let has_rules = is_rule_configs_empty().await.expect("check flag");
-    assert!(!has_rules, "there should be at least one active rule");
-
-    delete_rule_config(RuleType::Source.as_ref(), &file)
-        .await
-        .expect("soft delete");
-    cleanup_rule(&file).await;
 }
 
 #[tokio::test]

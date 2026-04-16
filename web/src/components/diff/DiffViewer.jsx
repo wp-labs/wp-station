@@ -12,6 +12,14 @@ import 'react-diff-view/style/index.css';
 import './DiffViewer.css';
 import { splitHunkIntoSegments } from './diffUtils';
 
+const DEFAULT_COLLAPSED_LINE_THRESHOLD = 300;
+
+const countDiffLines = (file) =>
+  (Array.isArray(file?.hunks) ? file.hunks : []).reduce(
+    (total, hunk) => total + (Array.isArray(hunk?.changes) ? hunk.changes.length : 0),
+    0,
+  );
+
 /**
  * Get change type badge configuration
  * @param {string} changeType - Type of change: 'add', 'delete', 'modify', 'rename'
@@ -31,11 +39,10 @@ function getChangeTypeBadge(changeType) {
 /**
  * FileHeader - Renders the file header with path and change type badge
  */
-function FileHeader({ file, changeType, oldPath }) {
+function FileHeader({ file, changeType, oldPath, collapsed = false, onToggleCollapse }) {
   const badge = getChangeTypeBadge(changeType);
-  
-  return (
-    <div className="diff-file-header">
+  const headerContent = (
+    <>
       <div className="diff-file-path">
         {changeType === 'rename' && oldPath ? (
           <div className="diff-file-rename">
@@ -50,6 +57,60 @@ function FileHeader({ file, changeType, oldPath }) {
       <span className={`change-badge ${badge.className}`}>
         {badge.label}
       </span>
+      {onToggleCollapse ? (
+        <span className="diff-file-collapse-hint">
+          {collapsed ? 'Expand' : 'Collapse'}
+        </span>
+      ) : null}
+    </>
+  );
+
+  if (onToggleCollapse) {
+    return (
+      <button
+        type="button"
+        className="diff-file-header diff-file-header--button"
+        onClick={onToggleCollapse}
+        aria-expanded={!collapsed}
+      >
+        {headerContent}
+      </button>
+    );
+  }
+
+  return (
+    <div className="diff-file-header">
+      {headerContent}
+    </div>
+  );
+}
+
+function CollapsedFileSummary({ file, changeType, oldPath, lineCount, large = false, onExpand }) {
+  const badge = getChangeTypeBadge(changeType);
+
+  return (
+    <div className="diff-file diff-file--collapsed">
+      <FileHeader
+        file={file}
+        changeType={changeType}
+        oldPath={oldPath}
+        collapsed
+        onToggleCollapse={onExpand}
+      />
+      <button
+        type="button"
+        className="diff-file-collapsed-body"
+        onClick={onExpand}
+        aria-label={`Expand diff for ${file.newPath || file.oldPath}`}
+      >
+        <span className="diff-file-collapsed-title">
+          {large ? 'Large diff collapsed' : 'File diff collapsed'}
+        </span>
+        <span className="diff-file-collapsed-meta">
+          {lineCount} changed/context lines · {badge.label}
+        </span>
+        <span className="diff-file-collapsed-action">Expand file</span>
+      </button>
     </div>
   );
 }
@@ -449,8 +510,12 @@ function DiffViewer({
   viewType = 'split', 
   enableSyntaxHighlight = true,
   maxLines = 10000,
-  loading = false
+  loading = false,
+  collapsedLineThreshold = DEFAULT_COLLAPSED_LINE_THRESHOLD,
 }) {
+  const [expandedLargeFiles, setExpandedLargeFiles] = useState(new Set());
+  const [collapsedFiles, setCollapsedFiles] = useState(new Set());
+
   // Show loading state
   if (loading) {
     return <LoadingState />;
@@ -526,12 +591,55 @@ function DiffViewer({
           }
 
           // Render the diff
+          const lineCount = countDiffLines(file);
+          const isLargeDiff = lineCount > collapsedLineThreshold;
+          const fileKey = `${file_path}-${old_path || ''}-${index}`;
+          const isCollapsed =
+            collapsedFiles.has(fileKey) || (isLargeDiff && !expandedLargeFiles.has(fileKey));
+
+          if (isCollapsed) {
+            return (
+              <CollapsedFileSummary
+                key={fileKey}
+                file={file}
+                changeType={change_type}
+                oldPath={old_path}
+                lineCount={lineCount}
+                large={isLargeDiff}
+                onExpand={() => {
+                  setCollapsedFiles((prev) => {
+                    const next = new Set(prev);
+                    next.delete(fileKey);
+                    return next;
+                  });
+                  setExpandedLargeFiles((prev) => {
+                    const next = new Set(prev);
+                    next.add(fileKey);
+                    return next;
+                  });
+                }}
+              />
+            );
+          }
+
           return (
-            <div key={index} className="diff-file">
+            <div key={fileKey} className="diff-file">
               <FileHeader 
                 file={file} 
                 changeType={change_type}
                 oldPath={old_path}
+                onToggleCollapse={() => {
+                  setCollapsedFiles((prev) => {
+                    const next = new Set(prev);
+                    next.add(fileKey);
+                    return next;
+                  });
+                  setExpandedLargeFiles((prev) => {
+                    const next = new Set(prev);
+                    next.delete(fileKey);
+                    return next;
+                  });
+                }}
               />
               
               <Diff 

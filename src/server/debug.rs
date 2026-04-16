@@ -2,11 +2,11 @@
 
 use crate::db::{
     NewPerformanceTask, create_performance_task, find_performance_task_by_id,
-    get_knowledge_config_status_list, get_performance_results,
+    get_performance_results,
 };
 use crate::error::AppError;
 use crate::server::Setting;
-use crate::utils::{load_knowledge, sql_query, warp_check_record};
+use crate::utils::{list_knowledge_dirs, load_knowledge, sql_query, warp_check_record};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -154,14 +154,14 @@ pub async fn debug_transform_logic(
 
 /// 查询知识库配置状态列表
 pub async fn debug_knowledge_status_logic() -> Result<Vec<DebugKnowledgeStatusItem>, AppError> {
-    // 查询知识库配置状态列表
-    let list = get_knowledge_config_status_list().await?;
+    let setting = Setting::load();
+    let list = list_knowledge_dirs(&setting.project_root)?;
 
     let items: Vec<DebugKnowledgeStatusItem> = list
         .into_iter()
-        .map(|(file_name, is_active)| DebugKnowledgeStatusItem {
+        .map(|file_name| DebugKnowledgeStatusItem {
             tag_name: file_name.clone(),
-            is_active,
+            is_active: true,
         })
         .collect();
 

@@ -34,16 +34,16 @@ const uniqueConnectionItems = (items) => {
 };
 
 const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
-  '00-file-default.toml': '文件',
-  '10-syslog-udp.toml': 'syslog(UDP)',
-  '11-syslog-tcp.toml': 'syslog(TCP)',
+  '00-file-default.toml': 'File',
+  '10-syslog-udp.toml': 'Syslog (UDP)',
+  '11-syslog-tcp.toml': 'Syslog (TCP)',
   '12-tcp.toml': 'TCP',
   '30-kafka.toml': 'Kafka',
   '00-blackhole-sink.toml': 'Blackhole',
-  '01-file-prototext.toml': '文件(Prototext)',
-  '02-file-json.toml': '文件(JSON)',
-  '03-file-kv.toml': '文件(KV)',
-  '04-file-raw.toml': '文件(RAW)',
+  '01-file-prototext.toml': 'File (Prototext)',
+  '02-file-json.toml': 'File (JSON)',
+  '03-file-kv.toml': 'File (KV)',
+  '04-file-raw.toml': 'File (RAW)',
   '40-prometheus.toml': 'Prometheus',
 });
 

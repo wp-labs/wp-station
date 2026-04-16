@@ -107,15 +107,15 @@ async fn run_migrations(client: &mut tokio_postgres::Client) {
 
 ### 核心业务表
 1. **connections** - 连接管理
-2. **rule_configs** - 规则配置（WPL/OML等）
-3. **knowledge_configs** - 知识库配置
-4. **parse_configs** - 解析配置
-5. **connection_configs** - 连接配置文件
-6. **releases** - 发布记录
-7. **release_stages** - 发布阶段
-8. **release_diffs** - 发布差异
-9. **performance_tasks** - 性能测试任务
-10. **performance_results** - 性能测试结果
+2. **releases** - 发布记录
+3. **release_targets** - 设备维度发布记录
+4. **performance_tasks** - 性能测试任务
+5. **performance_results** - 性能测试结果
+6. **operation_logs** - 操作日志
+7. **assist_tasks** - AI/人工辅助任务
+8. **sandbox_runs** - 沙盒预发布记录
+
+规则、配置和知识库文件不再使用 `rule_configs` / `knowledge_configs` 表，直接以 `project_root` 文件为主数据源。
 
 ### 系统管理表（预留）
 11. **users** - 用户表

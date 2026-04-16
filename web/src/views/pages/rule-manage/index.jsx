@@ -16,8 +16,9 @@ import {
 import { wplCodeFormat, omlCodeFormat } from '@/services/debug';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 
-const WPL_PAGE_SIZE = 15;
-const OML_PAGE_SIZE_DEFAULT = 15;
+const WPL_PAGE_SIZE = 14;
+const WPL_FETCH_PAGE_SIZE = 50;
+const OML_FOLDER_PAGE_SIZE = 14;
 const OML_FETCH_PAGE_SIZE = 50;
 const KNOWLEDGE_PAGE_SIZE = 15;
 const EMPTY_KNOWLEDGE_DATASET = Object.freeze({
@@ -125,6 +126,43 @@ const buildWplTreeData = (items) => {
 
 const getFirstWplEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
 
+// 规则树分页按一级文件夹计算，每页容量对应用户实际看到的文件夹数量。
+const buildRuleTreePages = (treeData, pageSize) => {
+  const normalizedPageSize = pageSize > 0 ? pageSize : WPL_PAGE_SIZE;
+  const nodes = Array.isArray(treeData) ? treeData : [];
+  const pages = [];
+
+  for (let index = 0; index < nodes.length; index += normalizedPageSize) {
+    pages.push(nodes.slice(index, index + normalizedPageSize));
+  }
+
+  return pages;
+};
+
+const getWplEntriesFromTreeData = (treeData) =>
+  (Array.isArray(treeData) ? treeData : []).flatMap((node) =>
+    (Array.isArray(node.files) ? node.files : [])
+      .map((item) => item.value)
+      .filter(Boolean),
+  );
+
+const findWplPageByFile = (pagePlans, file) =>
+  (Array.isArray(pagePlans) ? pagePlans : []).findIndex((page) =>
+    page.some((node) => node.files.some((item) => item.value === file)),
+  );
+
+const findWplRuleForFile = (treeData, file) => {
+  if (!file) {
+    return '';
+  }
+  for (const node of treeData || []) {
+    if (node.files.some((item) => item.value === file)) {
+      return node.rule;
+    }
+  }
+  return '';
+};
+
 const buildOmlTreeData = (items) => {
   const groups = new Map();
   (Array.isArray(items) ? items : []).forEach((entry) => {
@@ -170,30 +208,8 @@ const normalizeOmlList = (items) => {
   return Array.from(deduped);
 };
 
-// OML 分页按文件夹原子展示，避免同一文件夹被拆到多页。
 const buildOmlTreePages = (treeData, pageSize) => {
-  const normalizedPageSize = pageSize > 0 ? pageSize : OML_PAGE_SIZE_DEFAULT;
-  const pages = [];
-  let currentPage = [];
-  let currentCount = 0;
-
-  (Array.isArray(treeData) ? treeData : []).forEach((node) => {
-    const fileCount = Array.isArray(node.files) ? node.files.length : 0;
-    if (currentPage.length && currentCount + fileCount > normalizedPageSize) {
-      pages.push(currentPage);
-      currentPage = [node];
-      currentCount = fileCount;
-      return;
-    }
-    currentPage = [...currentPage, node];
-    currentCount += fileCount;
-  });
-
-  if (currentPage.length) {
-    pages.push(currentPage);
-  }
-
-  return pages;
+  return buildRuleTreePages(treeData, pageSize > 0 ? pageSize : OML_FOLDER_PAGE_SIZE);
 };
 
 const getOmlEntriesFromTreeData = (treeData) =>
@@ -259,7 +275,7 @@ function RuleManagePage() {
   const [loading, setLoading] = useState(false);
   
   // wpl 配置的子文件列表
-  const [wplFiles, setWplFiles] = useState([]);
+  const [allWplFiles, setAllWplFiles] = useState([]);
   const [activeWplFile, setActiveWplFile] = useState('');
   const [localWplFiles, setLocalWplFiles] = useState([]);
   const [wplPage, setWplPage] = useState(1);
@@ -271,7 +287,7 @@ function RuleManagePage() {
   const [activeOmlFile, setActiveOmlFile] = useState('');
   const [localOmlFiles, setLocalOmlFiles] = useState([]);
   const [omlPage, setOmlPage] = useState(1);
-  const omlPageSize = OML_PAGE_SIZE_DEFAULT;
+  const omlPageSize = OML_FOLDER_PAGE_SIZE;
   const [wplTotal, setWplTotal] = useState(0);
   const [omlTotal, setOmlTotal] = useState(0);
   const [omlTree, setOmlTree] = useState([]);
@@ -466,13 +482,17 @@ function RuleManagePage() {
 
   const applyWplListState = useCallback(
     (rawItems, options = {}) => {
-      const { preferredActive, preserveActive } = options;
+      const { preferredActive, preserveActive, page } = options;
       const normalizedList = normalizeWplList(rawItems);
-      setWplFiles(normalizedList);
+      setAllWplFiles(normalizedList);
       const treeData = buildWplTreeData(normalizedList);
-      setWplTree(treeData);
+      const pagePlans = buildRuleTreePages(treeData, WPL_PAGE_SIZE);
+      const totalPages = pagePlans.length;
+      setWplTotal(treeData.length);
 
       if (!normalizedList.length) {
+        setWplTree([]);
+        setWplPage(1);
         setWplExpandedRules([]);
         setActiveWplFile('');
         return;
@@ -488,27 +508,33 @@ function RuleManagePage() {
       if (!nextActive && preserveActive && normalizedList.includes(normalizedActive)) {
         nextActive = normalizedActive;
       }
-      if (!nextActive) {
-        nextActive = getFirstWplEntry(treeData) || normalizedList[0];
+
+      let nextPage = typeof page === 'number' && page > 0 ? page : null;
+      if (!nextPage && nextActive) {
+        const preferredPageIndex = findWplPageByFile(pagePlans, nextActive);
+        if (preferredPageIndex >= 0) {
+          nextPage = preferredPageIndex + 1;
+        }
+      }
+      const currentPage = Math.min(Math.max(nextPage || 1, 1), totalPages);
+      const currentTreeData = pagePlans[currentPage - 1] || [];
+      const currentPageFiles = getWplEntriesFromTreeData(currentTreeData);
+
+      if (!currentPageFiles.includes(nextActive)) {
+        nextActive = getFirstWplEntry(currentTreeData) || currentPageFiles[0] || '';
       }
 
+      setWplTree(currentTreeData);
+      setWplPage(currentPage);
       setActiveWplFile(nextActive);
-      const { rule: activeRule } = getWplEntryParts(nextActive);
+      const activeRule = findWplRuleForFile(currentTreeData, nextActive);
 
-      setWplExpandedRules((prev) => {
-        const availableRules = treeData.map((node) => node.rule);
-        let nextExpanded =
-          prev && prev.length
-            ? prev.filter((rule) => availableRules.includes(rule))
-            : availableRules;
-        if (!nextExpanded.length) {
-          nextExpanded = availableRules;
-        }
-        if (activeRule && !nextExpanded.includes(activeRule)) {
-          nextExpanded = [...nextExpanded, activeRule];
-        }
-        return nextExpanded;
-      });
+      const expandedRules = currentTreeData.map((node) => node.rule);
+      setWplExpandedRules(
+        activeRule && !expandedRules.includes(activeRule)
+          ? [...expandedRules, activeRule]
+          : expandedRules,
+      );
     },
     [activeWplFile],
   );
@@ -522,7 +548,7 @@ function RuleManagePage() {
       const totalPages = pagePlans.length;
 
       setOmlFiles(normalizedList);
-      setOmlTotal(totalPages * omlPageSize);
+      setOmlTotal(treeData.length);
 
       if (!normalizedList.length) {
         setOmlTree([]);
@@ -575,7 +601,7 @@ function RuleManagePage() {
     [activeOmlFile, omlPageSize],
   );
 
-  const fetchAllOmlFiles = useCallback(async (keyword) => {
+  const fetchAllRuleFiles = useCallback(async (type, keyword, fetchPageSize) => {
     const normalizedKeyword =
       typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
     const collected = [];
@@ -584,16 +610,20 @@ function RuleManagePage() {
 
     while (true) {
       const result = await fetchRuleFiles({
-        type: RuleType.OML,
+        type,
         page: currentPage,
-        pageSize: OML_FETCH_PAGE_SIZE,
+        pageSize: fetchPageSize,
         keyword: normalizedKeyword,
       });
-      const items = normalizeOmlList(result?.items || []);
+      const rawItems = Array.isArray(result?.items) ? result.items : [];
+      const items =
+        type === RuleType.WPL
+          ? normalizeWplList(rawItems)
+          : normalizeOmlList(rawItems);
       const pageSize =
         typeof result?.pageSize === 'number' && result.pageSize > 0
           ? result.pageSize
-          : OML_FETCH_PAGE_SIZE;
+          : fetchPageSize;
       const total = typeof result?.total === 'number' ? result.total : 0;
       const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
 
@@ -604,7 +634,11 @@ function RuleManagePage() {
         }
       });
 
-      if (!items.length || items.length < pageSize || (totalPages && currentPage >= totalPages)) {
+      if (
+        totalPages
+          ? currentPage >= totalPages
+          : !rawItems.length || rawItems.length < pageSize
+      ) {
         break;
       }
       currentPage += 1;
@@ -612,6 +646,21 @@ function RuleManagePage() {
 
     return collected;
   }, []);
+
+  const refreshWplFiles = useCallback(
+    async (options = {}) => {
+      const {
+        keyword = wplSearch,
+        page,
+        preferredActive,
+        preserveActive = true,
+      } = options;
+      const files = await fetchAllRuleFiles(RuleType.WPL, keyword, WPL_FETCH_PAGE_SIZE);
+      applyWplListState(files, { page, preferredActive, preserveActive });
+      return files;
+    },
+    [applyWplListState, fetchAllRuleFiles, wplSearch],
+  );
 
   const refreshOmlFiles = useCallback(
     async (options = {}) => {
@@ -621,11 +670,11 @@ function RuleManagePage() {
         preferredActive,
         preserveActive = true,
       } = options;
-      const files = await fetchAllOmlFiles(keyword);
+      const files = await fetchAllRuleFiles(RuleType.OML, keyword, OML_FETCH_PAGE_SIZE);
       applyOmlListState(files, { page, preferredActive, preserveActive });
       return files;
     },
-    [applyOmlListState, fetchAllOmlFiles, omlSearch],
+    [applyOmlListState, fetchAllRuleFiles, omlSearch],
   );
 
   const toggleWplRule = (rule) => {
@@ -650,17 +699,7 @@ function RuleManagePage() {
       onOk: async () => {
         try {
           await deleteRuleFile({ type: 'wpl', file: ruleName });
-          const refreshed = await fetchRuleFiles({
-            type: 'wpl',
-            page: wplPage,
-            pageSize: WPL_PAGE_SIZE,
-            keyword: wplSearch || undefined,
-          });
-          applyWplListState(refreshed?.items || [], { preserveActive: true });
-          setWplTotal(
-            refreshed?.total || (Array.isArray(refreshed?.items) ? refreshed.items.length : 0),
-          );
-          setWplPage(refreshed?.page || wplPage);
+          await refreshWplFiles({ page: wplPage, preserveActive: true });
         } catch (error) {
           message.error(t('ruleManage.deleteFailed', { message: error.message }));
           throw error;
@@ -674,15 +713,7 @@ function RuleManagePage() {
    */
   const loadRepoFilesIfNeeded = async (repoType) => {
     if (repoType === RuleType.WPL) {
-      const result = await fetchRuleFiles({
-        type: RuleType.WPL,
-        page: 1,
-        pageSize: WPL_PAGE_SIZE,
-        keyword: wplSearch || undefined,
-      });
-      applyWplListState(result?.items || [], { preserveActive: true });
-      setWplTotal(result?.total || (Array.isArray(result?.items) ? result.items.length : 0));
-      setWplPage(result?.page || 1);
+      await refreshWplFiles({ preserveActive: true, page: wplPage });
       return;
     }
     if (repoType === RuleType.OML) {
@@ -1011,26 +1042,21 @@ function RuleManagePage() {
       return false;
     }
     if (repoType === 'wpl') {
-      const exists = wplFiles.some((fileName) => getWplEntryParts(fileName).rule === normalizedName);
+      const exists = allWplFiles.some(
+        (fileName) => getWplEntryParts(fileName).rule === normalizedName,
+      );
       if (exists) {
         message.warning(t('ruleManage.ruleFileExists'));
         return false;
       }
       await createRuleFile({ type: RuleType.WPL, file: normalizedName });
       await saveRuleConfig({ type: RuleType.WPL, file: normalizedName, content: '' });
-      const refreshed = await fetchRuleFiles({
-        type: RuleType.WPL,
-        page: 1,
-        pageSize: WPL_PAGE_SIZE,
-        keyword: wplSearch || undefined,
-      });
-      applyWplListState(refreshed?.items || [], {
+      await refreshWplFiles({
         preferredActive: `${normalizedName}/${WPL_PARSE_FILE}`,
+        preserveActive: false,
       });
-      setWplTotal(refreshed?.total || (Array.isArray(refreshed?.items) ? refreshed.items.length : 0));
       setLocalWplFiles((prev) => prev.filter((name) => name !== normalizedName));
       setContent('');
-      setWplPage(refreshed?.page || 1);
       return true;
     }
     
@@ -1671,18 +1697,11 @@ function RuleManagePage() {
                     const value = e.target.value;
                   if (activeKey === 'wpl') {
                     setWplSearch(value);
-                    const nextPage = 1;
-                    setWplPage(nextPage);
-                    fetchRuleFiles({
-                        type: RuleType.WPL,
-                        page: nextPage,
-                        pageSize: WPL_PAGE_SIZE,
-                        keyword: value || undefined,
+                    refreshWplFiles({
+                        keyword: value,
+                        page: 1,
+                        preserveActive: true,
                       })
-                        .then((result) => {
-                          applyWplListState(result?.items || [], { preserveActive: true });
-                          setWplTotal(result?.total || (Array.isArray(result?.items) ? result.items.length : 0));
-                        })
                         .catch((error) => {
                           message.error('加载 WPL 规则列表失败：' + error.message);
                         });
@@ -1939,20 +1958,10 @@ function RuleManagePage() {
                     showSizeChanger={false}
                     onChange={(page) => {
                       if (activeKey === 'wpl') {
-                        setWplPage(page);
-                        fetchRuleFiles({
-                          type: 'wpl',
+                        refreshWplFiles({
                           page,
-                          pageSize: WPL_PAGE_SIZE,
-                          keyword: wplSearch || undefined,
+                          preserveActive: true,
                         })
-                          .then((result) => {
-                            applyWplListState(result?.items || [], { preserveActive: true });
-                            setWplTotal(
-                              result?.total ||
-                                (Array.isArray(result?.items) ? result.items.length : 0),
-                            );
-                          })
                           .catch((error) => {
                             message.error(t('ruleManage.loadWplFailed', { message: error.message }));
                           });

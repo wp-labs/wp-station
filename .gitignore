@@ -46,3 +46,4 @@ project_root/
 .vscode/
 tmp/
 docker/
+tasks/

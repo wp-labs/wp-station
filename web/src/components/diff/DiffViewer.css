@@ -32,14 +32,43 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 14px 18px;
   background-color: rgba(27, 37, 51, 0.04);
   border-bottom: 1px solid var(--panel-border, #e4e8f1);
   font-weight: 600;
 }
 
+.diff-file-header--button {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-file-header--button:hover {
+  background-color: rgba(39, 94, 254, 0.08);
+}
+
+.diff-file-header--button:focus-visible {
+  outline: 3px solid rgba(39, 94, 254, 0.28);
+  outline-offset: -3px;
+}
+
+.diff-file-collapse-hint {
+  flex-shrink: 0;
+  color: var(--primary, #275efe);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .diff-file-path {
   flex: 1;
+  min-width: 0;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace;
   font-size: 13px;
   color: var(--text, #1b2533);
@@ -47,6 +76,57 @@
 
 .diff-file-name {
   color: var(--text, #1b2533);
+  overflow-wrap: anywhere;
+}
+
+.diff-file--collapsed {
+  overflow: hidden;
+}
+
+.diff-file-collapsed-body {
+  width: 100%;
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px;
+  border: 0;
+  background:
+    linear-gradient(135deg, rgba(39, 94, 254, 0.08), rgba(18, 166, 232, 0.04)),
+    var(--panel-bg, #ffffff);
+  color: var(--text, #1b2533);
+  cursor: pointer;
+  text-align: left;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+}
+
+.diff-file-collapsed-body:hover {
+  background:
+    linear-gradient(135deg, rgba(39, 94, 254, 0.12), rgba(18, 166, 232, 0.07)),
+    var(--panel-bg, #ffffff);
+}
+
+.diff-file-collapsed-body:focus-visible {
+  outline: 3px solid rgba(39, 94, 254, 0.3);
+  outline-offset: -3px;
+}
+
+.diff-file-collapsed-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.diff-file-collapsed-meta {
+  font-size: 13px;
+  color: var(--muted, #5d6470);
+}
+
+.diff-file-collapsed-action {
+  margin-top: 4px;
+  color: var(--primary, #275efe);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* Rename-specific styling - uses project color variables */

@@ -3,10 +3,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::db::{
-    RuleType, create_knowledge_config, create_rule_config, delete_all_knowledge_configs,
-    delete_all_rule_configs,
-};
+use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::{handle_draft_release, sync_to_gitea};
 use crate::server::{
@@ -61,7 +58,7 @@ pub async fn import_project_from_files_logic(
         ));
     }
 
-    // 在真正写库前先执行一次组件校验，避免坏数据覆盖数据库
+    // 文件已经是主数据源；这里先执行组件校验，避免坏配置进入后续同步/发布链路。
     check_component(RuleType::All.to_check_component())?;
 
     let result = async {
@@ -75,16 +72,6 @@ pub async fn import_project_from_files_logic(
 
         let total_rules = rules.len();
         let total_knowledge = knowledge.len();
-
-        let deleted_rules = delete_all_rule_configs().await? as usize;
-        let deleted_knowledge = delete_all_knowledge_configs().await? as usize;
-
-        for rule in rules {
-            create_rule_config(rule).await?;
-        }
-        for item in knowledge {
-            create_knowledge_config(item).await?;
-        }
 
         if let Err(err) = reload_knowledge(&setting.project_root) {
             warn!("知识库重载失败（忽略）: {}", err);
@@ -105,9 +92,9 @@ pub async fn import_project_from_files_logic(
         breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
 
         let summary = ProjectImportSummary {
-            rules_deleted: deleted_rules,
+            rules_deleted: 0,
             rules_imported: total_rules,
-            knowledge_deleted: deleted_knowledge,
+            knowledge_deleted: 0,
             knowledge_imported: total_knowledge,
             rule_breakdown: breakdown,
             warnings,

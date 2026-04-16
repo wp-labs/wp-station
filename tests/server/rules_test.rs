@@ -1,34 +1,37 @@
-use crate::common::{rand_suffix, setup_db};
+use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use wp_station::db::{
-    NewKnowledgeConfig, NewRelease, NewRuleConfig, ReleaseStatus, RuleType,
-    create_knowledge_config, create_release, create_rule_config, find_rule_by_type_and_name,
-};
+use wp_station::db::{NewRelease, ReleaseStatus, RuleType, create_release};
 use wp_station::server::rules::{
     RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_rule_content_logic,
     get_rule_files_logic, save_rule_logic,
 };
 use wp_station::utils::pagination::PageQuery;
-use wp_station_migrations::entity::knowledge_config::{
-    Column as KnowledgeColumn, Entity as KnowledgeEntity,
+use wp_station::utils::{
+    read_knowledge_files, read_rule_content, write_knowdb_config, write_knowledge_files,
+    write_rule_content, write_wpl_sample_content,
 };
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
-use wp_station_migrations::entity::rule_config::{Column as RuleColumn, Entity as RuleEntity};
 
-async fn cleanup_knowledge(file: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = KnowledgeEntity::delete_many()
-        .filter(KnowledgeColumn::FileName.eq(file))
-        .exec(pool.inner())
-        .await;
+fn project_root_str() -> String {
+    test_project_root().to_string_lossy().to_string()
 }
 
-async fn cleanup_rule(file: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = RuleEntity::delete_many()
-        .filter(RuleColumn::FileName.eq(file))
-        .exec(pool.inner())
-        .await;
+fn cleanup_knowledge(file: &str) {
+    remove_project_path(format!("models/knowledge/{file}"));
+}
+
+fn cleanup_rule(rule_type: RuleType, file: &str) {
+    match rule_type {
+        RuleType::Wpl => remove_project_path(format!("models/wpl/{file}")),
+        RuleType::Oml => remove_project_path(format!("models/oml/{file}")),
+        RuleType::Sink => remove_project_path(format!("topology/sinks/{file}")),
+        RuleType::Source => remove_project_path(format!("topology/sources/{file}")),
+        RuleType::Parse => remove_project_path("conf/wparse.toml"),
+        RuleType::Wpgen => remove_project_path("conf/wpgen.toml"),
+        RuleType::SourceConnect => remove_project_path(format!("connectors/source.d/{file}")),
+        RuleType::SinkConnect => remove_project_path(format!("connectors/sink.d/{file}")),
+        RuleType::Knowledge | RuleType::All => {}
+    }
 }
 
 async fn cleanup_release(version: &str) {
@@ -43,15 +46,16 @@ async fn cleanup_release(version: &str) {
 async fn test_get_rule_files_and_content_for_knowledge() {
     setup_db().await;
     let file = format!("knowledge-{}", rand_suffix());
-    create_knowledge_config(NewKnowledgeConfig {
-        file_name: file.clone(),
-        config_content: Some("version = 1".to_string()),
-        create_sql: Some("CREATE TABLE t(id INTEGER);".to_string()),
-        insert_sql: Some("INSERT INTO t VALUES (1);".to_string()),
-        data_content: Some("row".to_string()),
-    })
-    .await
-    .expect("create knowledge config");
+    let root = project_root_str();
+    write_knowdb_config(&root, "version = 2").expect("write knowdb");
+    write_knowledge_files(
+        &root,
+        &file,
+        Some("CREATE TABLE t(id INTEGER);".to_string()),
+        Some("INSERT INTO t VALUES (?1);".to_string()),
+        Some("id\n1\n".to_string()),
+    )
+    .expect("write knowledge files");
 
     let files = get_rule_files_logic(RuleFilesQuery {
         rule_type: RuleType::Knowledge,
@@ -74,7 +78,7 @@ async fn test_get_rule_files_and_content_for_knowledge() {
         Some(file.as_str())
     );
 
-    cleanup_knowledge(&file).await;
+    cleanup_knowledge(&file);
 }
 
 #[tokio::test]
@@ -86,19 +90,21 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
         .await
         .expect("create knowledge rule");
 
+    assert!(
+        read_knowledge_files(&project_root_str(), &file)
+            .expect("read created knowledge")
+            .is_some()
+    );
+
     delete_rule_file_logic(RuleType::Knowledge, file.clone(), None)
         .await
         .expect("delete knowledge rule");
 
-    let record = KnowledgeEntity::find()
-        .filter(KnowledgeColumn::FileName.eq(file.clone()))
-        .one(wp_station::db::get_pool().inner())
-        .await
-        .expect("query knowledge entry");
-    assert!(record.is_some());
-    assert!(!record.unwrap().is_active);
-
-    cleanup_knowledge(&file).await;
+    assert!(
+        read_knowledge_files(&project_root_str(), &file)
+            .expect("read deleted knowledge")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -136,13 +142,12 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     .await
     .expect("update existing rule");
 
-    let rule = find_rule_by_type_and_name(RuleType::Wpl.as_ref(), &file)
-        .await
+    let (content, _) = read_rule_content(&project_root_str(), RuleType::Wpl, &file)
         .expect("query rule")
         .expect("rule exists");
-    assert!(rule.content.unwrap().contains("chars:name"));
+    assert!(content.contains("chars:name"));
 
-    cleanup_rule(&file).await;
+    cleanup_rule(RuleType::Wpl, &file);
     cleanup_release(&draft_version).await;
 }
 
@@ -150,38 +155,22 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
 async fn test_get_rule_content_logic_returns_list() {
     setup_db().await;
     let file = format!("bulk-{}", rand_suffix());
-    create_rule_config(NewRuleConfig {
-        rule_type: RuleType::Oml,
-        file_name: file.clone(),
-        display_name: None,
-        content: Some("content".to_string()),
-        sample_content: None,
-        file_size: Some(7),
-    })
-    .await
-    .expect("create sample rule");
+    write_rule_content(&project_root_str(), RuleType::Oml, &file, "content")
+        .expect("create sample oml");
 
     let result = get_rule_content_logic(RuleType::Oml, None)
         .await
         .expect("list rule content");
     assert!(result.is_array());
-    cleanup_rule(&file).await;
+    cleanup_rule(RuleType::Oml, &file);
 }
 
 #[tokio::test]
 async fn test_get_rule_files_logic_filters_keyword() {
     setup_db().await;
-    let target = format!("filter-{}", rand_suffix());
-    create_rule_config(NewRuleConfig {
-        rule_type: RuleType::Parse,
-        file_name: target.clone(),
-        display_name: None,
-        content: Some("content".to_string()),
-        sample_content: None,
-        file_size: Some(10),
-    })
-    .await
-    .expect("insert parse rule");
+    let target = "wparse.toml".to_string();
+    write_rule_content(&project_root_str(), RuleType::Parse, &target, "content")
+        .expect("write parse rule");
 
     let files = get_rule_files_logic(RuleFilesQuery {
         rule_type: RuleType::Parse,
@@ -194,34 +183,36 @@ async fn test_get_rule_files_logic_filters_keyword() {
     .await
     .expect("filter files");
     assert!(files.items.iter().any(|item| item.file == target));
-    cleanup_rule(&target).await;
 }
 
 #[tokio::test]
 async fn test_delete_rule_file_logic_for_standard_rule() {
     setup_db().await;
     let file = format!("delete-{}", rand_suffix());
-    create_rule_config(NewRuleConfig {
-        rule_type: RuleType::Sink,
-        file_name: file.clone(),
-        display_name: None,
-        content: Some("content".to_string()),
-        sample_content: None,
-        file_size: Some(10),
-    })
-    .await
-    .expect("insert sink rule");
+    write_rule_content(&project_root_str(), RuleType::Sink, &file, "content")
+        .expect("insert sink rule");
 
     delete_rule_file_logic(RuleType::Sink, file.clone(), None)
         .await
         .expect("delete sink rule");
-    let record = RuleEntity::find()
-        .filter(RuleColumn::FileName.eq(file.clone()))
-        .one(wp_station::db::get_pool().inner())
+    let record = read_rule_content(&project_root_str(), RuleType::Sink, &file).expect("query rule");
+    assert!(record.is_none());
+}
+
+#[tokio::test]
+async fn test_wpl_virtual_sample_round_trip() {
+    setup_db().await;
+    let file = format!("sample-{}", rand_suffix());
+    write_rule_content(&project_root_str(), RuleType::Wpl, &file, "package demo {}")
+        .expect("write wpl parse");
+    write_wpl_sample_content(&project_root_str(), &file, "sample-data").expect("write sample");
+
+    let content = get_rule_content_logic(RuleType::Wpl, Some(format!("{file}/sample.dat")))
         .await
-        .expect("query rule");
-    assert!(record.is_some());
-    cleanup_rule(&file).await;
+        .expect("get sample content");
+    assert_eq!(content["content"], "sample-data");
+
+    cleanup_rule(RuleType::Wpl, &file);
 }
 
 #[tokio::test]

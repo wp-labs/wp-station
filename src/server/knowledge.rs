@@ -1,9 +1,9 @@
 // 知识库业务逻辑层
 
-use crate::db::find_all_knowledge_configs;
 use crate::error::AppError;
 use crate::server::Setting;
 use crate::utils::knowledge::load_knowledge;
+use crate::utils::list_knowledge_dirs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wp_knowledge::facade::query as query_all;
@@ -23,8 +23,8 @@ pub struct KnowdbQuery {
 
 /// 查询知识库（数据库）列表
 pub async fn get_db_list_logic() -> Result<Vec<String>, AppError> {
-    let configs = find_all_knowledge_configs().await?;
-    let names: Vec<String> = configs.into_iter().map(|c| c.file_name).collect();
+    let setting = Setting::load();
+    let names = list_knowledge_dirs(&setting.project_root)?;
     debug!("查询知识库列表成功: count={}", names.len());
 
     Ok(names)

@@ -1,98 +1,26 @@
-use crate::common::setup_db;
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, Statement};
-use wp_station::db::{get_pool, init_default_configs_from_embedded};
-use wp_station_migrations::entity::knowledge_config::Entity as KnowledgeEntity;
-use wp_station_migrations::entity::rule_config::Entity as RuleEntity;
+use crate::common::{remove_project_path, setup_db, test_project_root};
+use wp_station::db::init_default_configs_to_project;
 
 #[tokio::test]
-async fn test_init_default_configs_is_idempotent_for_rule_configs() {
+async fn test_init_default_configs_is_idempotent_for_project_files() {
     setup_db().await;
-    let pool = get_pool();
-    let conn = pool.inner();
-    conn.execute(Statement::from_string(DatabaseBackend::Postgres, "BEGIN"))
-        .await
-        .expect("begin transaction for rule configs");
-    conn.execute(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "DELETE FROM rule_configs",
-    ))
-    .await
-    .expect("reset rule configs");
+    let project_root = test_project_root();
+    let project_root_str = project_root.to_str().expect("utf-8 test project root");
 
-    init_default_configs_from_embedded(conn)
-        .await
-        .expect("run default config loader first time");
-    let first_count = RuleEntity::find()
-        .count(conn)
-        .await
-        .expect("count rule configs after first run");
+    remove_project_path("conf/wparse.toml");
+    remove_project_path("models/knowledge/knowdb.toml");
 
-    init_default_configs_from_embedded(conn)
-        .await
-        .expect("run default config loader second time");
-    let second_count = RuleEntity::find()
-        .count(conn)
-        .await
-        .expect("count rule configs after second run");
+    init_default_configs_to_project(project_root_str).expect("first default config load");
+    let wparse = project_root.join("conf/wparse.toml");
+    let knowdb = project_root.join("models/knowledge/knowdb.toml");
+    assert!(wparse.is_file(), "wparse default should be restored");
+    assert!(knowdb.is_file(), "knowdb default should be restored");
 
-    assert!(first_count > 0, "default rules should be inserted");
+    std::fs::write(&wparse, "user-edited").expect("edit default config");
+    init_default_configs_to_project(project_root_str).expect("second default config load");
+    let content = std::fs::read_to_string(&wparse).expect("read edited config");
     assert_eq!(
-        first_count, second_count,
-        "default rules should not duplicate on repeated init"
+        content, "user-edited",
+        "default loader must not overwrite user edits"
     );
-
-    conn.execute(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "ROLLBACK",
-    ))
-    .await
-    .expect("rollback rule config inserts");
-}
-
-#[tokio::test]
-async fn test_init_default_configs_is_idempotent_for_knowledge_configs() {
-    setup_db().await;
-    let pool = get_pool();
-    let conn = pool.inner();
-    conn.execute(Statement::from_string(DatabaseBackend::Postgres, "BEGIN"))
-        .await
-        .expect("begin transaction for knowledge configs");
-    conn.execute(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "DELETE FROM knowledge_configs",
-    ))
-    .await
-    .expect("reset knowledge configs");
-
-    init_default_configs_from_embedded(conn)
-        .await
-        .expect("run default config loader first time");
-    let first_count = KnowledgeEntity::find()
-        .count(conn)
-        .await
-        .expect("count knowledge configs after first run");
-
-    init_default_configs_from_embedded(conn)
-        .await
-        .expect("run default config loader second time");
-    let second_count = KnowledgeEntity::find()
-        .count(conn)
-        .await
-        .expect("count knowledge configs after second run");
-
-    assert!(
-        first_count > 0,
-        "default knowledge configs should be inserted"
-    );
-    assert_eq!(
-        first_count, second_count,
-        "default knowledge configs should not duplicate on repeated init"
-    );
-
-    conn.execute(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "ROLLBACK",
-    ))
-    .await
-    .expect("rollback knowledge config inserts");
 }

@@ -1501,12 +1501,14 @@ body:not(.login-page) .connection-page-wrapper {
 .release-query {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   align-items: end;
+  grid-auto-rows: 72px;
 }
 
 .release-query .form-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 72px;
 }
 
 .release-query .form-row-actions {
@@ -1517,11 +1519,32 @@ body:not(.login-page) .connection-page-wrapper {
 }
 
 /* 确保发布查询区域中的下拉与输入框/时间选择器高度一致 */
-.release-query .form-row .ant-select-selector {
-  height: auto;
+.release-query .form-row .ant-select,
+.release-query .form-row .ant-picker,
+.release-query .form-row .ant-input {
+  width: 100%;
+  height: var(--form-control-height);
+}
+
+.release-query .form-row .ant-select-selector,
+.release-query .form-row .ant-picker {
+  height: var(--form-control-height) !important;
   display: flex;
   align-items: center;
   min-height: var(--form-control-height);
+}
+
+.release-query .form-row .ant-select-selection-search-input {
+  height: calc(var(--form-control-height) - 2px) !important;
+}
+
+.release-query .form-row .ant-select-selection-item,
+.release-query .form-row .ant-select-selection-placeholder {
+  line-height: calc(var(--form-control-height) - 2px) !important;
+}
+
+.release-query .form-row .ant-picker-input {
+  align-items: center;
 }
 
 .searchable-select {
@@ -2236,12 +2259,46 @@ mark.diff-highlight {
   flex: 0.9 1 360px;
 }
 
-.knowledge-layout .knowledge-col:first-child {
-  flex: 1.2 1 420px;
+.knowledge-layout {
+  flex-direction: column;
+  flex-wrap: nowrap;
 }
 
+.knowledge-layout .knowledge-col {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.knowledge-layout .knowledge-col:first-child,
 .knowledge-layout .knowledge-col:last-child {
-  flex: 1 1 360px;
+  flex-basis: auto;
+}
+
+.knowledge-layout .knowledge-col .code-area--large {
+  min-height: 100px;
+  height: 100px;
+}
+
+.knowledge-layout .panel-block--scrollable {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.knowledge-layout .panel-block--scrollable .mode-content.is-active {
+  max-width: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.knowledge-layout .mode-content.is-active .ant-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.knowledge-layout .mode-content.is-active .ant-table {
+  min-width: 100%;
 }
 
 .performance-layout .performance-col--left {
@@ -2701,7 +2758,7 @@ mark.diff-highlight {
 }
 
 .repo-tree {
-  flex: 0 0 240px;
+  flex: 0 0 275px;
   border: 1px solid rgba(27, 37, 51, 0.08);
   border-radius: 16px;
   background: rgba(27, 37, 51, 0.02);

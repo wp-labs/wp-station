@@ -25,8 +25,11 @@ pub use knowledge::{
 pub use oml::OmlFormatter;
 pub use pagination::{MemoryPaginate, PageQuery, PageResponse};
 pub use project::{
-    ProjectSnapshot, delete_rule_from_project, export_knowledge_to_project, export_project_from_db,
-    export_rule_to_project, load_project_snapshot, touch_rule_in_project,
+    ProjectSnapshot, delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs,
+    list_rule_files, load_project_snapshot, read_knowdb_config, read_knowledge_files,
+    read_rule_content, read_wpl_sample_content, resolve_project_root, touch_knowledge_in_project,
+    touch_rule_in_project, write_knowdb_config, write_knowledge_files, write_rule_content,
+    write_wpl_sample_content,
 };
 pub use warparse_service::{
     DeployCheckResult, DeployResult, OnlineStatus, ServiceError, WarpParseService,

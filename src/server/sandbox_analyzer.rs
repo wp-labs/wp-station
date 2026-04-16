@@ -196,20 +196,22 @@ pub fn finalize_conclusion(
     output_checks: &[OutputFileStatus],
     metrics: &RuntimeMetrics,
 ) -> Conclusion {
-    let mut conclusion = Conclusion::default();
-    conclusion.output_file_checks = output_checks.to_vec();
-    conclusion.suspected_files = output_checks
-        .iter()
-        .filter(|item| !item.is_empty)
-        .map(|item| item.relative_path.clone())
-        .collect();
-    conclusion.input_count = metrics.input_count;
-    conclusion.runtime_miss_count = metrics.miss_count;
-    conclusion.runtime_error_count = metrics.error_count;
-    conclusion.runtime_output_count = metrics.output_count;
-    conclusion.daemon_ready = Some(metrics.daemon_ready);
-    conclusion.wpgen_exit_code = metrics.wpgen_exit_code;
-    conclusion.wpgen_generated_count = metrics.wpgen_generated;
+    let mut conclusion = Conclusion {
+        output_file_checks: output_checks.to_vec(),
+        suspected_files: output_checks
+            .iter()
+            .filter(|item| !item.is_empty)
+            .map(|item| item.relative_path.clone())
+            .collect(),
+        input_count: metrics.input_count,
+        runtime_miss_count: metrics.miss_count,
+        runtime_error_count: metrics.error_count,
+        runtime_output_count: metrics.output_count,
+        daemon_ready: Some(metrics.daemon_ready),
+        wpgen_exit_code: metrics.wpgen_exit_code,
+        wpgen_generated_count: metrics.wpgen_generated,
+        ..Default::default()
+    };
     let output_matches_input = if conclusion.input_count > 0 {
         conclusion.runtime_output_count == conclusion.input_count
     } else {

@@ -2,17 +2,17 @@ use wp_station::utils::{
     is_knowledge_loaded, load_knowledge, sql_knowdb_list, sql_query, unload_knowledge,
 };
 
-#[test]
-fn test_sql_query_returns_fields() {
-    let result = sql_query("SELECT 1 as value").expect("sql query");
+#[tokio::test]
+async fn test_sql_query_returns_fields() {
+    let result = sql_query("SELECT 1 as value").await.expect("sql query");
     if let Some(field) = result.first() {
         assert_eq!(field.get_name(), "value");
     }
 }
 
-#[test]
-fn test_sql_knowdb_list_handles_empty_state() {
-    let list = sql_knowdb_list().expect("knowdb list");
+#[tokio::test]
+async fn test_sql_knowdb_list_handles_empty_state() {
+    let list = sql_knowdb_list().await.expect("knowdb list");
     assert!(list.iter().all(|name| !name.is_empty()));
 }
 

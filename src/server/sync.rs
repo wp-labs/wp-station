@@ -177,14 +177,11 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
         Err(e) => return Err(e),
     }
 
-    // 4. 确保项目目录有内容：先从数据库导出配置
-    info!("从数据库导出配置到项目目录");
-    use crate::db::get_pool;
-    let pool = get_pool();
-    crate::utils::export_project_from_db(pool.inner(), &setting.project_root)
-        .await
-        .map_err(|e| AppError::internal(format!("导出配置失败: {}", e)))?;
-    info!("配置导出完成");
+    // 4. 确保项目目录有内容：默认配置只补齐缺失文件，不覆盖用户已编辑内容。
+    info!("检查默认配置是否已写入 project_root");
+    crate::db::init_default_configs_to_project(&setting.project_root)
+        .map_err(|e| AppError::internal(format!("初始化默认配置失败: {}", e)))?;
+    info!("默认配置检查完成");
 
     // 5. 创建 README.md（如果不存在）
     let readme_path = project_path.join("README.md");

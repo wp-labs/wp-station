@@ -1,9 +1,6 @@
 // 配置管理业务逻辑层
 
-use crate::db::{
-    NewRuleConfig, RuleType, create_rule_config, delete_rule_config, find_rule_by_type_and_name,
-    find_rules_by_type, update_rule_content,
-};
+use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::Setting;
 use crate::server::sync::{handle_draft_release, sync_delete_to_gitea, sync_to_gitea};
@@ -11,10 +8,12 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
 };
 use crate::utils::{
-    constants::fallback_sink_display, delete_rule_from_project, export_rule_to_project,
-    touch_rule_in_project,
+    constants::fallback_sink_display, delete_rule_from_project, list_rule_files, read_rule_content,
+    touch_rule_in_project, write_rule_content,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 
 // ============ 请求参数结构体 ============
 
@@ -106,57 +105,59 @@ fn fallback_display_name(rule_type: RuleType, file_name: &str) -> Option<String>
     None
 }
 
+fn system_time_to_rfc3339(time: SystemTime) -> String {
+    let datetime: DateTime<Utc> = time.into();
+    datetime.to_rfc3339()
+}
+
 /// 获取配置文件列表
 pub async fn get_config_files_logic(
     rule_type: RuleType,
     keyword: Option<String>,
 ) -> Result<ConfigFilesResponse, AppError> {
-    // 查询规则配置列表
-    let list = find_rules_by_type(rule_type.as_ref()).await?;
+    let setting = Setting::load();
+    let files = list_rule_files(&setting.project_root, rule_type)?;
     let should_filter_default_sink = matches!(rule_type, RuleType::Sink);
 
     // `defaults.toml` 仅作为内部默认配置，不在 sink 文件列表中展示。
-    let list: Vec<_> = list
+    let files: Vec<_> = files
         .into_iter()
-        .filter(|rule| !(should_filter_default_sink && rule.file_name == "defaults.toml"))
+        .filter(|file| !(should_filter_default_sink && file == "defaults.toml"))
         .collect();
 
-    // 如提供 keyword，则在内存中按文件名包含关系进行过滤
-    let list = if let Some(keyword) = &keyword {
-        let keyword = keyword.trim();
-        if keyword.is_empty() {
-            list
-        } else {
-            list.into_iter()
-                .filter(|rule| {
-                    rule.file_name.contains(keyword)
-                        || rule
-                            .display_name
-                            .as_deref()
-                            .map(|name| name.contains(keyword))
-                            .unwrap_or(false)
-                })
-                .collect()
+    let keyword = keyword.unwrap_or_default();
+    let keyword = keyword.trim();
+    let mut items = Vec::new();
+    for file in files {
+        let display_name = fallback_display_name(rule_type, &file);
+        if !keyword.is_empty()
+            && !file.contains(keyword)
+            && !display_name
+                .as_deref()
+                .map(|name| name.contains(keyword))
+                .unwrap_or(false)
+        {
+            continue;
         }
-    } else {
-        list
-    };
 
-    let items: Vec<ConfigFileItem> = list
-        .into_iter()
-        .map(|rule| {
-            let display_name = rule
-                .display_name
-                .clone()
-                .or_else(|| fallback_display_name(rule_type, &rule.file_name));
-            ConfigFileItem {
-                file: rule.file_name,
-                display_name,
-                file_size: rule.file_size,
-                last_modified: Some(rule.updated_at.to_rfc3339()),
-            }
-        })
-        .collect();
+        let (file_size, last_modified) = if let Some((content, modified)) =
+            read_rule_content(&setting.project_root, rule_type, &file)?
+        {
+            (
+                Some(content.len() as i32),
+                Some(system_time_to_rfc3339(modified)),
+            )
+        } else {
+            (None, None)
+        };
+
+        items.push(ConfigFileItem {
+            file,
+            display_name,
+            file_size,
+            last_modified,
+        });
+    }
 
     Ok(ConfigFilesResponse { items })
 }
@@ -166,20 +167,19 @@ pub async fn get_config_logic(
     rule_type: RuleType,
     file: Option<String>,
 ) -> Result<serde_json::Value, AppError> {
-    if let Some(file) = &file {
-        let result = find_rule_by_type_and_name(rule_type.as_ref(), file).await?;
+    let setting = Setting::load();
 
-        return if let Some(rule) = result {
-            let display_name = rule
-                .display_name
-                .clone()
-                .or_else(|| fallback_display_name(rule_type, &rule.file_name));
+    if let Some(file) = &file {
+        return if let Some((content, modified)) =
+            read_rule_content(&setting.project_root, rule_type, file)?
+        {
+            let display_name = fallback_display_name(rule_type, file);
             let item = ConfigItem {
                 rule_type,
                 file: file.clone(),
                 display_name,
-                content: rule.content,
-                last_modified: Some(rule.updated_at.to_rfc3339()),
+                content: Some(content),
+                last_modified: Some(system_time_to_rfc3339(modified)),
             };
             serde_json::to_value(item).map_err(AppError::internal)
         } else if matches!(rule_type, RuleType::Source | RuleType::Parse) {
@@ -197,18 +197,22 @@ pub async fn get_config_logic(
         };
     }
 
-    let list = find_rules_by_type(rule_type.as_ref()).await?;
+    let files = list_rule_files(&setting.project_root, rule_type)?;
 
-    let items: Vec<ConfigItem> = list
-        .into_iter()
-        .map(|rule| ConfigItem {
-            rule_type,
-            file: rule.file_name,
-            display_name: rule.display_name,
-            content: rule.content,
-            last_modified: Some(rule.updated_at.to_rfc3339()),
-        })
-        .collect();
+    let mut items = Vec::new();
+    for file in files {
+        if let Some((content, modified)) =
+            read_rule_content(&setting.project_root, rule_type, &file)?
+        {
+            items.push(ConfigItem {
+                rule_type,
+                display_name: fallback_display_name(rule_type, &file),
+                file,
+                content: Some(content),
+                last_modified: Some(system_time_to_rfc3339(modified)),
+            });
+        }
+    }
 
     serde_json::to_value(items).map_err(AppError::internal)
 }
@@ -228,42 +232,19 @@ pub async fn save_config_logic(
     );
 
     let size = content.len() as i32;
-    let existing = find_rule_by_type_and_name(rule_type.as_ref(), &file).await?;
-    let is_update = existing.is_some();
+    let project_root = Setting::load().project_root;
+    let is_update = read_rule_content(&project_root, rule_type, &file)?.is_some();
 
     let operator_cloned = operator.clone();
     let file_for_log = file.clone();
     let result = async move {
-        match existing {
-            Some(_) => {
-                update_rule_content(rule_type.as_ref(), &file, &content, size).await?;
-            }
-            None => {
-                let new_rule = NewRuleConfig {
-                    rule_type,
-                    file_name: file.clone(),
-                    display_name: None,
-                    content: Some(content.clone()),
-                    sample_content: None,
-                    file_size: Some(size),
-                };
-                create_rule_config(new_rule).await?;
-            }
-        }
+        let written_path = write_rule_content(&project_root, rule_type, &file, &content)?;
 
         info!(
-            "配置写入数据库成功: rule_type={}, file={}",
-            rule_type.as_ref(),
-            file
-        );
-
-        let setting = Setting::load();
-        let exported_path = export_rule_to_project(&setting.project_root, rule_type, &file).await?;
-        info!(
-            "配置导出到项目目录成功: rule_type={}, file={}, path={}",
+            "配置写入项目目录成功: rule_type={}, file={}, path={}",
             rule_type.as_ref(),
             file,
-            exported_path
+            written_path
         );
 
         let commit_message = format!("配置改动: {} - {}", rule_type.as_ref(), file);
@@ -318,23 +299,6 @@ pub async fn create_config_file_logic(
     let file_for_log = file.clone();
     let display_name_for_log = display_name.clone();
     let result = async move {
-        let new_rule = NewRuleConfig {
-            rule_type,
-            file_name: file.clone(),
-            display_name: display_name.clone(),
-            content: None,
-            sample_content: None,
-            file_size: None,
-        };
-
-        create_rule_config(new_rule).await?;
-
-        info!(
-            "配置文件写入数据库成功: rule_type={}, file={}",
-            rule_type.as_ref(),
-            file
-        );
-
         let setting = Setting::load();
         let created_path = touch_rule_in_project(&setting.project_root, rule_type, &file)?;
         info!(
@@ -393,14 +357,6 @@ pub async fn delete_config_file_logic(
     let operator_cloned = operator.clone();
     let file_for_log = file.clone();
     let result = async move {
-        delete_rule_config(rule_type.as_ref(), &file).await?;
-
-        info!(
-            "配置文件数据库删除成功: rule_type={}, file={}",
-            rule_type.as_ref(),
-            file
-        );
-
         let setting = Setting::load();
         let deleted_path = delete_rule_from_project(&setting.project_root, rule_type, &file)?;
         info!(

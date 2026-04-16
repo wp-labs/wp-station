@@ -17,8 +17,8 @@
 | 设备管理 | `views/pages/system-manage/ConnectionManage.jsx` | `services/connection.js` | `src/api/device.rs` | `src/server/device.rs` | `src/db/device.rs` |
 | 发布列表/详情 | `views/pages/system-release/index.jsx` `detail.jsx` | `services/release.js` | `src/api/release.rs` | `src/server/release.rs` `release_task_runner.rs` | `src/db/release.rs` `release_target.rs` |
 | 沙盒预发布 | `views/pages/system-release/prepublish.jsx` | `services/sandbox.js` | `src/api/sandbox.rs` | `src/server/sandbox*.rs` | `src/db/sandbox.rs` |
-| 规则管理 | `views/pages/rule-manage/index.jsx` | `services/config.js` | `src/api/rules.rs` | `src/server/rules.rs` | `src/db/rule_config.rs` |
-| 配置管理 | `views/pages/config-manage/index.jsx` | `services/config.js` | `src/api/config.rs` | `src/server/config.rs` | `src/db/rule_config.rs` |
+| 规则管理 | `views/pages/rule-manage/index.jsx` | `services/config.js` | `src/api/rules.rs` | `src/server/rules.rs` | `project_root` 文件 + `src/utils/project.rs` |
+| 配置管理 | `views/pages/config-manage/index.jsx` | `services/config.js` | `src/api/config.rs` | `src/server/config.rs` | `project_root` 文件 + `src/utils/project.rs` |
 | 调试页 | `views/pages/simulate-debug/index.jsx` | `services/debug.js` | `src/api/debug.rs` | `src/server/debug.rs` | — |
 | 用户/登录 | `views/pages/login/index.jsx` `system-manage/index.jsx` | `services/auth.js` `services/user.js` | `src/api/user.rs` | `src/server/user.rs` | `src/db/user.rs` |
 | 操作日志 | `views/pages/system-manage/index.jsx` | `services/operation_log.js` | `src/api/operation_log.rs` | `src/server/operation_log.rs` | `src/db/operation_log.rs` |
@@ -34,13 +34,13 @@
 ```
 前端页面 → services/* → /api → src/api/* → src/server/* → src/db/*
                                                          ↓
-                                              src/utils/*（导出/设备/规则/知识库）
+                                              src/utils/*（文件/设备/规则/知识库）
 ```
 
 关键事实：
 
-- **数据库是运行时主数据源**，`project_root` 是导出目录，不是编辑入口。
-- **规则/配置保存不只是写库**，通常还要：写库 → 操作日志 → 导出 `project_root` → 同步 Gitea → 刷新草稿发布记录。
+- **规则/配置/知识库以 `project_root` 文件为主数据源**；数据库仍承载设备、发布、用户、操作日志、沙盒等运行态数据。
+- **规则/配置保存不只是写文件**，通常还要：写 `project_root` → 操作日志 → 同步 Gitea → 刷新草稿发布记录。
 - **发布是设备维度的**，核心在 `release_targets`，不是改 release 主表状态。
 
 ---
@@ -51,11 +51,10 @@
 
 前端保存后，后端按序执行：
 
-1. 写入 PostgreSQL
+1. 写入 `project_root`
 2. 记录操作日志
-3. 从数据库全量导出到 `project_root`（`src/utils/project.rs`）
-4. 提交并同步到 Gitea（`src/server/sync.rs`）
-5. 创建或刷新草稿发布记录
+3. 提交并同步到 Gitea（`src/server/sync.rs`）
+4. 创建或刷新草稿发布记录
 
 覆盖：配置管理、规则管理、知识库保存。
 
@@ -96,8 +95,8 @@
 | `src/server/app.rs` | 应用装配，初始化 DB / Gitea / 健康检查 / 发布调度器，**新 API 须在此挂载** |
 | `src/api/*` | HTTP 路由和入参/出参，不承载业务逻辑 |
 | `src/server/*` | 业务编排主入口，绝大多数需求先改这里 |
-| `src/db/*` | CRUD、分页、状态更新 |
-| `src/utils/project.rs` | 数据库内容导出到 `project_root` |
+| `src/db/*` | CRUD、分页、状态更新；规则/知识库不再建表存储 |
+| `src/utils/project.rs` | `project_root` 中规则、配置、知识库文件的读写、扫描和初始化辅助 |
 | `src/utils/warparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
 | `src/utils/health_check.rs` | 设备在线检查 |
 | `src/utils/wpl.rs` | WPL 解析与格式化 |
@@ -149,13 +148,13 @@
 
 改动注意：
 - `knowledge` 与 `wpl/oml` 数据结构不完全相同。
-- 保存后须完整走：写库 → 操作日志 → 导出 → Gitea → 草稿发布。
+- 保存后须完整走：写 `project_root` → 操作日志 → Gitea → 草稿发布。
 - 规则校验逻辑变化时，前端成功/失败弹窗一并核对。
 
 ### 配置管理（parse / source / sink / connect）
 
 改动注意：
-- 链路与规则管理相同，也会触发导出、同步和草稿发布。
+- 链路与规则管理相同，也会触发文件写入、同步和草稿发布。
 - `parse` 与连接配置的文件和规则类型不同，前端有一层映射。
 - `services/config.js` 有真实接口与 Mock 混用，改之前先确认你动的是哪一支。
 
@@ -214,7 +213,7 @@
 
 必须核对五个联动点：
 1. 操作日志
-2. 导出到 `project_root`
+2. 写入 `project_root`
 3. 同步到 Gitea
 4. 刷新草稿发布记录
 5. 重新加载知识库（如涉及）
@@ -329,8 +328,8 @@ result
 ## 关键联动约束
 
 **配置和规则：**
-- 保存逻辑变化后，必须核对：导出 → Gitea → 草稿发布。
-- `project_root` 是导出结果，改了也会被下次导出覆盖。
+- 保存逻辑变化后，必须核对：写入 `project_root` → Gitea → 草稿发布。
+- `project_root` 是规则/配置/知识库主数据源，默认配置初始化只能补齐缺失文件，不能覆盖用户已编辑内容。
 
 **设备与发布：**
 - `token` 是发布和健康检查的关键字段。

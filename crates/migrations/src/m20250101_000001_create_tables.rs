@@ -13,21 +13,6 @@ impl MigrationTrait for Migration {
         let stmt = schema.create_table_from_entity(crate::entity::device::Entity);
         manager.create_table(stmt).await?;
 
-        // 创建 rule_configs 表
-        let stmt = schema.create_table_from_entity(crate::entity::rule_config::Entity);
-        manager.create_table(stmt).await?;
-        manager
-            .get_connection()
-            .execute(Statement::from_string(
-                DbBackend::Postgres,
-                r#"ALTER TABLE rule_configs ADD COLUMN IF NOT EXISTS display_name TEXT;"#,
-            ))
-            .await?;
-
-        // 创建 knowledge_configs 表
-        let stmt = schema.create_table_from_entity(crate::entity::knowledge_config::Entity);
-        manager.create_table(stmt).await?;
-
         // 创建 releases 表
         let stmt = schema.create_table_from_entity(crate::entity::release::Entity);
         manager.create_table(stmt).await?;
@@ -69,7 +54,7 @@ impl MigrationTrait for Migration {
                    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())"#,
                 [
                     "admin".into(),
-                    "$2b$12$es3GK5p3xP0dRV6k2AIB8.1JDH/TLzZtzE6iI9Hep1DQsJgI04f22".into(), // 123456
+                    "$2b$12$es3GK5p3xP0dRV6k2AIB8.1JDH/TLzZtzE6iI9Hep1DQsJgI04f22".into(),
                     "管理员".into(),
                     "admin@xx.com".into(),
                     "admin".into(),
@@ -136,20 +121,6 @@ impl MigrationTrait for Migration {
             .drop_table(
                 Table::drop()
                     .table(crate::entity::release::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::knowledge_config::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::rule_config::Entity)
                     .to_owned(),
             )
             .await?;

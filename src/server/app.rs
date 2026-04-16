@@ -143,35 +143,14 @@ pub async fn start() -> std::io::Result<()> {
     let warparse_conf = setting.warparse.clone();
     spawn_release_task_runner(warparse_conf);
 
-    // 检查 rule_configs 表是否为空，如果为空则从嵌入的默认配置目录加载数据
-    use crate::db::{init_default_configs_from_embedded, is_rule_configs_empty};
-    if is_rule_configs_empty().await.map_err(|e| {
-        error!("检查 rule_configs 表失败: {}", e);
-        std::io::Error::other(format!("检查 rule_configs 表失败: {}", e))
-    })? {
-        info!("rule_configs 表为空，开始从默认配置目录加载数据");
-        init_default_configs_from_embedded(pool.inner())
-            .await
-            .map_err(|e| {
-                error!("加载默认配置失败: {}", e);
-                std::io::Error::other(format!("加载默认配置失败: {}", e))
-            })?;
-        info!("默认配置加载完成");
+    // 规则与知识库以 project_root 文件为主数据源；默认配置只补齐缺失文件，不覆盖用户编辑。
+    use crate::db::init_default_configs_to_project;
+    init_default_configs_to_project(&setting.project_root).map_err(|e| {
+        error!("加载默认配置到 project_root 失败: {}", e);
+        std::io::Error::other(format!("加载默认配置失败: {}", e))
+    })?;
+    info!("默认配置检查完成");
 
-        // 导出所有配置到项目目录
-        use crate::utils::export_project_from_db;
-        export_project_from_db(pool.inner(), &setting.project_root)
-            .await
-            .map_err(|e| {
-                error!("导出配置到项目目录失败: {}", e);
-                std::io::Error::other(format!("导出配置失败: {}", e))
-            })?;
-        info!("配置导出到项目目录完成");
-    } else {
-        info!("rule_configs 表已有数据，跳过数据库初始化");
-    }
-
-    // 独立检查本地 Git 仓库是否已初始化（与数据库初始化状态解耦）
     let project_root = std::path::PathBuf::from(&setting.project_root);
     let project_path = if project_root.is_absolute() {
         project_root
@@ -179,28 +158,7 @@ pub async fn start() -> std::io::Result<()> {
         crate::server::Setting::workspace_root().join(&setting.project_root)
     };
 
-    // 若 project_root 不存在或为空，则从数据库重新导出配置文件
-    let project_root_empty = !project_path.exists()
-        || project_path
-            .read_dir()
-            .map(|d| {
-                !d.flatten()
-                    .any(|e| !e.file_name().to_string_lossy().starts_with('.'))
-            })
-            .unwrap_or(true);
-    if project_root_empty {
-        info!("project_root 目录为空，从数据库导出配置到项目目录");
-        use crate::utils::export_project_from_db;
-        export_project_from_db(pool.inner(), &setting.project_root)
-            .await
-            .map_err(|e| {
-                error!("导出配置到项目目录失败: {}", e);
-                std::io::Error::other(format!("导出配置失败: {}", e))
-            })?;
-        info!("配置导出到项目目录完成");
-    } else {
-        info!("project_root 目录已有文件，跳过导出");
-    }
+    // 独立检查本地 Git 仓库是否已初始化。
     if !project_path.join(".git").exists() {
         info!("本地 Git 仓库未初始化，开始初始化 Gitea 仓库");
         use crate::server::sync::init_gitea_repo;

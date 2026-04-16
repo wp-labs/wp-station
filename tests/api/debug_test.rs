@@ -1,37 +1,49 @@
-use crate::common::{rand_suffix, setup_db};
+use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root};
 use actix_web::{App, http::StatusCode, test, web};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use wp_station::db::{NewKnowledgeConfig, create_knowledge_config};
 use wp_station::server::SharedRecord;
-use wp_station_migrations::entity::knowledge_config::{
-    Column as KnowledgeColumn, Entity as KnowledgeEntity,
-};
+use wp_station::utils::{write_knowdb_config, write_knowledge_files};
 
-async fn cleanup_knowledge_entry(file: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = KnowledgeEntity::delete_many()
-        .filter(KnowledgeColumn::FileName.eq(file))
-        .exec(pool.inner())
-        .await;
+fn cleanup_knowledge_entry(file: &str) {
+    remove_project_path(format!("models/knowledge/{file}"));
 }
 
 #[actix_web::test]
 async fn test_debug_api_endpoints_cover_all_handlers() {
     setup_db().await;
-    std::fs::create_dir_all("project_root/.run").expect("prepare knowledge runtime dir");
+    std::fs::create_dir_all(test_project_root().join(".run"))
+        .expect("prepare knowledge runtime dir");
 
     let know_file = format!("debug-knowledge-{}", rand_suffix());
-    create_knowledge_config(NewKnowledgeConfig {
-        file_name: know_file.clone(),
-        config_content: Some("table = \"demo\"".to_string()),
-        create_sql: Some("CREATE TABLE demo(id INTEGER)".to_string()),
-        insert_sql: Some("INSERT INTO demo VALUES (1)".to_string()),
-        data_content: None,
-    })
-    .await
-    .expect("create knowledge config");
+    let project_root = test_project_root();
+    let project_root = project_root.to_str().expect("utf-8 test project root");
+    write_knowdb_config(
+        project_root,
+        &format!(
+            r#"version = 2
+
+[[tables]]
+name = "{}"
+
+[tables.columns]
+by_header = ["id"]
+"#,
+            know_file
+        ),
+    )
+    .expect("write knowdb");
+    write_knowledge_files(
+        project_root,
+        &know_file,
+        Some(format!(
+            "CREATE TABLE IF NOT EXISTS {} (id INTEGER);",
+            know_file
+        )),
+        Some(format!("INSERT INTO {} (id) VALUES (?1);", know_file)),
+        Some("id\n1\n".to_string()),
+    )
+    .expect("write knowledge files");
 
     let shared: SharedRecord = Arc::new(Mutex::new(None));
     let shared_data = web::Data::new(shared.clone());
@@ -132,5 +144,5 @@ async fn test_debug_api_endpoints_cover_all_handlers() {
     let examples_resp = test::call_service(&app, examples_req).await;
     assert_eq!(examples_resp.status(), StatusCode::OK);
 
-    cleanup_knowledge_entry(&know_file).await;
+    cleanup_knowledge_entry(&know_file);
 }

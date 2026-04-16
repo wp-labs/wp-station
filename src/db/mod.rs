@@ -3,13 +3,12 @@
 pub mod assist_task;
 pub mod default_rules_loader;
 pub mod device;
-pub mod knowledge_config;
 pub mod operation_log;
 pub mod performance;
 pub mod pool_manager;
 pub mod release;
 pub mod release_target;
-pub mod rule_config;
+pub mod rule_type;
 pub mod sandbox;
 pub mod user;
 
@@ -18,7 +17,6 @@ pub use assist_task::{
     AssistTargetRule, AssistTask, AssistTaskStatus, AssistTaskType, NewAssistTask,
 };
 pub use device::{Device, DeviceStatus, NewDevice, UpdateDevice};
-pub use knowledge_config::{KnowledgeConfig, NewKnowledgeConfig};
 pub use operation_log::{NewOperationLog, OperationLog};
 pub use performance::{NewPerformanceTask, PerformanceResult, PerformanceTask};
 pub use release::{NewRelease, Release, ReleaseStatus};
@@ -27,7 +25,7 @@ pub use release_target::{
     create_release_targets, find_device_previous_success_version, find_due_release_targets,
     find_release_targets_by_release, update_release_target,
 };
-pub use rule_config::{NewRuleConfig, RuleConfig, RuleType};
+pub use rule_type::RuleType;
 pub use sandbox::{
     count_sandbox_runs_by_release, delete_sandbox_run_record, find_latest_sandbox_run,
     find_sandbox_run_by_task_id, insert_sandbox_run_record, list_sandbox_runs_by_release,
@@ -39,20 +37,6 @@ pub use user::{NewUser, UpdateUser, User};
 pub use device::{
     create_device, delete_device, find_all_devices, find_device_by_id, find_devices_by_ids,
     find_devices_page, update_device, update_device_runtime_state, update_device_status,
-};
-
-// 导出 rule_config 函数
-pub use rule_config::{
-    create_rule_config, delete_all_rule_configs, delete_rule_config, find_rule_by_type_and_name,
-    find_rules_by_type, get_rule_file_names, is_rule_configs_empty, update_rule_content,
-    update_rule_sample_content,
-};
-
-// 导出 knowledge_config 函数
-pub use knowledge_config::{
-    create_knowledge_config, delete_all_knowledge_configs, find_all_knowledge_configs,
-    find_knowledge_config_by_file_name, get_knowdb_config_entry, get_knowledge_config_status_list,
-    update_knowdb_config, update_knowledge_config, update_knowledge_config_active,
 };
 
 // 导出 release 函数
@@ -83,7 +67,7 @@ pub use assist_task::{
 };
 
 // 导出默认配置加载函数
-pub use default_rules_loader::init_default_configs_from_embedded;
+pub use default_rules_loader::init_default_configs_to_project;
 
 // 导出连接池管理函数
 pub use pool_manager::{DbPool, get_pool, init_pool, is_pool_initialized, try_get_pool};

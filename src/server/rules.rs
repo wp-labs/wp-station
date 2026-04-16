@@ -1,12 +1,6 @@
 // 规则配置业务逻辑层
 
-use crate::db::{
-    NewKnowledgeConfig, NewRuleConfig, RuleType, create_knowledge_config, create_rule_config,
-    delete_rule_config, find_knowledge_config_by_file_name, find_rule_by_type_and_name,
-    find_rules_by_type, get_knowdb_config_entry, get_knowledge_config_status_list, get_pool,
-    get_rule_file_names, update_knowdb_config, update_knowledge_config,
-    update_knowledge_config_active, update_rule_content, update_rule_sample_content,
-};
+use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::{handle_draft_release, sync_delete_to_gitea, sync_to_gitea};
 use crate::server::{
@@ -17,7 +11,15 @@ use crate::utils::check::check_component;
 use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
 use crate::utils::knowledge::load_knowledge;
 use crate::utils::pagination::{MemoryPaginate, PageQuery, PageResponse};
+use crate::utils::{
+    delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs, list_rule_files,
+    read_knowdb_config, read_knowledge_files, read_rule_content, read_wpl_sample_content,
+    touch_knowledge_in_project, touch_rule_in_project, write_knowdb_config, write_knowledge_files,
+    write_rule_content, write_wpl_sample_content,
+};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WplSubFile {
@@ -139,6 +141,11 @@ fn build_rule_files_response(mut files: Vec<String>, keyword: &str) -> Vec<Strin
     files
 }
 
+fn system_time_to_rfc3339(time: SystemTime) -> String {
+    let datetime: DateTime<Utc> = time.into();
+    datetime.to_rfc3339()
+}
+
 /// 获取规则文件列表
 pub async fn get_rule_files_logic(query: RuleFilesQuery) -> Result<RuleFilesResponse, AppError> {
     let RuleFilesQuery {
@@ -148,19 +155,14 @@ pub async fn get_rule_files_logic(query: RuleFilesQuery) -> Result<RuleFilesResp
     } = query;
     let keyword = keyword.unwrap_or_default();
     let (page, page_size) = page.normalize(50);
+    let setting = Setting::load();
 
     // 处理知识库类型
     let mut files = if matches!(rule_type, RuleType::Knowledge) {
-        let list = get_knowledge_config_status_list().await?;
-
-        let files: Vec<String> = list
-            .into_iter()
-            .map(|(file_name, _is_active)| file_name)
-            .collect();
-
+        let files = list_knowledge_dirs(&setting.project_root)?;
         build_rule_files_response(files, &keyword)
     } else {
-        let files = get_rule_file_names(rule_type.as_ref()).await?;
+        let files = list_rule_files(&setting.project_root, rule_type)?;
         build_rule_files_response(files, &keyword)
     };
 
@@ -206,13 +208,13 @@ pub async fn get_rule_content_logic(
     rule_type: RuleType,
     file: Option<String>,
 ) -> Result<serde_json::Value, AppError> {
+    let setting = Setting::load();
+
     // 处理知识库类型
     if matches!(rule_type, RuleType::Knowledge) {
         let file = file.ok_or_else(|| AppError::validation("knowledge 类型必须指定 file"))?;
 
-        let result = find_knowledge_config_by_file_name(&file).await?;
-
-        return if let Some(config) = result {
+        return if let Some(config) = read_knowledge_files(&setting.project_root, &file)? {
             let resp = KnowledgeRuleContentResponse {
                 rule_type,
                 file: file.clone(),
@@ -235,31 +237,32 @@ pub async fn get_rule_content_logic(
             if base_name.is_empty() {
                 return Err(AppError::validation("wpl 文件名不能为空"));
             }
-            let result = find_rule_by_type_and_name(rule_type.as_ref(), base_name).await?;
-            if let Some(rule) = result {
-                let content = match sub_file {
-                    WplSubFile::Parse => rule.content,
-                    WplSubFile::Sample => rule.sample_content,
-                };
+            let result = match sub_file {
+                WplSubFile::Parse => {
+                    read_rule_content(&setting.project_root, rule_type, base_name)?
+                }
+                WplSubFile::Sample => read_wpl_sample_content(&setting.project_root, base_name)?,
+            };
+            if let Some((content, modified)) = result {
                 let resp = RuleContentResponse {
                     rule_type,
                     file: format_wpl_virtual_file(base_name, sub_file),
-                    content,
-                    last_modified: Some(rule.updated_at.to_rfc3339()),
+                    content: Some(content),
+                    last_modified: Some(system_time_to_rfc3339(modified)),
                 };
                 return serde_json::to_value(resp).map_err(AppError::internal);
             }
             return Err(AppError::not_found("规则配置"));
         }
 
-        let result = find_rule_by_type_and_name(rule_type.as_ref(), &file).await?;
-
-        if let Some(rule) = result {
+        if let Some((content, modified)) =
+            read_rule_content(&setting.project_root, rule_type, &file)?
+        {
             let resp = RuleContentResponse {
                 rule_type,
                 file: file.clone(),
-                content: rule.content,
-                last_modified: Some(rule.updated_at.to_rfc3339()),
+                content: Some(content),
+                last_modified: Some(system_time_to_rfc3339(modified)),
             };
             serde_json::to_value(resp).map_err(AppError::internal)
         } else {
@@ -267,17 +270,21 @@ pub async fn get_rule_content_logic(
         }
     } else {
         debug!("查询所有规则配置: rule_type={}", rule_type.as_ref());
-        let list = find_rules_by_type(rule_type.as_ref()).await?;
+        let files = list_rule_files(&setting.project_root, rule_type)?;
 
-        let items: Vec<RuleContentResponse> = list
-            .into_iter()
-            .map(|rule| RuleContentResponse {
-                rule_type,
-                file: rule.file_name.clone(),
-                content: rule.content,
-                last_modified: Some(rule.updated_at.to_rfc3339()),
-            })
-            .collect();
+        let mut items = Vec::new();
+        for file in files {
+            if let Some((content, modified)) =
+                read_rule_content(&setting.project_root, rule_type, &file)?
+            {
+                items.push(RuleContentResponse {
+                    rule_type,
+                    file,
+                    content: Some(content),
+                    last_modified: Some(system_time_to_rfc3339(modified)),
+                });
+            }
+        }
 
         serde_json::to_value(items).map_err(AppError::internal)
     }
@@ -300,37 +307,25 @@ pub async fn create_rule_file_logic(rule_type: RuleType, file: String) -> Result
 
     let file_for_log = normalized_file.clone();
     let result = async move {
+        let setting = Setting::load();
+
         // 处理知识库类型
         if matches!(rule_type, RuleType::Knowledge) {
-            let new_cfg = NewKnowledgeConfig {
-                file_name: normalized_file.clone(),
-                config_content: None,
-                create_sql: None,
-                insert_sql: None,
-                data_content: None,
-            };
+            let created_path = touch_knowledge_in_project(&setting.project_root, &normalized_file)?;
 
-            create_knowledge_config(new_cfg).await?;
-
-            info!("知识库规则文件创建成功: file={}", normalized_file);
+            info!(
+                "知识库规则文件创建成功: file={}, path={}",
+                normalized_file, created_path
+            );
             return Ok::<_, AppError>(());
         }
 
-        // 创建规则文件
-        let new_rule = NewRuleConfig {
-            rule_type,
-            file_name: normalized_file.clone(),
-            display_name: None,
-            content: None,
-            sample_content: None,
-            file_size: None,
-        };
-
-        create_rule_config(new_rule).await?;
+        let created_path =
+            touch_rule_in_project(&setting.project_root, rule_type, &normalized_file)?;
 
         info!(
-            "规则文件创建成功: rule_type={:?}, file={}",
-            rule_type, normalized_file
+            "规则文件创建成功: rule_type={:?}, file={}, path={}",
+            rule_type, normalized_file, created_path
         );
 
         Ok::<_, AppError>(())
@@ -382,11 +377,17 @@ pub async fn delete_rule_file_logic(
     let operator_cloned = operator.clone();
     let file_for_log = normalized_file.clone();
     let result = async move {
+        let setting = Setting::load();
+
         // 处理知识库类型
         if matches!(rule_type, RuleType::Knowledge) {
-            update_knowledge_config_active(&normalized_file, false).await?;
+            let deleted_path =
+                delete_knowledge_from_project(&setting.project_root, &normalized_file)?;
 
-            info!("知识库规则文件删除成功: file={}", normalized_file);
+            info!(
+                "知识库规则文件删除成功: file={}, path={}",
+                normalized_file, deleted_path
+            );
 
             // 同步到 Gitea
             sync_delete_to_gitea(rule_type, &normalized_file).await;
@@ -397,12 +398,12 @@ pub async fn delete_rule_file_logic(
             return Ok::<_, AppError>(());
         }
 
-        // 删除规则文件
-        delete_rule_config(rule_type.as_ref(), &normalized_file).await?;
+        let deleted_path =
+            delete_rule_from_project(&setting.project_root, rule_type, &normalized_file)?;
 
         info!(
-            "规则文件删除成功: rule_type={:?}, file={}",
-            rule_type, normalized_file
+            "规则文件删除成功: rule_type={:?}, file={}, path={}",
+            rule_type, normalized_file, deleted_path
         );
 
         // 同步到 Gitea
@@ -466,62 +467,26 @@ pub async fn save_rule_logic(
 
     let content = content.ok_or_else(|| AppError::validation("content 不能为空"))?;
     let size = content.len() as i32;
-    let is_update = find_rule_by_type_and_name(rule_type.as_ref(), &target_file)
-        .await?
-        .is_some();
+    let project_root = Setting::load().project_root;
+    let is_update = if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
+        read_wpl_sample_content(&project_root, &target_file)?.is_some()
+    } else {
+        read_rule_content(&project_root, rule_type, &target_file)?.is_some()
+    };
 
     let operator_cloned = operator.clone();
     let target_file_cloned = target_file.clone();
     let result = async move {
-        let existing = find_rule_by_type_and_name(rule_type.as_ref(), &target_file_cloned).await?;
-
-        match existing {
-            Some(_) => match wpl_sub_file {
-                Some(WplSubFile::Sample) => {
-                    update_rule_sample_content(rule_type.as_ref(), &target_file_cloned, &content)
-                        .await?;
-                }
-                _ => {
-                    update_rule_content(rule_type.as_ref(), &target_file_cloned, &content, size)
-                        .await?;
-                }
-            },
-            None => {
-                // 创建新规则
-                let new_rule = NewRuleConfig {
-                    rule_type,
-                    file_name: target_file_cloned.clone(),
-                    display_name: None,
-                    content: if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
-                        None
-                    } else {
-                        Some(content.clone())
-                    },
-                    sample_content: if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
-                        Some(content.clone())
-                    } else {
-                        None
-                    },
-                    file_size: if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
-                        None
-                    } else {
-                        Some(size)
-                    },
-                };
-                create_rule_config(new_rule).await?;
-            }
-        }
+        let written_path = if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
+            write_wpl_sample_content(&project_root, &target_file_cloned, &content)?
+        } else {
+            write_rule_content(&project_root, rule_type, &target_file_cloned, &content)?
+        };
 
         info!(
-            "规则配置保存成功: rule_type={:?}, file={}",
-            rule_type, target_file_cloned
+            "规则配置保存成功: rule_type={:?}, file={}, path={}",
+            rule_type, target_file_cloned, written_path
         );
-
-        // 导出所有配置到项目目录
-        let setting = Setting::load();
-        let exported_path =
-            crate::utils::export_project_from_db(get_pool().inner(), &setting.project_root).await?;
-        info!("所有配置导出成功: path={}", exported_path);
 
         // 同步到 Gitea
         let commit_message = format!("规则改动: {} - {}", rule_type.as_ref(), target_file_cloned);
@@ -566,7 +531,8 @@ pub async fn save_knowledge_rule_logic(
 ) -> Result<(), AppError> {
     info!("保存知识库规则配置: file={}", file);
 
-    let is_update = find_knowledge_config_by_file_name(&file).await?.is_some();
+    let project_root = Setting::load().project_root;
+    let is_update = read_knowledge_files(&project_root, &file)?.is_some();
     // 克隆参数用于日志记录
     let file_clone = file.clone();
     let config_clone = config.clone();
@@ -577,37 +543,16 @@ pub async fn save_knowledge_rule_logic(
     let operator_cloned = operator.clone();
     let file_for_log = file_clone.clone();
     let result = async move {
-        let new_cfg = NewKnowledgeConfig {
-            file_name: file.clone(),
-            config_content: config,
-            create_sql,
-            insert_sql,
-            data_content: data,
-        };
-
-        // 检查知识库配置是否已存在
-        let existing = find_knowledge_config_by_file_name(&file).await?;
-        match existing {
-            Some(_) => {
-                // 更新现有配置
-                update_knowledge_config(&file, new_cfg).await?;
-            }
-            None => {
-                // 创建新配置
-                create_knowledge_config(new_cfg).await?;
-            }
+        let table_path = write_knowledge_files(&project_root, &file, create_sql, insert_sql, data)?;
+        if let Some(config_content) = config {
+            let knowdb_path = write_knowdb_config(&project_root, &config_content)?;
+            debug!("全局 knowdb 配置已随知识库保存更新: path={}", knowdb_path);
         }
 
-        info!("知识库规则配置保存成功: file={}", file);
-
-        // 导出所有配置到项目目录
-        let setting = Setting::load();
-        let exported_path =
-            crate::utils::export_project_from_db(get_pool().inner(), &setting.project_root).await?;
-        info!("所有配置导出成功: path={}", exported_path);
+        info!("知识库规则配置保存成功: file={}, path={}", file, table_path);
 
         // 加载知识库
-        load_knowledge(&setting.project_root).map_err(AppError::internal)?;
+        load_knowledge(&project_root).map_err(AppError::internal)?;
 
         // 同步到 Gitea
         let commit_message = format!("知识库改动: {}", file);
@@ -658,11 +603,14 @@ pub async fn save_knowledge_rule_logic(
 
 /// 获取 knowdb.toml 内容
 pub async fn get_knowdb_config_logic() -> Result<KnowdbConfigResponse, AppError> {
-    let entry = get_knowdb_config_entry().await?;
+    let project_root = Setting::load().project_root;
+    let entry = read_knowdb_config(&project_root)?;
     let response = KnowdbConfigResponse {
         file: "knowdb.toml".to_string(),
-        content: entry.as_ref().and_then(|cfg| cfg.config_content.clone()),
-        last_modified: entry.as_ref().map(|cfg| cfg.updated_at.to_rfc3339()),
+        content: entry.as_ref().map(|(content, _)| content.clone()),
+        last_modified: entry
+            .as_ref()
+            .map(|(_, modified)| system_time_to_rfc3339(*modified)),
     };
     Ok(response)
 }
@@ -674,16 +622,14 @@ pub async fn save_knowdb_config_logic(
 ) -> Result<(), AppError> {
     info!("保存 knowdb 配置");
     let operator_cloned = operator.clone();
+    let project_root = Setting::load().project_root;
 
     let result = async move {
-        update_knowdb_config(content).await?;
+        let content = content.unwrap_or_default();
+        let written_path = write_knowdb_config(&project_root, &content)?;
+        info!("knowdb 配置保存成功: path={}", written_path);
 
-        let setting = Setting::load();
-        let exported_path =
-            crate::utils::export_project_from_db(get_pool().inner(), &setting.project_root).await?;
-        info!("所有配置导出成功: path={}", exported_path);
-
-        load_knowledge(&setting.project_root).map_err(AppError::internal)?;
+        load_knowledge(&project_root).map_err(AppError::internal)?;
 
         let commit_message = "知识库改动: knowdb.toml".to_string();
         sync_to_gitea(&commit_message).await;

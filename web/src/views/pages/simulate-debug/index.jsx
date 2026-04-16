@@ -44,6 +44,9 @@ const DEFAULT_EXAMPLES = [
   },
 ];
 
+const buildKnowledgeDefaultSql = (tableName) =>
+  tableName ? `select * from ${tableName} limit 20;` : '';
+
 const buildTypedName = (i18nT, type, number) => {
   const prefix = i18nT(`multipleInstances.type.${type}`);
   const useNoSpace = type === 'log' && /[\u4e00-\u9fff]/.test(prefix);
@@ -700,7 +703,7 @@ output_path = "./logs/"`);
           setKnowledgeDatasets(datasets);
           const firstDataset = datasets[0];
           setKnowledgeTable(firstDataset);
-          setKnowledgeSql(`select * from ${firstDataset};`);
+          setKnowledgeSql(buildKnowledgeDefaultSql(firstDataset));
         }
       } catch (error) {
         message.error('加载知识库列表失败：' + error.message);
@@ -714,7 +717,7 @@ output_path = "./logs/"`);
    */
   const handleKnowledgeTableChange = (tableName) => {
     setKnowledgeTable(tableName);
-    setKnowledgeSql(`select * from ${tableName};`);
+    setKnowledgeSql(buildKnowledgeDefaultSql(tableName));
     setKnowledgeResult(null);
   };
 
@@ -1821,11 +1824,16 @@ output_path = "./logs/"`);
                         {knowledgeResult ? (
                           <Table
                             size="small"
-                            columns={knowledgeResult.columns || []}
+                            columns={(knowledgeResult.columns || []).map((column) => ({
+                              ...column,
+                              width: column.width || 160,
+                              ellipsis: false,
+                            }))}
                             dataSource={knowledgeResult.fields || []}
                             pagination={false}
                             rowKey="key"
                             className="data-table compact"
+                            scroll={{ x: 'max-content' }}
                           />
                         ) : (
                           <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>

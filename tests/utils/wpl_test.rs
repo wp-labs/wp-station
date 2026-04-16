@@ -4,6 +4,34 @@ use wp_station::utils::{
     wpl::{WplFormatter, record_to_fields},
 };
 
+fn sample_files_with_extension(root: &str, extension: &str) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(root)];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+
+            if file_type.is_dir() {
+                stack.push(path);
+            } else if file_type.is_file()
+                && path.extension().and_then(|ext| ext.to_str()) == Some(extension)
+            {
+                files.push(path);
+            }
+        }
+    }
+
+    files
+}
+
 fn sample_record() -> DataRecord {
     DataRecord::from(vec![
         DataField::new(DataType::Chars, "alpha", Value::from("one")),
@@ -101,13 +129,13 @@ fn test_wpl_formatter_reports_unbalanced_brackets() {
 #[test]
 fn test_wpl_formatter_formats_project_samples() {
     let formatter = WplFormatter::new();
-    let samples = std::fs::read_dir("project_root/models/wpl").expect("list wpl samples");
-    for entry in samples.flatten() {
-        if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            let content = std::fs::read_to_string(entry.path()).expect("read wpl sample");
-            let formatted = formatter.format_content_or_original(&content);
-            assert!(!formatted.is_empty());
-        }
+    let samples = sample_files_with_extension("project_root/models/wpl", "wpl");
+    assert!(!samples.is_empty(), "expected at least one WPL sample");
+
+    for path in samples {
+        let content = std::fs::read_to_string(&path).expect("read wpl sample");
+        let formatted = formatter.format_content_or_original(&content);
+        assert!(!formatted.is_empty(), "empty formatted output for {path:?}");
     }
 }
 

@@ -1,14 +1,8 @@
-use crate::common::{rand_suffix, setup_db};
+use crate::common::{rand_suffix, remove_project_path, setup_db};
 use actix_web::{App, http::StatusCode, test};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use wp_station_migrations::entity::rule_config::{Column as RuleColumn, Entity as RuleEntity};
 
-async fn cleanup_rule(file: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = RuleEntity::delete_many()
-        .filter(RuleColumn::FileName.eq(file))
-        .exec(pool.inner())
-        .await;
+fn cleanup_wpl(file: &str) {
+    remove_project_path(format!("models/wpl/{file}"));
 }
 
 #[actix_web::test]
@@ -85,5 +79,5 @@ async fn test_rule_file_crud_and_validation() {
     let delete_resp = test::call_service(&app, delete_req).await;
     assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
 
-    cleanup_rule(&file).await;
+    cleanup_wpl(&file);
 }
