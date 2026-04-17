@@ -4,14 +4,19 @@ use crate::db::device::{Device, NewDevice};
 use crate::db::{
     DeviceStatus, create_device as db_create_device, delete_device as db_delete_device,
     find_all_devices, find_device_by_id, find_devices_page, update_device as db_update_device,
+    update_device_runtime_state, update_device_status,
 };
 use crate::error::AppError;
 use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
+    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
+    write_operation_log_for_result,
 };
+use crate::utils::WarpParseService;
 use crate::utils::check_device_health;
 use crate::utils::pagination::{PageQuery, PageResponse};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ============ 请求参数结构体 ============
 
@@ -62,6 +67,8 @@ pub struct DeviceUpdateResult {
     pub message: Option<String>,
 }
 
+const CREATE_DEVICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+
 // ============ 业务逻辑函数 ============
 
 /// 获取设备列表（支持关键字搜索 + 分页）
@@ -97,7 +104,7 @@ pub async fn list_online_devices_logic() -> Result<Vec<Device>, AppError> {
     Ok(online)
 }
 
-/// 创建新设备，创建后立即执行健康检查更新初始状态
+/// 创建新设备。先入库，再做 3 秒连通性校验；校验失败时保留记录并返回错误。
 pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreated, AppError> {
     info!("创建设备: ip={}, port={}", req.ip, req.port);
 
@@ -108,10 +115,10 @@ pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreat
 
     let result = async move {
         let new_device = NewDevice {
-            name: req.name,
+            name: req.name.clone(),
             ip: req.ip.clone(),
             port: req.port,
-            remark: req.remark,
+            remark: req.remark.clone(),
             token: req.token.clone(),
             status: Some(DeviceStatus::Unknown),
         };
@@ -121,8 +128,7 @@ pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreat
             .map_err(AppError::internal)?;
         info!("设备记录创建成功: id={}", id);
 
-        // 创建后立即执行一次健康检查，更新初始在线状态
-        check_device_health(id).await;
+        validate_device_reachable_after_create(id, &req).await?;
 
         info!("创建设备完成: id={}", id);
         Ok::<_, AppError>(DeviceCreated { id })
@@ -142,6 +148,71 @@ pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreat
     .await;
 
     result
+}
+
+async fn validate_device_reachable_after_create(
+    device_id: i32,
+    req: &CreateDeviceRequest,
+) -> Result<(), AppError> {
+    let setting = Setting::load();
+    let service = WarpParseService::with_timeout(CREATE_DEVICE_CONNECT_TIMEOUT)
+        .map_err(AppError::internal)?;
+    let now = Utc::now();
+    let device = Device {
+        id: 0,
+        name: req.name.clone(),
+        ip: req.ip.clone(),
+        port: req.port,
+        remark: req.remark.clone(),
+        status: DeviceStatus::Unknown.as_ref().to_string(),
+        token: req.token.clone(),
+        client_version: None,
+        config_version: None,
+        last_release_id: None,
+        last_seen_at: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    match service.check_online(&device, &setting.warparse).await {
+        Ok(status) if status.is_online => {
+            update_device_status(device_id, DeviceStatus::Active)
+                .await
+                .map_err(AppError::internal)?;
+            update_device_runtime_state(
+                device_id,
+                status.client_version.as_deref(),
+                status.config_version.as_deref(),
+                None,
+                Some(now),
+            )
+            .await
+            .map_err(AppError::internal)?;
+            info!("新增设备连接验证成功: ip={}, port={}", req.ip, req.port);
+            Ok(())
+        }
+        Ok(_) => {
+            let _ = update_device_status(device_id, DeviceStatus::Inactive).await;
+            warn!(
+                "新增设备连接验证失败: ip={}, port={}, reason=设备离线",
+                req.ip, req.port
+            );
+            Err(AppError::validation(
+                "无法连接设备，请检查 IP、端口和 Token 是否正确",
+            ))
+        }
+        Err(err) => {
+            let _ = update_device_status(device_id, DeviceStatus::Inactive).await;
+            warn!(
+                "新增设备连接验证失败: ip={}, port={}, error={}",
+                req.ip, req.port, err
+            );
+            Err(AppError::validation(format!(
+                "无法连接设备，请检查 IP、端口和 Token 是否正确（3 秒超时）: {}",
+                err
+            )))
+        }
+    }
 }
 
 /// 更新已有设备配置

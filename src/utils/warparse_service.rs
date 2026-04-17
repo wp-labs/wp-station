@@ -4,6 +4,7 @@ use crate::db::Device;
 use crate::server::setting::WarparseConf;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ============ 错误类型 ============
 
@@ -88,6 +89,16 @@ impl WarpParseService {
     pub fn new() -> Result<Self, ServiceError> {
         let client = Client::builder()
             .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| ServiceError::Network(e.to_string()))?;
+
+        Ok(WarpParseService { client })
+    }
+
+    pub fn with_timeout(timeout: Duration) -> Result<Self, ServiceError> {
+        let client = Client::builder()
+            .danger_accept_invalid_certs(true)
+            .timeout(timeout)
             .build()
             .map_err(|e| ServiceError::Network(e.to_string()))?;
 

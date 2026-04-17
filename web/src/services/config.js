@@ -39,12 +39,22 @@ const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
   '11-syslog-tcp.toml': 'Syslog (TCP)',
   '12-tcp.toml': 'TCP',
   '30-kafka.toml': 'Kafka',
+  '40-mysql.toml': 'MySQL',
   '00-blackhole-sink.toml': 'Blackhole',
   '01-file-prototext.toml': 'File (Prototext)',
   '02-file-json.toml': 'File (JSON)',
   '03-file-kv.toml': 'File (KV)',
   '04-file-raw.toml': 'File (RAW)',
+  '09-file-test.toml': 'Test Rescue',
   '40-prometheus.toml': 'Prometheus',
+  '50-mysql.toml': 'MySQL',
+  '60-doris.toml': 'Doris',
+  '60-postgres.toml': 'Postgres',
+  '70-victorialogs.toml': 'VictoriaLogs',
+  '80-victoriametrics.toml': 'VictoriaMetrics',
+  '90-elasticsearch.toml': 'Elasticsearch',
+  '100-clickhouse.toml': 'ClickHouse',
+  '101-http.toml': 'HTTP',
 });
 
 const getConnectionDisplayName = (file, displayName) => {

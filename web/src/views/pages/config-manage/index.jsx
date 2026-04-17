@@ -10,12 +10,22 @@ const CONNECTION_FILE_ORDER = Object.freeze([
   '11-syslog-tcp.toml',
   '12-tcp.toml',
   '30-kafka.toml',
+  '40-mysql.toml',
   '00-blackhole-sink.toml',
   '01-file-prototext.toml',
   '02-file-json.toml',
   '03-file-kv.toml',
   '04-file-raw.toml',
+  '09-file-test.toml',
   '40-prometheus.toml',
+  '50-mysql.toml',
+  '60-doris.toml',
+  '60-postgres.toml',
+  '70-victorialogs.toml',
+  '80-victoriametrics.toml',
+  '90-elasticsearch.toml',
+  '100-clickhouse.toml',
+  '101-http.toml',
 ]);
 
 /**

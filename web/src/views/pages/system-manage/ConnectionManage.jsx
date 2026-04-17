@@ -171,6 +171,10 @@ function ConnectionManage() {
       loadConnections();
     } catch (err) {
       message.error(err.message || t('connectionManage.saveFailed'));
+      if (!editRecord) {
+        setModalOpen(false);
+        loadConnections();
+      }
     } finally {
       setSubmitting(false);
     }
