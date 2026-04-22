@@ -143,6 +143,8 @@ services:
     volumes:
       # 仅持久化 project_root，config.toml 继续使用镜像内默认文件并由环境变量覆盖
       - station-project-root:/app/project_root
+      # 外置默认配置作为首次初始化种子；Station 优先读取该目录，缺失时回退到内嵌默认配置。
+      - ./station/default_configs:/app/default_configs:ro
       - warp-toolchain-data:/app/toolchain:ro
     environment:
       # 使用环境变量覆盖容器内 config.toml 的数据库连接配置
@@ -158,6 +160,12 @@ services:
       # 其余外部依赖地址通过环境变量覆盖 config.toml
       - WP_STATION__ASSIST__BASE_URL=${STATION_ASSIST_BASE_URL}
       - WP_STATION__FEATURES__DATA_COLLECT_URL=${STATION_DATA_COLLECT_URL}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        git config --global user.name "WarpStation"
+        git config --global user.email "station@warpparse.local"
+        exec /app/wp-station
     ports:
       - "8081:8081"
     networks:

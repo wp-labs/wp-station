@@ -28,9 +28,9 @@ rand = "~0.8"
 regex = "1"
 urlencoding = "2.1"
 
-wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.0" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.0" }
-wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.0" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.3" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.3" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.20.3" }
 wp_knowledge  = { package = "wp-knowledge",  version = "0.11"}
 wp-model-core = "0.8"
 wp-parse-api = "0.8"
