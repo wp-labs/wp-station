@@ -1220,12 +1220,83 @@ export async function saveKnowdbConfig(content) {
 
 
 /**
+ * 获取调试页知识库数据源列表。
+ * @returns {Promise<string[]>} 知识库表或外部 provider 名称
+ */
+export async function fetchDebugKnowledgeDatasets() {
+  const response = await httpRequest.get('/debug/knowledge/status');
+  if (!Array.isArray(response)) {
+    return [];
+  }
+
+  return response
+    .filter((item) => item?.is_active !== false)
+    .map((item) => item?.tag_name)
+    .filter(Boolean);
+}
+
+const extractBackendErrorMessage = (error, fallbackMessage = '查询失败') => {
+  const responseData = error?.response?.data || error?.data || error?.responseData;
+  const backendError = responseData?.error;
+  const details = backendError?.details || backendError?.detail;
+
+  if (typeof details === 'string' && details.trim()) {
+    return details;
+  }
+  if (details && typeof details === 'object') {
+    const detailText = details.reason || details.message || JSON.stringify(details);
+    if (detailText) {
+      return detailText;
+    }
+  }
+  if (backendError?.message) {
+    return backendError.message;
+  }
+  if (error?.message) {
+    return error.message;
+  }
+  return fallbackMessage;
+};
+
+
+/**
  * 执行知识库 SQL 查询
+ * @param {string} table - 当前选择的数据源名称，provider 时为 postgres/mysql，本地时为知识库目录名
  * @param {string} sql - SQL 查询语句
  * @returns {Promise<{fields: Array, columns: Array}>} 处理后的查询结果
  */
-export async function executeKnowledgeSql(sql) {
-  const response = await httpRequest.post('/db', { sql });
+export async function executeKnowledgeSql(table, sql) {
+  let response;
+  try {
+    response = await httpRequest.post('/debug/knowledge/query', {
+      table: table || '',
+      sql,
+    });
+  } catch (error) {
+    const wrapped = new Error(extractBackendErrorMessage(error));
+    wrapped.code = error?.response?.data?.error?.code || error?.code;
+    wrapped.responseData = error?.response?.data || error?.data || error?.responseData;
+    throw wrapped;
+  }
+
+  // 调试接口格式：{ success, columns: string[], rows: string[][], total }
+  if (response?.success && Array.isArray(response.columns) && Array.isArray(response.rows)) {
+    const columns = response.columns.map((header) => ({
+      title: header,
+      dataIndex: header,
+      key: header,
+    }));
+
+    const fields = response.rows.map((row, rowIndex) => {
+      const rowData = { key: rowIndex };
+      response.columns.forEach((header, columnIndex) => {
+        rowData[header] = row[columnIndex] ?? '';
+      });
+      return rowData;
+    });
+
+    return { fields, columns };
+  }
 
   // 兼容多种响应格式：
   // 1. 完整格式: { code: 200, msg: "success", data: [...] }

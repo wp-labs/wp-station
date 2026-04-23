@@ -13,7 +13,14 @@ import {
   omlCodeFormat,
   base64Decode,
 } from '@/services/debug';
-import { RuleType, fetchRuleFiles, fetchRuleConfig, saveRuleConfig, executeKnowledgeSql } from '@/services/config';
+import {
+  RuleType,
+  fetchRuleFiles,
+  fetchRuleConfig,
+  saveRuleConfig,
+  fetchDebugKnowledgeDatasets,
+  executeKnowledgeSql,
+} from '@/services/config';
 import CodeEditor from '@/views/components/CodeEditor';
 import { useWorkspace } from '@/hooks/useWorkspace';
 import { useMultipleInstances, createDefaultInstance } from '@/hooks/useMultipleInstances';
@@ -44,8 +51,15 @@ const DEFAULT_EXAMPLES = [
   },
 ];
 
-const buildKnowledgeDefaultSql = (tableName) =>
-  tableName ? `select * from ${tableName} limit 20;` : '';
+const DEFAULT_PROVIDER_SQL = 'select * from your_table limit 20;';
+
+const buildKnowledgeDefaultSql = (tableName) => {
+  if (!tableName) return '';
+  if (['postgres', 'mysql'].includes(String(tableName).toLowerCase())) {
+    return DEFAULT_PROVIDER_SQL;
+  }
+  return `select * from ${tableName} limit 20;`;
+};
 
 const buildTypedName = (i18nT, type, number) => {
   const prefix = i18nT(`multipleInstances.type.${type}`);
@@ -697,13 +711,20 @@ output_path = "./logs/"`);
   useEffect(() => {
     const loadKnowledgeDatasets = async () => {
       try {
-        const result = await fetchRuleFiles({ type: RuleType.KNOWLEDGE });
-        const datasets = Array.isArray(result?.items) ? result.items : [];
+        const datasets = await fetchDebugKnowledgeDatasets();
         if (datasets.length > 0) {
           setKnowledgeDatasets(datasets);
-          const firstDataset = datasets[0];
-          setKnowledgeTable(firstDataset);
-          setKnowledgeSql(buildKnowledgeDefaultSql(firstDataset));
+          setKnowledgeTable((currentTable) => {
+            const nextTable = currentTable && datasets.includes(currentTable) ? currentTable : datasets[0];
+            setKnowledgeSql((currentSql) => (
+              currentSql && currentSql.trim() ? currentSql : buildKnowledgeDefaultSql(nextTable)
+            ));
+            return nextTable;
+          });
+        } else {
+          setKnowledgeDatasets([]);
+          setKnowledgeTable('');
+          setKnowledgeSql('');
         }
       } catch (error) {
         message.error('加载知识库列表失败：' + error.message);
@@ -726,11 +747,22 @@ output_path = "./logs/"`);
    */
   const handleKnowledgeUpdate = async () => {
     try {
-      const result = await fetchRuleFiles({ type: 'knowledge' });
-      const datasets = Array.isArray(result?.items) ? result.items : [];
+      const datasets = await fetchDebugKnowledgeDatasets();
       if (datasets.length > 0) {
         setKnowledgeDatasets(datasets);
+        const nextTable = datasets.includes(knowledgeTable) ? knowledgeTable : datasets[0];
+        if (nextTable !== knowledgeTable) {
+          setKnowledgeTable(nextTable);
+          setKnowledgeSql(buildKnowledgeDefaultSql(nextTable));
+          setKnowledgeResult(null);
+        }
         message.success('更新成功');
+      } else {
+        setKnowledgeDatasets([]);
+        setKnowledgeTable('');
+        setKnowledgeSql('');
+        setKnowledgeResult(null);
+        message.warning('未检测到可用知识库数据源');
       }
     } catch (error) {
       message.error('更新失败：' + error.message);
@@ -741,13 +773,13 @@ output_path = "./logs/"`);
    * 执行知识库查询
    */
   const handleKnowledgeQuery = async () => {
-    if (!knowledgeTable) {
-      message.warning('请选择知识库表');
+    if (!knowledgeSql.trim()) {
+      message.warning('请输入 SQL');
       return;
     }
     setKnowledgeLoading(true);
     try {
-      const result = await executeKnowledgeSql(knowledgeSql);
+      const result = await executeKnowledgeSql(knowledgeTable, knowledgeSql);
       setKnowledgeResult(result);
       if (result.fields.length > 0) {
         message.success('查询成功');
@@ -755,7 +787,8 @@ output_path = "./logs/"`);
         message.warning('未找到数据');
       }
     } catch (error) {
-      message.error('查询失败：' + error.message);
+      const sourceName = knowledgeTable || '默认数据源';
+      message.error(`查询失败（${sourceName}）：${error?.message || error}`);
     } finally {
       setKnowledgeLoading(false);
     }

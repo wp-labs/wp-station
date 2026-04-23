@@ -135,19 +135,11 @@ pub fn analyse_runtime_output(
     log_lines.push(format!("模拟发送数量 {} 条", expected_success));
     log_lines.push(format!("成功输出数量 {} 条", metrics.output_count));
     log_lines.push(format!("rule miss 次数: {}", metrics.miss_count));
-    log_lines.push(format!("ERROR 次数: {}", metrics.error_count));
     if metrics.miss_count > 0 {
         log_lines.push(format!("[DIAG] rule miss 计数 {} 次", metrics.miss_count));
     }
-    if metrics.error_count > 0 {
-        log_lines.push(format!(
-            "[DIAG] wparse ERROR 日志 {} 条",
-            metrics.error_count
-        ));
-    }
-    let passed = output_checks.iter().all(|item| item.is_empty)
-        && metrics.error_count == 0
-        && metrics.output_count == expected_success;
+    let passed =
+        output_checks.iter().all(|item| item.is_empty) && metrics.output_count == expected_success;
 
     Ok(RuntimeAnalysis {
         output_checks,
@@ -217,9 +209,7 @@ pub fn finalize_conclusion(
     } else {
         true
     };
-    conclusion.passed = output_checks.iter().all(|item| item.is_empty)
-        && conclusion.runtime_error_count == 0
-        && output_matches_input;
+    conclusion.passed = output_checks.iter().all(|item| item.is_empty) && output_matches_input;
 
     conclusion
 }

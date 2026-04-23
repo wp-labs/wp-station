@@ -182,6 +182,7 @@ fn write_override_file(project_dir: &Path, relative: &str, content: &str) -> Res
 }
 
 fn ensure_sandbox_runtime_configs(project_dir: &Path) -> Result<(), AppError> {
+    disable_wparse_admin_api(project_dir)?;
     let sandbox_source_override = build_sandbox_udp_source_override();
     write_override_file(
         project_dir,
@@ -191,6 +192,82 @@ fn ensure_sandbox_runtime_configs(project_dir: &Path) -> Result<(), AppError> {
     let sandbox_wpgen_override = build_sandbox_wpgen_override();
     write_override_file(project_dir, "conf/wpgen.toml", &sandbox_wpgen_override)?;
     Ok(())
+}
+
+fn disable_wparse_admin_api(project_dir: &Path) -> Result<(), AppError> {
+    let wparse_path = project_dir.join("conf").join("wparse.toml");
+    let content = fs::read_to_string(&wparse_path).map_err(AppError::internal)?;
+    let patched = patch_admin_api_enabled_false(&content);
+    fs::write(&wparse_path, patched).map_err(AppError::internal)?;
+    Ok(())
+}
+
+fn patch_admin_api_enabled_false(content: &str) -> String {
+    let mut lines = Vec::new();
+    let mut in_admin_api = false;
+    let mut found_admin_api = false;
+    let mut patched_enabled = false;
+    let mut pending_enabled_insert = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if in_admin_api
+            && pending_enabled_insert
+            && !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && !trimmed.starts_with("enabled")
+        {
+            lines.push("enabled = false".to_string());
+            pending_enabled_insert = false;
+            patched_enabled = true;
+        }
+
+        if in_admin_api && is_section && trimmed != "[admin_api]" {
+            in_admin_api = false;
+        }
+
+        if trimmed == "[admin_api]" {
+            in_admin_api = true;
+            found_admin_api = true;
+            patched_enabled = false;
+            pending_enabled_insert = true;
+            lines.push(line.to_string());
+            continue;
+        }
+
+        if in_admin_api && trimmed.starts_with("enabled") {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_whitespace())
+                .collect::<String>();
+            lines.push(format!("{indent}enabled = false"));
+            patched_enabled = true;
+            pending_enabled_insert = false;
+            continue;
+        }
+
+        lines.push(line.to_string());
+    }
+
+    if found_admin_api {
+        if in_admin_api && !patched_enabled {
+            lines.push("enabled = false".to_string());
+        }
+    } else {
+        if !lines.last().is_none_or(|line| line.trim().is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push("[admin_api]".to_string());
+        lines.push("enabled = false".to_string());
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    output
 }
 
 fn build_sandbox_udp_source_override() -> String {

@@ -19,7 +19,8 @@ pub use assist_service::{
 };
 pub use health_check::check_device_health;
 pub use knowledge::{
-    is_knowledge_loaded, load_knowledge, reload_knowledge, sql_knowdb_list, sql_query,
+    configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
+    reload_knowledge, reload_sqlite_knowledge, sql_knowdb_list, sql_query, sql_query_rows,
     unload_knowledge,
 };
 pub use oml::OmlFormatter;

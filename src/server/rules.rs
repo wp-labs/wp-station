@@ -9,7 +9,7 @@ use crate::server::{
 };
 use crate::utils::check::check_component;
 use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
-use crate::utils::knowledge::load_knowledge;
+use crate::utils::knowledge::reload_knowledge;
 use crate::utils::pagination::{MemoryPaginate, PageQuery, PageResponse};
 use crate::utils::{
     delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs, list_rule_files,
@@ -551,8 +551,8 @@ pub async fn save_knowledge_rule_logic(
 
         info!("知识库规则配置保存成功: file={}, path={}", file, table_path);
 
-        // 加载知识库
-        load_knowledge(&project_root).map_err(AppError::internal)?;
+        // 知识库文件和 knowdb provider 都可能变化，保存后强制重载运行时。
+        reload_knowledge(&project_root).map_err(AppError::internal)?;
 
         // 同步到 Gitea
         let commit_message = format!("知识库改动: {}", file);
@@ -629,7 +629,7 @@ pub async fn save_knowdb_config_logic(
         let written_path = write_knowdb_config(&project_root, &content)?;
         info!("knowdb 配置保存成功: path={}", written_path);
 
-        load_knowledge(&project_root).map_err(AppError::internal)?;
+        reload_knowledge(&project_root).map_err(AppError::internal)?;
 
         let commit_message = "知识库改动: knowdb.toml".to_string();
         sync_to_gitea(&commit_message).await;

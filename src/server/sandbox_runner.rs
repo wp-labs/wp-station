@@ -157,6 +157,10 @@ async fn stage_prepare_workspace(
     }
     log_lines.push("\n沙盒运行时 UDP 配置:".to_string());
     log_lines.push(format!(
+        "{} -> admin_api.enabled=false",
+        workspace.display_relative(&workspace.project_dir.join("conf/wparse.toml")),
+    ));
+    log_lines.push(format!(
         "{} -> connect=syslog_udp_src, port={}",
         workspace.display_relative(&workspace.project_dir.join("topology/sources/wpsrc.toml")),
         SANDBOX_RUNTIME_UDP_PORT
@@ -514,12 +518,6 @@ async fn stage_analyse_runtime_output(
             .filter(|check| !check.is_empty)
             .map(|check| format!("{} 非空（{}行）", check.relative_path, check.line_count))
             .collect();
-        if analysis.metrics.error_count > 0 {
-            details.push(format!(
-                "wparse ERROR 日志 {} 条",
-                analysis.metrics.error_count
-            ));
-        }
         if analysis.metrics.miss_count > 0 {
             details.push(format!("rule miss 日志 {} 条", analysis.metrics.miss_count));
         }

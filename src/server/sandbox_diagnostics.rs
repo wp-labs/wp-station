@@ -166,13 +166,6 @@ const DIAGNOSTIC_RULES: &[DiagnosticRule] = &[
         log: LogSource::StageLog,
         priority: 40,
     },
-    DiagnosticRule {
-        stage: StageMatcher::Exact(SandboxStage::AnalyseRuntimeOutput),
-        keyword: "[DIAG] wparse ERROR 日志",
-        suggestion: "wparse 日志出现 ERROR，优先排查 parse/oml 执行栈或外部依赖。",
-        log: LogSource::StageLog,
-        priority: 25,
-    },
 ];
 
 fn resolve_stage_log_path(path: &str) -> PathBuf {

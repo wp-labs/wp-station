@@ -6,7 +6,10 @@ use crate::db::{
 };
 use crate::error::AppError;
 use crate::server::Setting;
-use crate::utils::{list_knowledge_dirs, load_knowledge, sql_query, warp_check_record};
+use crate::utils::{
+    configured_provider_name, list_knowledge_dirs, load_knowledge, load_sqlite_knowledge,
+    reload_knowledge, reload_sqlite_knowledge, sql_query_rows, warp_check_record,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -72,6 +75,12 @@ pub struct DebugKnowledgeQueryResponse {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
     pub total: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KnowledgeQuerySource {
+    ConfiguredProvider,
+    LocalSqlite,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -155,7 +164,21 @@ pub async fn debug_transform_logic(
 /// 查询知识库配置状态列表
 pub async fn debug_knowledge_status_logic() -> Result<Vec<DebugKnowledgeStatusItem>, AppError> {
     let setting = Setting::load();
-    let list = list_knowledge_dirs(&setting.project_root)?;
+    let project_root = &setting.project_root;
+    let provider_name = configured_provider_name(project_root)?;
+    let local_tables = list_knowledge_dirs(project_root)?;
+
+    if provider_name.is_some() {
+        reload_knowledge(project_root).map_err(AppError::internal)?;
+    } else if !local_tables.is_empty() {
+        reload_sqlite_knowledge(project_root).map_err(AppError::internal)?;
+    }
+
+    let mut list = Vec::new();
+    if let Some(provider_name) = provider_name {
+        list.push(provider_name);
+    }
+    list.extend(local_tables);
 
     let items: Vec<DebugKnowledgeStatusItem> = list
         .into_iter()
@@ -170,33 +193,105 @@ pub async fn debug_knowledge_status_logic() -> Result<Vec<DebugKnowledgeStatusIt
 
 /// 执行知识库 SQL 查询（调试用）
 pub async fn debug_knowledge_query_logic(
-    _table: String,
-    _sql: String,
+    table: String,
+    sql: String,
 ) -> Result<DebugKnowledgeQueryResponse, AppError> {
-    // 确保知识库已初始化，首次调用时加载配置
-    let setting = Setting::load();
-    if let Err(e) = load_knowledge(&setting.project_root) {
-        warn!("加载知识库用于 SQL 调试失败: {}", e);
-    }
-
-    let fields = sql_query(&_sql)
-        .await
-        .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))?;
-
-    let columns: Vec<String> = fields.iter().map(|f| f.get_name().to_string()).collect();
-    let row: Vec<String> = fields.iter().map(|f| f.get_value().to_string()).collect();
-    let rows = if columns.is_empty() {
-        vec![]
-    } else {
-        vec![row]
-    };
-    let total = rows.len();
+    let rows = debug_knowledge_query_rows_for_source_logic(Some(table), sql).await?;
+    let columns: Vec<String> = rows
+        .first()
+        .map(|row| {
+            row.iter()
+                .map(|field| field.get_name().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let table_rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|field| field.get_value().to_string())
+                .collect()
+        })
+        .collect();
+    let total = table_rows.len();
 
     Ok(DebugKnowledgeQueryResponse {
         success: true,
         columns,
-        rows,
+        rows: table_rows,
         total,
+    })
+}
+
+fn resolve_knowledge_query_source(
+    selected: Option<&str>,
+    provider_name: Option<&str>,
+) -> KnowledgeQuerySource {
+    if let Some(selected) = selected.map(str::trim).filter(|value| !value.is_empty()) {
+        if provider_name.is_some_and(|provider| provider == selected) {
+            return KnowledgeQuerySource::ConfiguredProvider;
+        }
+        return KnowledgeQuerySource::LocalSqlite;
+    }
+
+    if provider_name.is_some() {
+        KnowledgeQuerySource::ConfiguredProvider
+    } else {
+        KnowledgeQuerySource::LocalSqlite
+    }
+}
+
+fn ensure_knowledge_source_loaded(
+    project_root: &str,
+    source: KnowledgeQuerySource,
+    force_reload: bool,
+) -> Result<(), AppError> {
+    let result = match (source, force_reload) {
+        (KnowledgeQuerySource::ConfiguredProvider, true) => reload_knowledge(project_root),
+        (KnowledgeQuerySource::ConfiguredProvider, false) => load_knowledge(project_root),
+        (KnowledgeQuerySource::LocalSqlite, true) => reload_sqlite_knowledge(project_root),
+        (KnowledgeQuerySource::LocalSqlite, false) => load_sqlite_knowledge(project_root),
+    };
+
+    result.map_err(|e| AppError::validation(format!("加载知识库失败: {}", e)))
+}
+
+async fn debug_knowledge_query_rows_for_source_logic(
+    table: Option<String>,
+    sql: String,
+) -> Result<Vec<Vec<wp_model_core::model::DataField>>, AppError> {
+    let sql = sql.trim().to_string();
+    if sql.is_empty() {
+        return Err(AppError::validation("SQL 不能为空"));
+    }
+
+    let setting = Setting::load();
+    let provider_name = configured_provider_name(&setting.project_root)?;
+    let source = resolve_knowledge_query_source(table.as_deref(), provider_name.as_deref());
+
+    ensure_knowledge_source_loaded(&setting.project_root, source, false)?;
+
+    sql_query_rows(&sql)
+        .await
+        .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))
+}
+
+/// 执行知识库 SQL 查询并返回原始字段行（供调试页表格适配使用）。
+pub async fn debug_knowledge_query_rows_logic(
+    sql: String,
+) -> Result<Vec<Vec<wp_model_core::model::DataField>>, AppError> {
+    debug_knowledge_query_rows_for_source_logic(None, sql).await
+}
+
+/// 执行知识库 SQL 查询并返回第一行字段（兼容旧调用方）。
+pub async fn debug_knowledge_query_fields_logic(
+    sql: String,
+) -> Result<Vec<wp_model_core::model::DataField>, AppError> {
+    let mut rows = debug_knowledge_query_rows_logic(sql).await?;
+    Ok(if rows.is_empty() {
+        Vec::new()
+    } else {
+        rows.remove(0)
     })
 }
 
