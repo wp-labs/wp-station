@@ -10,6 +10,10 @@ import {
   QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { getSessionUser, logout } from '@/services/auth';
+import {
+  DEFAULT_DATA_COLLECT_URL,
+  fetchDataCollectConfig,
+} from '@/services/features';
 import httpRequest from '@/services/request';
 import LanguageSwitcher from '@/views/components/LanguageSwitcher';
 import GitHubStarModal from '@/views/components/GitHubStarModal';
@@ -31,6 +35,7 @@ function Navigation({ children, onLocaleChange }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const [versionInfo, setVersionInfo] = useState({ warpStation: '', warpParse: '' });
+  const [runtimeMonitorUrl, setRuntimeMonitorUrl] = useState(DEFAULT_DATA_COLLECT_URL);
   const [wechatModalOpen, setWechatModalOpen] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
 
@@ -55,9 +60,33 @@ function Navigation({ children, onLocaleChange }) {
     fetchVersion();
   }, []);
 
-  const menuItems = [
-    { path: '/features', name: t('navigation.dataCollection'), page: 'data-collect' },
-    { path: '/system-release', name: t('navigation.systemRelease'), page: 'system-release' },
+  useEffect(() => {
+    const fetchRuntimeMonitorUrl = async () => {
+      try {
+        const response = await fetchDataCollectConfig();
+        if (response?.data_collect_url) {
+          setRuntimeMonitorUrl(response.data_collect_url);
+        }
+      } catch (_error) {
+        // 忽略运行监控地址获取失败，保留默认地址
+      }
+    };
+
+    fetchRuntimeMonitorUrl();
+  }, []);
+
+  const runtimeMonitorMenuItem = {
+    path: '/features',
+    name: t('navigation.dataCollection'),
+    page: 'data-collect',
+    external: true,
+  };
+  const primaryMenuItems = [
+    {
+      path: '/system-release',
+      name: t('navigation.systemRelease'),
+      page: 'system-release',
+    },
     { path: '/rule-manage', name: t('navigation.ruleConfig'), page: 'rule-manage' },
     { path: '/config-manage', name: t('navigation.configManage'), page: 'config-manage' },
     { path: '/simulate-debug', name: t('navigation.simulateDebug'), page: 'simulate-debug' },
@@ -80,6 +109,15 @@ function Navigation({ children, onLocaleChange }) {
   const handleLogout = () => {
     logout();
     navigate('/login', { replace: true });
+  };
+
+  const handleMenuNavigate = (menuItem) => {
+    if (menuItem.external) {
+      window.location.assign(runtimeMonitorUrl || DEFAULT_DATA_COLLECT_URL);
+      return;
+    }
+
+    navigate(menuItem.path);
   };
 
   /**
@@ -141,19 +179,31 @@ function Navigation({ children, onLocaleChange }) {
             </span>
           ) : null}
         </div>
-        <nav className="top-nav">
-          {menuItems.map((menuItem) => (
+        <div className="header-nav-row">
+          <nav className="top-nav">
+            {primaryMenuItems.map((menuItem) => (
+              <button
+                key={menuItem.path}
+                type="button"
+                className={`nav-item ${isActive(menuItem.path) ? 'is-active' : ''}`}
+                data-page={menuItem.page}
+                onClick={() => handleMenuNavigate(menuItem)}
+              >
+                {menuItem.name}
+              </button>
+            ))}
+          </nav>
+          <div className="top-nav-monitor">
             <button
-              key={menuItem.path}
               type="button"
-              className={`nav-item ${isActive(menuItem.path) ? 'is-active' : ''}`}
-              data-page={menuItem.page}
-              onClick={() => navigate(menuItem.path)}
+              className={`nav-item ${isActive(runtimeMonitorMenuItem.path) ? 'is-active' : ''}`}
+              data-page={runtimeMonitorMenuItem.page}
+              onClick={() => handleMenuNavigate(runtimeMonitorMenuItem)}
             >
-              {menuItem.name}
+              {runtimeMonitorMenuItem.name}
             </button>
-          ))}
-        </nav>
+          </div>
+        </div>
         <div className="header-actions">
           <Button
             type="primary"
@@ -245,7 +295,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/features', '/system-release'].some((path) =>
+            ['/system-release'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

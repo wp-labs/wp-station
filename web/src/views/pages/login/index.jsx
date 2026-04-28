@@ -46,7 +46,7 @@ function LoginPage() {
 
       // 登录成功，跳转到主页面
       message.success(`欢迎回来，${result.display_name || result.username}！`);
-      navigate('/features', { replace: true });
+      navigate('/rule-manage', { replace: true });
     } catch (error) {
       message.error(error.message || '登录失败，请检查用户名和密码');
     } finally {

@@ -182,7 +182,7 @@ function ConnectionsPage() {
       title: t('connections.connectSuccess'),
       content: ``,
       onOk: () => {
-        navigate('/features', { replace: true });
+        navigate('/rule-manage', { replace: true });
       },
     });
   };

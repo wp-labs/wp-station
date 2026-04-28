@@ -8,7 +8,7 @@
 //! - 进程管理：wparse daemon 启动/终止、wpgen/wproj 命令执行、端口可用性检查
 
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::net::UdpSocket;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -98,30 +98,6 @@ impl SandboxWorkspace {
     pub fn write_text_log(&self, name: &str, content: &str) -> Result<PathBuf, AppError> {
         let target = self.log_path(name);
         fs::write(&target, content).map_err(AppError::internal)?;
-        Ok(target)
-    }
-
-    /// 把多份日志按段落打包成单个文件，方便前端下载。
-    pub fn bundle_logs(&self, name: &str, sections: &[(&str, &Path)]) -> Result<PathBuf, AppError> {
-        let target = self.log_path(name);
-        let mut file = fs::File::create(&target).map_err(AppError::internal)?;
-        for (label, source) in sections {
-            writeln!(file, "===== {} =====", label).map_err(AppError::internal)?;
-            if source.exists() {
-                let metadata = fs::metadata(source).map_err(AppError::internal)?;
-                if metadata.len() == 0 {
-                    writeln!(file, "(日志为空)\n").map_err(AppError::internal)?;
-                } else {
-                    writeln!(file).map_err(AppError::internal)?;
-                    let mut src = fs::File::open(source).map_err(AppError::internal)?;
-                    io::copy(&mut src, &mut file).map_err(AppError::internal)?;
-                    writeln!(file).map_err(AppError::internal)?;
-                }
-            } else {
-                writeln!(file, "(文件不存在: {})\n", source.display())
-                    .map_err(AppError::internal)?;
-            }
-        }
         Ok(target)
     }
 
@@ -412,11 +388,6 @@ fn copy_file(src: &Path, dst: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 确保日志目录存在。
-pub fn ensure_logs_dir(path: &Path) -> Result<(), AppError> {
-    fs::create_dir_all(path).map_err(AppError::internal)
-}
-
 /// 校验用户提交的文件覆盖路径为 project_root 内的安全相对路径，
 /// 防止路径穿越攻击。
 fn validate_override_path(path_str: &str) -> Result<(), AppError> {
@@ -539,11 +510,6 @@ impl DaemonProcess {
         Self { child, log_path }
     }
 
-    /// 返回日志文件路径。
-    pub fn log_path(&self) -> &Path {
-        &self.log_path
-    }
-
     /// 等待日志中出现指定标记，常用于探测 daemon 是否就绪。
     /// 超时或进程提前退出时返回错误。
     pub async fn wait_for_marker(
@@ -659,13 +625,6 @@ pub async fn run_wpgen(
         exit_code: status.code(),
         log_path: log_path.to_path_buf(),
     })
-}
-
-/// 校验命令是否存在于 PATH，常用于预检查阶段确保 toolchain 已安装。
-pub fn check_command_exists(cmd: &str) -> Result<(), AppError> {
-    which::which(cmd)
-        .map(|_| ())
-        .map_err(|_| AppError::validation(format!("未找到可执行命令: {}", cmd)))
 }
 
 /// 运行 `<cmd> --version`，返回 stdout/stderr 中非空内容，优先返回 stdout。

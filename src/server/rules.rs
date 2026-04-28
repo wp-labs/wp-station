@@ -120,6 +120,7 @@ pub struct KnowdbConfigResponse {
 pub struct ValidateRuleResponse {
     pub valid: bool,
     pub message: Option<String>,
+    pub details: Vec<String>,
 }
 
 pub type RuleFilesResponse = PageResponse<RuleFileItem>;
@@ -672,13 +673,16 @@ pub async fn validate_rule_logic(
             Ok(ValidateRuleResponse {
                 valid: true,
                 message: None,
+                details: vec![],
             })
         }
         Err(e) => {
             warn!("规则配置校验失败: rule_type={:?}, error={}", rule_type, e);
+            let err_msg = e.to_string();
             Ok(ValidateRuleResponse {
                 valid: false,
-                message: Some(e.to_string()),
+                message: Some(err_msg.clone()),
+                details: vec![err_msg],
             })
         }
     };

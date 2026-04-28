@@ -54,7 +54,7 @@
     "dataCorrupted": "数据已损坏，已创建新的默认实例"
   },
   "simulateDebug": {
-    "title": "模拟调试",
+    "title": "规则编辑器",
     "tabs": {
       "parse": "解析",
       "convert": "转换",
@@ -257,11 +257,11 @@
     }
   },
   "navigation": {
-    "dataCollection": "数据采集",
-    "systemRelease": "系统发布",
+    "dataCollection": "运行监控",
+    "systemRelease": "配置发布",
     "ruleConfig": "规则配置",
-    "configManage": "配置管理",
-    "simulateDebug": "模拟调试",
+    "configManage": "设施设置",
+    "simulateDebug": "规则编辑器",
     "systemManage": "系统管理",
     "controlPlatform": "控制平台",
     "connected": "已连接：",
@@ -341,11 +341,13 @@
     "logoutConfirmMessage": "确定要退出登录吗？退出后需要重新登录才能访问系统。"
   },
   "features": {
-    "title": "数据采集监控"
+    "title": "运行监控"
   },
   "configManage": {
-    "title": "配置管理",
+    "title": "设施设置",
     "parseConfig": "解析配置",
+    "sourceConnect": "来源连接",
+    "sinkConnect": "输出连接",
     "connectionConfig": "连接配置",
     "configFiles": "配置文件",
     "add": "新增",
@@ -360,7 +362,9 @@
     "deleteConfirmMessage": "确定要删除 {{filename}} 吗？",
     "deleteSuccess": "删除成功",
     "deleteFailed": "删除失败：{{message}}",
-    "loadFailed": "加载连接配置文件列表失败：{{message}}",
+    "loadFailed": "加载配置失败：{{message}}",
+    "loadSinkFailed": "加载 sink 配置列表失败：{{message}}",
+    "loadConnectionFailed": "加载连接配置文件列表失败：{{message}}",
     "leaveConfirm": "确定离开当前页面吗？",
     "leaveConfirmMessage": "当前修改内容尚未提交，修改内容将不会保存",
     "noFileSelected": "未选择文件",
@@ -386,11 +390,9 @@
   },
   "ruleManage": {
     "title": "规则配置",
-    "sourceConfig": "source 配置",
     "wplConfig": "wpl配置",
     "omlConfig": "oml配置",
     "knowledgeConfig": "knowledge 配置",
-    "sinkSource": "sink 源",
     "ruleFiles": "规则文件",
     "enrichmentRules": "富化规则",
     "datasets": "数据集",
@@ -462,7 +464,7 @@
     "conforms": "配置文件符合 {{type}} 规范"
   },
   "systemRelease": {
-    "title": "系统发布",
+    "title": "配置发布",
     "releaseRecords": "发布记录",
     "recentRecords": "最近 {{count}} 条记录",
     "version": "版本",
@@ -717,5 +719,21 @@
       "wpl": "WPL 解析规则",
       "oml": "OML 转化规则"
     }
+  },
+  "validation": {
+    "result": "配置校验结果",
+    "success": "校验通过",
+    "warning": "校验通过（有警告）",
+    "failed": "校验失败",
+    "fileName": "文件名称：",
+    "syntaxCheck": "语法检查：",
+    "formatCheck": "格式检查：",
+    "validationTime": "校验时间：",
+    "passed": "✓ 通过",
+    "failed_status": "✗ 失败",
+    "notChecked": "— 未检查",
+    "errorDetail": "错误详情",
+    "conforms": "配置文件符合{{type}}规范",
+    "releasePackage": "发布包"
   }
 }

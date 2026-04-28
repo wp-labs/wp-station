@@ -11,7 +11,7 @@ pub mod oml;
 pub mod pagination;
 pub mod project;
 pub mod project_check;
-pub(crate) mod sandbox;
+pub mod sandbox;
 pub mod warparse_service;
 pub mod wpl;
 

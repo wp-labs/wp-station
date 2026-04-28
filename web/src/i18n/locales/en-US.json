@@ -54,7 +54,7 @@
     "dataCorrupted": "Data corrupted, created new default instance"
   },
   "simulateDebug": {
-    "title": "Simulate Debug",
+    "title": "Rule Editor",
     "tabs": {
       "parse": "Parse",
       "convert": "Convert",
@@ -147,11 +147,11 @@
     }
   },
   "navigation": {
-    "dataCollection": "Data Collection",
-    "systemRelease": "System Release",
+    "dataCollection": "Runtime Monitor",
+    "systemRelease": "Config Release",
     "ruleConfig": "Rule Config",
-    "configManage": "Config Manage",
-    "simulateDebug": "Simulate Debug",
+    "configManage": "Facility Settings",
+    "simulateDebug": "Rule Editor",
     "systemManage": "System Manage",
     "controlPlatform": "Control Platform",
     "connected": "Connected: ",
@@ -231,11 +231,13 @@
     "logoutConfirmMessage": "Are you sure you want to logout? You will need to login again to access the system."
   },
   "features": {
-    "title": "Data Collection Monitor"
+    "title": "Runtime Monitor"
   },
   "configManage": {
-    "title": "Configuration Management",
+    "title": "Facility Settings",
     "parseConfig": "Parse Config",
+    "sourceConnect": "Source Connection",
+    "sinkConnect": "Sink Connection",
     "connectionConfig": "Connection Config",
     "configFiles": "Config Files",
     "add": "Add",
@@ -250,7 +252,9 @@
     "deleteConfirmMessage": "Are you sure you want to delete {{filename}}?",
     "deleteSuccess": "Delete Successful",
     "deleteFailed": "Delete failed: {{message}}",
-    "loadFailed": "Failed to load connection config file list: {{message}}",
+    "loadFailed": "Failed to load configuration: {{message}}",
+    "loadSinkFailed": "Failed to load sink config list: {{message}}",
+    "loadConnectionFailed": "Failed to load connection config file list: {{message}}",
     "leaveConfirm": "Are you sure you want to leave this page?",
     "leaveConfirmMessage": "Current changes have not been submitted and will not be saved",
     "noFileSelected": "No file selected",
@@ -276,11 +280,9 @@
   },
   "ruleManage": {
     "title": "Rule Configuration",
-    "sourceConfig": "source config",
     "wplConfig": "wpl config",
     "omlConfig": "oml config",
     "knowledgeConfig": "knowledge config",
-    "sinkSource": "sink source",
     "ruleFiles": "Rule Files",
     "enrichmentRules": "Enrichment Rules",
     "datasets": "Datasets",
@@ -352,7 +354,7 @@
     "conforms": "Config file conforms to {{type}} specification"
   },
   "systemRelease": {
-    "title": "System Release",
+    "title": "Config Release",
     "releaseRecords": "Release Records",
     "recentRecords": "Recent {{count}} records",
     "version": "Version",
@@ -717,5 +719,21 @@
       "fail": "Fail",
       "stopped": "Stopped"
     }
+  },
+  "validation": {
+    "result": "Config Validation Result",
+    "success": "Validation Passed",
+    "warning": "Validation Passed (with warnings)",
+    "failed": "Validation Failed",
+    "fileName": "File Name:",
+    "syntaxCheck": "Syntax Check:",
+    "formatCheck": "Format Check:",
+    "validationTime": "Validation Time:",
+    "passed": "✓ Passed",
+    "failed_status": "✗ Failed",
+    "notChecked": "— Not checked",
+    "errorDetail": "Error Detail",
+    "conforms": "Config file conforms to {{type}} specification",
+    "releasePackage": "Release Package"
   }
 }

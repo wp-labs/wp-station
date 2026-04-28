@@ -4,6 +4,7 @@ import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
+import ValidateResultModal from '@/components/ValidateResultModal';
 
 /**
  * 系统发布列表页面
@@ -116,29 +117,24 @@ function SystemReleasePage() {
     setCurrentRelease(releaseRecord);
     try {
       const result = await validateRelease(releaseRecord.id);
-      if (result && result.valid === false) {
-        const details = Array.isArray(result.details) ? result.details : [];
-        const messageText =
-          details[0] || result.message || t('systemRelease.validateFailedMessage');
-        Modal.error({
-          title: t('systemRelease.validateFailed'),
-          content: messageText,
-        });
-        return;
-      }
-
+      const details = Array.isArray(result.details) ? result.details : [];
       setValidateResult({
         filename: result.filename || `版本 ${releaseRecord.version}`,
-        lines: result.lines ?? 0,
-        warnings: result.warnings ?? 0,
-        type: result.type || t('systemRelease.releasePackage'),
+        valid: result.valid !== false,
+        message: result.message || (details.length > 0 ? details.join('\n') : ''),
+        details,
+        type: result.type || t('validation.releasePackage'),
       });
       setValidateModalVisible(true);
     } catch (error) {
-      Modal.error({
-        title: t('systemRelease.validateFailed'),
-        content: error.message || t('systemRelease.validateFailedMessage'),
+      setValidateResult({
+        filename: `版本 ${releaseRecord.version}`,
+        valid: false,
+        message: error.message || t('systemRelease.validateFailedMessage'),
+        details: [],
+        type: t('validation.releasePackage'),
       });
+      setValidateModalVisible(true);
     }
   };
 
@@ -474,107 +470,14 @@ function SystemReleasePage() {
       </section>
 
       {/* 校验结果弹窗 */}
-      <Modal
-        title={t('systemRelease.validateResult')}
+      <ValidateResultModal
         open={validateModalVisible}
-        onCancel={() => {
+        onClose={() => {
           setValidateModalVisible(false);
           setValidateResult(null);
         }}
-        footer={[
-          <button
-            key="confirm"
-            type="button"
-            className="btn primary"
-            onClick={() => {
-              setValidateModalVisible(false);
-              setValidateResult(null);
-            }}
-          >
-            {t('common.confirm')}
-          </button>,
-        ]}
-        width={540}
-        className="validate-result-modal"
-      >
-        {validateResult && (
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                marginBottom: '20px',
-                padding: '16px',
-                background: validateResult.warnings === 0 ? '#f6ffed' : '#fffbe6',
-                borderLeft: `3px solid ${validateResult.warnings === 0 ? '#52c41a' : '#faad14'}`,
-                borderRadius: '8px',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '28px',
-                  color: validateResult.warnings === 0 ? '#52c41a' : '#faad14',
-                }}
-              >
-                {validateResult.warnings === 0 ? '✓' : '⚠'}
-              </span>
-              <div>
-                <div
-                  style={{
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    color: validateResult.warnings === 0 ? '#52c41a' : '#faad14',
-                    marginBottom: '4px',
-                  }}
-                >
-                  {validateResult.warnings === 0 ? t('systemRelease.validateSuccess') : t('systemRelease.validateWarning')}
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  {t('systemRelease.conforms', { type: validateResult.type })}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ background: '#fafafa', borderRadius: '8px', padding: '16px' }}>
-              <table style={{ width: '100%', fontSize: '13px', lineHeight: '2' }}>
-                <tbody>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.fileName')}</td>
-                    <td style={{ fontWeight: 500 }}>{validateResult.filename}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.codeLines')}</td>
-                    <td style={{ fontWeight: 500 }}>{t('systemRelease.lines', { count: validateResult.lines })}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.syntaxCheck')}</td>
-                    <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('systemRelease.passed')}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.formatCheck')}</td>
-                    <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('systemRelease.passed')}</td>
-                  </tr>
-                  {validateResult.warnings > 0 && (
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.warningInfo')}</td>
-                      <td style={{ color: '#faad14', fontWeight: 500 }}>
-                        {t('systemRelease.warnings', { count: validateResult.warnings })}
-                      </td>
-                    </tr>
-                  )}
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.validationTime')}</td>
-                    <td style={{ fontWeight: 500 }}>
-                      {new Date().toLocaleString('zh-CN')}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </Modal>
+        result={validateResult}
+      />
 
       {/* 发布确认弹窗 */}
       <Modal

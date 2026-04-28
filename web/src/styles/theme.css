@@ -3023,9 +3023,24 @@ mark.diff-highlight {
   font-family: 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
 }
 
+.header-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
 .top-nav {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.top-nav-monitor {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .nav-item {

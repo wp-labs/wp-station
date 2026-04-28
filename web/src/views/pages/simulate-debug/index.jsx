@@ -407,6 +407,7 @@ function SimulateDebugPage() {
   const [knowledgeResult, setKnowledgeResult] = useState(null);
   const [knowledgeViewMode, setKnowledgeViewMode] = useState('table');
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeInitialized, setKnowledgeInitialized] = useState(false);
 
   // 性能测试相关状态
   const EXAMPLE_LOG = `222.133.52.20 - - [06/Aug/2019:12:12:19 +0800] "GET /nginx-logo.png HTTP/1.1" 200 368 "http://119.122.1.4/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36" "-"`;
@@ -705,33 +706,39 @@ output_path = "./logs/"`);
     }
   };
 
-  /**
-   * 加载知识库数据集列表
-   */
-  useEffect(() => {
-    const loadKnowledgeDatasets = async () => {
-      try {
-        const datasets = await fetchDebugKnowledgeDatasets();
-        if (datasets.length > 0) {
-          setKnowledgeDatasets(datasets);
-          setKnowledgeTable((currentTable) => {
-            const nextTable = currentTable && datasets.includes(currentTable) ? currentTable : datasets[0];
-            setKnowledgeSql((currentSql) => (
-              currentSql && currentSql.trim() ? currentSql : buildKnowledgeDefaultSql(nextTable)
-            ));
-            return nextTable;
-          });
-        } else {
-          setKnowledgeDatasets([]);
-          setKnowledgeTable('');
-          setKnowledgeSql('');
-        }
-      } catch (error) {
+  const loadKnowledgeDatasets = async ({ silent = false } = {}) => {
+    try {
+      const datasets = await fetchDebugKnowledgeDatasets();
+      if (datasets.length > 0) {
+        setKnowledgeDatasets(datasets);
+        setKnowledgeTable((currentTable) => {
+          const nextTable =
+            currentTable && datasets.includes(currentTable) ? currentTable : datasets[0];
+          setKnowledgeSql((currentSql) =>
+            currentSql && currentSql.trim()
+              ? currentSql
+              : buildKnowledgeDefaultSql(nextTable),
+          );
+          return nextTable;
+        });
+      } else {
+        setKnowledgeDatasets([]);
+        setKnowledgeTable('');
+        setKnowledgeSql('');
+      }
+      setKnowledgeInitialized(true);
+    } catch (error) {
+      if (!silent) {
         message.error('加载知识库列表失败：' + error.message);
       }
-    };
-    loadKnowledgeDatasets();
-  }, []);
+    }
+  };
+
+  useEffect(() => {
+    if (activeKey === 'knowledge' && !knowledgeInitialized) {
+      loadKnowledgeDatasets();
+    }
+  }, [activeKey, knowledgeInitialized]);
 
   /**
    * 处理知识库表切换
@@ -756,12 +763,14 @@ output_path = "./logs/"`);
           setKnowledgeSql(buildKnowledgeDefaultSql(nextTable));
           setKnowledgeResult(null);
         }
+        setKnowledgeInitialized(true);
         message.success('更新成功');
       } else {
         setKnowledgeDatasets([]);
         setKnowledgeTable('');
         setKnowledgeSql('');
         setKnowledgeResult(null);
+        setKnowledgeInitialized(true);
         message.warning('未检测到可用知识库数据源');
       }
     } catch (error) {
