@@ -1,3 +1,8 @@
+//! WPL 解析与格式化模块。
+//!
+//! 提供 WPL 代码的语法格式化（`WplFormatter`）、DataRecord 解析（`warp_check_record`）
+//! 以及字段列表转换（`record_to_fields`、`ParsedField`）。
+
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use wp_model_core::model::DataRecord;

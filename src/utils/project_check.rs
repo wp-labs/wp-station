@@ -1,3 +1,7 @@
+//! 项目组件校验模块。
+//!
+//! 基于 wp_proj 对 `project_root` 中的项目组件（规则、配置等）进行完整性校验。
+
 use wp_proj::project::{
     CheckComponents, WarpProject,
     checker::{self, CheckComponent, CheckOptions},
@@ -7,7 +11,9 @@ use wp_proj::project::{
 use crate::Setting;
 use crate::error::AppError;
 
-/// 校验项目组件（全局共享项目目录）
+/// 校验项目组件（全局共享项目目录）。
+///
+/// 加载 `project_root` 并执行指定组件的校验规则，校验失败返回 `AppError::Validation`。
 pub fn check_component(components: Vec<CheckComponent>) -> Result<(), AppError> {
     let setting = Setting::load();
 

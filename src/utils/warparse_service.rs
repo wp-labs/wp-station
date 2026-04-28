@@ -1,4 +1,6 @@
-// WarpParse 服务统一封装层 - 简化所有 WarpParse API 调用
+//! WarpParse 服务统一封装层。
+//!
+//! 封装设备在线检查、配置部署、部署状态验证等 WarpParse API 调用，是设备通信的唯一入口。
 
 use crate::db::Device;
 use crate::server::setting::WarparseConf;

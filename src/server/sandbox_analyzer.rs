@@ -2,7 +2,7 @@ use std::path::Path;
 
 use regex::Regex;
 
-use crate::utils::sandbox_workspace::collect_output_checks;
+use crate::utils::sandbox::collect_output_checks;
 
 use super::sandbox::{Conclusion, OutputFileStatus};
 

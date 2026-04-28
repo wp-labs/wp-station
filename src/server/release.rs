@@ -13,7 +13,9 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
     write_operation_log_for_result,
 };
+use crate::utils::format_beijing_time;
 use crate::utils::pagination::{PageQuery, PageResponse};
+use crate::utils::project_check::check_component;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -205,11 +207,9 @@ pub async fn list_releases_logic(query: ReleaseListQuery) -> Result<ReleaseListR
             status: rel.status.clone(),
             pipeline: rel.pipeline.clone(),
             owner: rel.created_by.clone(),
-            created_at: rel.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            updated_at: rel.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-            published_at: rel
-                .published_at
-                .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()),
+            created_at: format_beijing_time(rel.created_at),
+            updated_at: format_beijing_time(rel.updated_at),
+            published_at: rel.published_at.map(format_beijing_time),
             stages: deserialize_stage_summary(rel.stages.as_deref()),
             sandbox_ready,
         });
@@ -251,11 +251,9 @@ pub async fn get_release_detail_logic(id: i32) -> Result<ReleaseDetailResponse, 
         status: release.status.clone(),
         pipeline: release.pipeline,
         owner: release.created_by,
-        created_at: release.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-        updated_at: release.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-        published_at: release
-            .published_at
-            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()),
+        created_at: format_beijing_time(release.created_at),
+        updated_at: format_beijing_time(release.updated_at),
+        published_at: release.published_at.map(format_beijing_time),
         stages: deserialize_stage_summary(release.stages.as_deref()),
         error_message: release.error_message,
         devices: devices_detail,
@@ -319,20 +317,42 @@ pub async fn create_release_logic(
     result
 }
 
-/// 校验发布版本
+/// 校验发布版本。
+///
+/// 对 `project_root` 执行全部项目组件的完整性校验（WPL、OML、Engine、Sources、Sinks、Connectors）。
 pub async fn validate_release_logic(id: i32) -> Result<ReleaseValidateResponse, AppError> {
+    info!("发布版本校验请求: release_id={}", id);
     let filename = format!("版本 {}", id);
 
     let result = async {
-        let resp = ReleaseValidateResponse {
-            filename,
-            lines: 0,
-            warnings: 0,
-            r#type: "发布包".to_string(),
-            valid: true,
-            details: vec![],
-        };
-        Ok::<_, AppError>(resp)
+        let components = RuleType::All.to_check_component();
+        match check_component(components) {
+            Ok(_) => {
+                info!("发布版本校验通过: release_id={}", id);
+                let resp = ReleaseValidateResponse {
+                    filename,
+                    lines: 0,
+                    warnings: 0,
+                    r#type: "发布包".to_string(),
+                    valid: true,
+                    details: vec!["所有组件校验通过".to_string()],
+                };
+                Ok::<_, AppError>(resp)
+            }
+            Err(err) => {
+                warn!("发布版本校验失败: release_id={}, error={}", id, err);
+                let err_msg = err.to_string();
+                let resp = ReleaseValidateResponse {
+                    filename,
+                    lines: 0,
+                    warnings: 1,
+                    r#type: "发布包".to_string(),
+                    valid: false,
+                    details: vec![err_msg],
+                };
+                Ok::<_, AppError>(resp)
+            }
+        }
     }
     .await;
 
@@ -781,9 +801,7 @@ fn build_device_detail(
                 device.name.clone(),
                 device.client_version.clone(),
                 device.config_version.clone(),
-                device
-                    .last_seen_at
-                    .map(|ts| ts.format("%Y-%m-%d %H:%M:%S").to_string()),
+                device.last_seen_at.map(format_beijing_time),
             )
         } else {
             (
@@ -792,7 +810,7 @@ fn build_device_detail(
                 None,
                 None,
                 None,
-                Some(target.updated_at.format("%Y-%m-%d %H:%M:%S").to_string()),
+                Some(format_beijing_time(target.updated_at)),
             )
         };
 

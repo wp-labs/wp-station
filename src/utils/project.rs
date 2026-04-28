@@ -1,3 +1,8 @@
+//! 项目文件 I/O 模块。
+//!
+//! 负责 `project_root` 中规则、配置、知识库文件的读写、扫描和快照加载，
+//! 是文件系统与业务层之间的桥梁。
+
 use std::{
     collections::HashMap,
     fs,
@@ -8,7 +13,7 @@ use std::{
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::Setting;
-use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
+use crate::utils::common::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
 
 #[derive(Debug, Clone)]
 pub struct ProjectRuleFile {

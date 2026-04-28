@@ -8,7 +8,7 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
 };
 use crate::utils::{
-    constants::fallback_sink_display, delete_rule_from_project, list_rule_files, read_rule_content,
+    common::fallback_sink_display, delete_rule_from_project, list_rule_files, read_rule_content,
     touch_rule_in_project, write_rule_content,
 };
 use chrono::{DateTime, Utc};

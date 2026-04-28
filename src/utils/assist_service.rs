@@ -1,3 +1,7 @@
+//! Assist 外部 AI 分析服务 HTTP 客户端。
+//!
+//! 封装对 Assist 服务的提交 AI 分析任务、提交人工工单、查询任务结果等接口。
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 

@@ -10,8 +10,8 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
     write_operation_log_for_result,
 };
-use crate::utils::check::check_component;
 use crate::utils::knowledge::reload_knowledge;
+use crate::utils::project_check::check_component;
 use crate::utils::{ProjectSnapshot, load_project_snapshot};
 
 #[derive(Serialize)]

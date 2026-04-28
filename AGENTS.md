@@ -96,11 +96,15 @@
 | `src/api/*` | HTTP 路由和入参/出参，不承载业务逻辑 |
 | `src/server/*` | 业务编排主入口，绝大多数需求先改这里 |
 | `src/db/*` | CRUD、分页、状态更新；规则/知识库不再建表存储 |
+| `src/utils/common.rs` | 通用常量定义与展示格式化工具（北京时间格式化、sink 展示名称推导） |
 | `src/utils/project.rs` | `project_root` 中规则、配置、知识库文件的读写、扫描和初始化辅助 |
+| `src/utils/project_check.rs` | 项目组件完整性校验（基于 wp_proj） |
 | `src/utils/warparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
 | `src/utils/health_check.rs` | 设备在线检查 |
+| `src/utils/sandbox.rs` | 沙盒运行时管理（工作区准备、进程启停、配置生成、输出收集） |
 | `src/utils/wpl.rs` | WPL 解析与格式化 |
 | `src/utils/knowledge.rs` | 知识库加载、查询、重载 |
+| `src/utils/oml.rs` | OML 转换与格式化 |
 | `src/error.rs` | 统一错误模型和 HTTP 错误响应格式 |
 | `crates/migrations/*` | 数据库迁移与 entity |
 | `crates/gitea/*` | Git/Gitea 封装，不掺杂 Station 业务判断 |
@@ -315,7 +319,8 @@ result
 | 业务编排、副作用顺序、操作日志 | `src/server/*` |
 | HTTP 路由、入参、出参 | `src/api/*` |
 | CRUD、分页、状态更新 | `src/db/*` |
-| 外部系统调用、跨模块工具 | `src/utils/*` 或独立 crate |
+| 外部系统调用、跨模块工具 | `src/utils/*`（含 `common.rs` 通用工具、`sandbox.rs` 沙盒管理）或独立 crate |
+| 项目组件校验 | `src/utils/project_check.rs` |
 | 数据库结构变更 | `crates/migrations` |
 | 前端接口调用、字段映射 | `web/src/services/*` |
 | 跨页面全局状态/轮询 | `web/src/contexts/*` |

@@ -1,3 +1,7 @@
+//! 通用分页工具模块。
+//!
+//! 提供分页查询参数、分页响应结构以及内存分页 trait（`MemoryPaginate`）。
+
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// 自定义反序列化：将字符串或数字转换为 Option<i64>

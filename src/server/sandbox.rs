@@ -20,7 +20,7 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, OperationLogStatus, Setting,
     write_operation_log, write_operation_log_for_result,
 };
-use crate::utils::constants::MAX_LINES;
+use crate::utils::common::MAX_LINES;
 
 use super::sandbox_runner;
 

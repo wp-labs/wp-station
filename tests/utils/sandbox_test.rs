@@ -1,10 +1,18 @@
+//! 沙盒模块集成测试。
+//!
+//! 覆盖工作区管理（输出收集、目录渲染、日志打包）和进程管理（命令检测、版本查询）。
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 use wp_station::server::Setting;
-use wp_station::utils::constants::OUTPUT_PATHS;
-use wp_station::utils::sandbox_workspace::{SandboxWorkspace, collect_output_checks};
+use wp_station::utils::common::OUTPUT_PATHS;
+use wp_station::utils::sandbox::{
+    SandboxWorkspace, check_command_exists, collect_output_checks, command_version_output,
+};
+
+// ============ 测试辅助函数 ============
 
 fn temp_dir(prefix: &str) -> PathBuf {
     let unique = format!(
@@ -20,6 +28,31 @@ fn temp_dir(prefix: &str) -> PathBuf {
     fs::create_dir_all(&path).unwrap();
     path
 }
+
+fn temp_script(prefix: &str, contents: &str, ext: &str) -> PathBuf {
+    let unique = format!(
+        "{}-{}-{}{}",
+        prefix,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        ext
+    );
+    let path = std::env::temp_dir().join(unique);
+    fs::write(&path, contents).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms).unwrap();
+    }
+    path
+}
+
+// ============ 工作区测试 ============
 
 #[test]
 fn collect_output_checks_counts_lines() {
@@ -63,7 +96,7 @@ fn display_relative_prefers_workspace_root() {
 
     assert!(display.contains("foo"));
     assert!(!display.starts_with('/'));
-    assert!(!display.starts_with("\\"));
+    assert!(!display.starts_with('\\'));
 }
 
 #[test]
@@ -125,4 +158,42 @@ fn render_tree_listing_displays_structure() {
     assert!(listing.contains("file.txt"));
 
     fs::remove_dir_all(&base).unwrap();
+}
+
+// ============ 进程管理测试 ============
+
+#[test]
+fn check_command_exists_accepts_absolute_path() {
+    let exe = std::env::current_exe().unwrap();
+    check_command_exists(exe.to_str().unwrap()).expect("current executable exists");
+}
+
+#[tokio::test]
+async fn command_version_output_reads_stdout() {
+    #[cfg(windows)]
+    let script = temp_script("version-ok", "@echo off\necho v9.9.9\n", ".cmd");
+    #[cfg(not(windows))]
+    let script = temp_script("version-ok", "#!/bin/sh\necho v9.9.9\n", "");
+
+    let output = command_version_output(script.to_str().unwrap())
+        .await
+        .expect("script should run");
+    assert_eq!(output.trim(), "v9.9.9");
+}
+
+#[tokio::test]
+async fn command_version_output_reports_failure() {
+    #[cfg(windows)]
+    let script = temp_script(
+        "version-fail",
+        "@echo off\necho error>&2\nexit /b 1\n",
+        ".cmd",
+    );
+    #[cfg(not(windows))]
+    let script = temp_script("version-fail", "#!/bin/sh\necho error 1>&2\nexit 1\n", "");
+
+    let err = command_version_output(script.to_str().unwrap())
+        .await
+        .expect_err("failing script should error");
+    assert!(format!("{}", err).contains("返回非 0"));
 }

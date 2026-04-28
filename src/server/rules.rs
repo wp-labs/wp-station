@@ -7,10 +7,10 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
     write_operation_log_for_result,
 };
-use crate::utils::check::check_component;
-use crate::utils::constants::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
+use crate::utils::common::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::pagination::{MemoryPaginate, PageQuery, PageResponse};
+use crate::utils::project_check::check_component;
 use crate::utils::{
     delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs, list_rule_files,
     read_knowdb_config, read_knowledge_files, read_rule_content, read_wpl_sample_content,

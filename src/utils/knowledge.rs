@@ -1,3 +1,7 @@
+//! 知识库生命周期管理模块。
+//!
+//! 负责知识库的加载、卸载、重载以及 SQL 查询等操作，支持配置数据源和本地 authority 两种模式。
+
 use crate::error::AppError;
 use crate::server::Setting;
 use lazy_static::lazy_static;

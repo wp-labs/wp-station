@@ -929,7 +929,6 @@ UDP 示例：
 version = "1.0"
 
 [generator]
-mode = "rule"
 count = 10000
 speed = 0
 parallel = 1

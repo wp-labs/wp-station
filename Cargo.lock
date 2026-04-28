@@ -3795,9 +3795,9 @@ dependencies = [
 
 [[package]]
 name = "orion-error"
-version = "0.6.0"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b28c5a8d3f14a81aa499b81d0c90d6581d975475cd1b8d04b657cec85ddf31"
+checksum = "6719d23a898c158da039ec98dd111f209dd1d578290a1ef219b3e70b8a5f3861"
 dependencies = [
  "derive_more 2.1.1",
  "log",
@@ -3874,8 +3874,8 @@ dependencies = [
 
 [[package]]
 name = "orion_exp"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "arcstr",
  "chrono",
@@ -3887,8 +3887,8 @@ dependencies = [
 
 [[package]]
 name = "orion_overload"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "derive-getters",
@@ -7305,8 +7305,8 @@ dependencies = [
 
 [[package]]
 name = "wp-cli-core"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "chrono",
@@ -7325,8 +7325,8 @@ dependencies = [
 
 [[package]]
 name = "wp-condition"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "orion_exp",
  "winnow 1.0.0",
@@ -7358,8 +7358,8 @@ dependencies = [
 
 [[package]]
 name = "wp-config"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7398,9 +7398,9 @@ dependencies = [
 
 [[package]]
 name = "wp-connector-api"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4392f7c4de3e59c9e385d2e83f262713dcc34547a66654369ff3468560d357e9"
+checksum = "3b4cf401c324390f8f45912e4b83f81ac61888621f1f705850b50b171c7e162f"
 dependencies = [
  "anyhow",
  "async-broadcast",
@@ -7420,9 +7420,9 @@ dependencies = [
 
 [[package]]
 name = "wp-core-connectors"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90b77ee4f1645e451a1a09fb482fe5177f9bba5df6ad48a77b4d20fa2e8c60b4"
+checksum = "a86ee3574bad929ca0c94b0fa11a7126ad232c737843a282d3ea188f8423e7c9"
 dependencies = [
  "anyhow",
  "arrow",
@@ -7475,8 +7475,8 @@ dependencies = [
 
 [[package]]
 name = "wp-data-utils"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "arcstr",
  "chrono",
@@ -7493,8 +7493,8 @@ dependencies = [
 
 [[package]]
 name = "wp-engine"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "async-broadcast",
@@ -7727,8 +7727,8 @@ dependencies = [
 
 [[package]]
 name = "wp-oml"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "arcstr",
@@ -7806,8 +7806,8 @@ dependencies = [
 
 [[package]]
 name = "wp-proj"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "comfy-table",
@@ -7855,7 +7855,7 @@ dependencies = [
 
 [[package]]
 name = "wp-station"
-version = "1.1.0"
+version = "0.1.7"
 dependencies = [
  "actix-files",
  "actix-web",
@@ -7911,8 +7911,8 @@ dependencies = [
 
 [[package]]
 name = "wp-stats"
-version = "1.21.2"
-source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.2#b5b04436deb0b293c5082bd82e79010c77c2f3bd"
+version = "1.21.6"
+source = "git+https://github.com/wp-labs/wp-motor?tag=v1.21.6#8fdedff2ced1180095b2849075d6894e5411b8cf"
 dependencies = [
  "anyhow",
  "chrono",

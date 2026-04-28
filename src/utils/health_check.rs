@@ -1,4 +1,6 @@
-// 健康检查工具 - 使用 WarpParseService 检测设备在线状态
+//! 设备健康检查模块。
+//!
+//! 通过 WarpParseService 探测设备在线状态，并回写数据库中的设备运行态信息。
 
 use crate::db::{
     DeviceStatus, find_device_by_id, update_device_runtime_state, update_device_status,

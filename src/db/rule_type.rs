@@ -34,6 +34,8 @@ impl RuleType {
                 CheckComponent::Sources,
                 CheckComponent::Sinks,
                 CheckComponent::Connectors,
+                CheckComponent::Wpgen,
+                CheckComponent::SemanticDict,
             ],
             RuleType::Wpl => vec![CheckComponent::Wpl],
             RuleType::Oml => vec![CheckComponent::Oml],

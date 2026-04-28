@@ -1,3 +1,7 @@
+//! OML 数据处理与格式化模块。
+//!
+//! 提供 OML 代码的语法格式化（`OmlFormatter`）以及基于 OML 模型的 DataRecord 异步转换。
+
 use crate::error::AppError;
 use wp_knowledge::cache::FieldQueryCache;
 use wp_model_core::model::DataRecord;

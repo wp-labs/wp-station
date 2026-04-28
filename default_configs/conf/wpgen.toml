@@ -1,7 +1,6 @@
 version = "1.0"
 
 [generator]
-mode = "rule"
 count = 10
 speed = 1000
 parallel = 1
@@ -15,9 +14,7 @@ port = 31601
 protocol = "udp"
 
 [logging]
-level = ""
-module_levels = []
-output = ""
-file_path = "./data/logs"
+level = "warn"
+output = "console"
 
 [presets]

@@ -1,15 +1,17 @@
-// 工具模块
+//! 工具模块。
+//!
+//! 包含外部服务客户端、格式化器、项目管理、沙盒运行时、知识库等可复用组件。
+//! 各子模块职责独立，通过本文件统一声明并选择性 re-export 对外类型。
 
 pub mod assist_service;
-pub mod check;
-pub mod constants;
+pub mod common;
 pub mod health_check;
 pub mod knowledge;
 pub mod oml;
 pub mod pagination;
-pub mod process_guard;
 pub mod project;
-pub mod sandbox_workspace;
+pub mod project_check;
+pub(crate) mod sandbox;
 pub mod warparse_service;
 pub mod wpl;
 
@@ -17,6 +19,7 @@ pub use assist_service::{
     AiAnalyzeRequest, AssistResultData, AssistResultResponse, AssistService, AssistServiceError,
     ManualTicketRequest,
 };
+pub use common::format_beijing_time;
 pub use health_check::check_device_health;
 pub use knowledge::{
     configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,

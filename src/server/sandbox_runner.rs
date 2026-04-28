@@ -11,9 +11,8 @@ use crate::error::AppError;
 use crate::server::sandbox_analyzer::{self, RuntimeMetrics, StageError};
 use crate::server::sandbox_diagnostics;
 use crate::utils::{
-    constants::SANDBOX_RUNTIME_UDP_PORT,
-    process_guard::{self, DaemonProcess},
-    sandbox_workspace::SandboxWorkspace,
+    common::SANDBOX_RUNTIME_UDP_PORT,
+    sandbox::{self, DaemonProcess, SandboxWorkspace},
 };
 
 use super::sandbox::{
@@ -203,7 +202,7 @@ async fn stage_preflight_check(
     log_lines.push("开始预检查：验证命令与必要文件".to_string());
 
     log_lines.push("\n检查 wparse 命令".to_string());
-    match process_guard::command_version_output("wparse").await {
+    match sandbox::command_version_output("wparse").await {
         Ok(version) => {
             let version_text = if version.is_empty() {
                 "wparse --version 未输出版本信息".to_string()
@@ -226,7 +225,7 @@ async fn stage_preflight_check(
     }
 
     log_lines.push("\n检查 wpgen 命令".to_string());
-    match process_guard::command_version_output("wpgen").await {
+    match sandbox::command_version_output("wpgen").await {
         Ok(version) => {
             let version_text = if version.is_empty() {
                 "wpgen --version 未输出版本信息".to_string()
@@ -249,7 +248,7 @@ async fn stage_preflight_check(
     }
 
     log_lines.push(format!("\n检查 UDP 端口 {}", SANDBOX_RUNTIME_UDP_PORT));
-    match process_guard::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+    match sandbox::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
         Ok(_) => {
             log_lines.push(format!("UDP 端口 {} 可用", SANDBOX_RUNTIME_UDP_PORT));
         }
@@ -274,7 +273,7 @@ async fn stage_preflight_check(
     }
 
     log_lines.push("\n检查 wproj 命令".to_string());
-    match process_guard::command_version_output("wproj").await {
+    match sandbox::command_version_output("wproj").await {
         Ok(version) => {
             let version_text = if version.is_empty() {
                 "wproj --version 未输出版本信息".to_string()
@@ -315,7 +314,7 @@ async fn stage_preflight_check(
 
     log_lines.push("命令与文件检查通过".to_string());
     log_lines.push("\n执行 wproj check".to_string());
-    match process_guard::run_wproj_check(&workspace.project_dir).await {
+    match sandbox::run_wproj_check(&workspace.project_dir).await {
         Ok(output) => {
             if output.is_empty() {
                 log_lines.push("wproj check 通过: 未返回额外输出".to_string());
@@ -376,7 +375,7 @@ async fn stage_start_daemon(
 ) -> Result<String, StageError> {
     let workspace = resources.workspace()?.clone();
     let log_path = workspace.log_path("wparse.log");
-    if let Err(err) = process_guard::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+    if let Err(err) = sandbox::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
         let log_text = format!(
             "启动 wparse 前检查 UDP 端口失败\nUDP 端口 {} 不可用: {}\n",
             SANDBOX_RUNTIME_UDP_PORT, err
@@ -400,7 +399,7 @@ async fn stage_start_daemon(
         ));
     }
 
-    let mut daemon = process_guard::spawn_daemon(&workspace.project_dir, &log_path)
+    let mut daemon = sandbox::spawn_daemon(&workspace.project_dir, &log_path)
         .await
         .map_err(to_stage_error)?;
     resources.set_daemon_log(log_path.clone());
@@ -433,7 +432,7 @@ async fn stage_run_wpgen(
 ) -> Result<String, StageError> {
     let workspace = resources.workspace()?.clone();
     let log_path = workspace.log_path("wpgen.log");
-    let output = process_guard::run_wpgen(
+    let output = sandbox::run_wpgen(
         &workspace.project_dir,
         &log_path,
         resources.options.sample_count,
