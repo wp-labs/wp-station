@@ -1,0 +1,28 @@
+[[sources]]
+key = "gen_udp"
+enable = true
+connect = "syslog_udp_src"
+
+[sources.params]
+addr = "0.0.0.0"
+port = 31600
+protocol = "udp"
+header_mode = "strip"
+
+[[sources]]
+key = "gen_kafka"
+enable = false
+connect = "kafka_src"
+
+[sources.params]
+brokers = "localhost:9092"
+topic = "basp"
+
+[[sources]]
+key = "gen_file"
+enable = false
+connect = "file_src"
+
+[sources.params]
+encode = "text"
+file = "gen.dat"

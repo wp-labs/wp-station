@@ -1,0 +1,6 @@
+[[connectors]]
+id = "prometheus_sink"
+type = "prometheus"
+allow_override = ["endpoint", "source_key_format", "sink_key_format"]
+[connectors.params]
+endpoint = "127.0.0.1:35666"

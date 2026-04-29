@@ -1,0 +1,156 @@
+services:
+  warp-toolchain:
+    image: ghcr.io/wp-labs/warp-parse:latest
+    container_name: warp-toolchain
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /data
+        cp -f /usr/local/bin/wparse /data/wparse && chmod +x /data/wparse
+        cp -f /usr/local/bin/wpgen /data/wpgen && chmod +x /data/wpgen
+        cp -f /usr/local/bin/wproj /data/wproj && chmod +x /data/wproj
+        echo "warp 工具链已复制到 /data"
+    volumes:
+      - warp-toolchain-data:/data
+    restart: "no"
+    networks:
+      - warp-network
+  # 此pg不开端口，仅供内部使用
+  postgres:
+    image: postgres:18.3
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks: 
+      - warp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  gitea:
+    image: gitea/gitea:1.25.5
+    container_name: gitea
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=${POSTGRES_USER}
+      - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
+      - GITEA__database__SSL_MODE=disable
+      - GITEA__server__DOMAIN=localhost
+      - GITEA__server__ROOT_URL=http://localhost:3000
+      - GITEA__server__HTTP_PORT=3000
+      - GITEA__server__SSH_DOMAIN=localhost
+      - GITEA__server__SSH_PORT=222
+      - GITEA__server__DISABLE_SSH=false
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__service__DISABLE_REGISTRATION=true
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "3000:3000"
+      - "222:22"
+    networks:
+      - warp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  gitea-init:
+    image: gitea/gitea:1.25.5
+    container_name: gitea-init
+    depends_on:
+      gitea:
+        condition: service_healthy
+    volumes:
+      - gitea-data:/data
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        su-exec git gitea admin user create \
+          --config /data/gitea/conf/app.ini \
+          --username ${GITEA_ADMIN_USERNAME} \
+          --password ${GITEA_ADMIN_PASSWORD} \
+          --email gitea@localhost \
+          --admin \
+          --must-change-password=false || true
+    restart: "no"
+    networks:
+      - warp-network
+
+  warp-station:
+    user: "root"
+    image: ghcr.io/wp-labs/wp-station:latest
+    container_name: warp-station
+    depends_on:
+      warp-toolchain:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      gitea:
+        condition: service_healthy
+      gitea-init:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - WP_STATION__DATABASE__HOST=postgres
+      - WP_STATION__DATABASE__PORT=5432
+      - WP_STATION__DATABASE__NAME=wp-station
+      # 使用环境变量覆盖容器内 config.toml 的敏感配置与环境相关地址
+      - WP_STATION__DATABASE__USERNAME=${POSTGRES_USER}
+      - WP_STATION__DATABASE__PASSWORD=${POSTGRES_PASSWORD}
+      # wp-station 从容器网络访问 Gitea 的地址，默认应使用服务名 gitea
+      - WP_STATION__GITEA__BASE_URL=http://gitea:3000
+      - WP_STATION__GITEA__USERNAME=${GITEA_ADMIN_USERNAME}
+      - WP_STATION__GITEA__PASSWORD=${GITEA_ADMIN_PASSWORD}
+      # 其余外部依赖地址通过环境变量覆盖 config.toml
+      - WP_STATION__ASSIST__BASE_URL=${STATION_AI_BASE_URL}
+      - WP_STATION__FEATURES__DATA_COLLECT_URL=${WP_MONITOR_URL}
+    volumes:
+      - ./station/config/config.toml:/app/config/config.toml
+      - ./station/default_configs:/app/default_configs
+      # - ./station/project_root:/app/project_root
+      - warp-toolchain-data:/app/toolchain:ro
+    ports:  
+      - "8081:8081"
+    networks:
+      - warp-network
+    restart: unless-stopped
+    ulimits:
+      nproc: 4096
+    security_opt:
+      - seccomp=unconfined
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        git config --global user.name "WarpStation"
+        git config --global user.email "station@warpparse.local"
+        exec /app/wp-station
+
+networks:
+  warp-network:
+    driver: bridge
+
+volumes:
+  warp-toolchain-data:
+  postgres-data:
+  gitea-data:

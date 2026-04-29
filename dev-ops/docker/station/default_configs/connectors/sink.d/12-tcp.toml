@@ -1,0 +1,8 @@
+[[connectors]]
+id = "tcp_sink"
+type = "tcp"
+allow_override = ["addr", "port", "framing"]
+[connectors.params]
+addr = "127.0.0.1"
+port = 9000
+framing = "line"   # line|len

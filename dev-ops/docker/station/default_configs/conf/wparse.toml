@@ -1,0 +1,55 @@
+version = "1.0"
+robust = "normal"
+
+[models]
+wpl = "./models/wpl"
+oml = "./models/oml"
+
+[topology]
+sources = "./topology/sources"
+sinks = "./topology/sinks"
+
+[performance]
+rate_limit_rps = 0
+parse_workers = 1
+
+[rescue]
+path = "./data/rescue"
+
+[log_conf]
+level = "info,parse=info,data=info,mtrc=warn,kdb=warn,ctrl=info,launch=warn,sink=info"
+output = "Console"
+# output = "File"
+[log_conf.file]
+path = "./data/logs"
+
+[stat]
+[[stat.pick]]
+key = "pick_stat"
+target = "*"
+
+[[stat.parse]]
+key = "parse_stat"
+target = "*"
+
+[[stat.sink]]
+key = "sink_stat"
+target = "*"
+
+[admin_api]
+enabled = true
+bind = "127.0.0.1:19090"
+request_timeout_ms = 15000
+max_body_bytes = 4096
+
+[admin_api.auth]
+mode = "bearer_token"
+token_file = "runtime/admin_api.token"
+
+[admin_api.tls]
+enabled = false
+
+[project_remote]
+enabled = true
+repo = "http://localhost:3000/gitea/project_root.git"
+init_version = "1.0.0"

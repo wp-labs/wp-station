@@ -182,6 +182,81 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
+      - name: Export Docker compose image bundles
+        run: |
+          set -euo pipefail
+          PACKAGE_PREFIX="wp-station-${{ github.ref_name }}-docker-images"
+          BUNDLE_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          COMPOSE_FILE="dev-ops/docker/docker-compose.yml"
+
+          if [[ ! -f "$COMPOSE_FILE" ]]; then
+            echo "Compose file not found: $COMPOSE_FILE" >&2
+            exit 1
+          fi
+
+          mapfile -t COMPOSE_IMAGES < <(
+            sed -nE 's/^[[:space:]]*image:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$COMPOSE_FILE"
+          )
+
+          IMAGES=()
+          for image in "${COMPOSE_IMAGES[@]}"; do
+            if [[ "$image" == "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:"* ]]; then
+              image="$BUNDLE_IMAGE"
+            fi
+
+            if [[ -z "$image" ]]; then
+              continue
+            fi
+
+            already_added="false"
+            for existing in "${IMAGES[@]}"; do
+              if [[ "$existing" == "$image" ]]; then
+                already_added="true"
+                break
+              fi
+            done
+
+            if [[ "$already_added" == "false" ]]; then
+              IMAGES+=("$image")
+            fi
+          done
+
+          printf 'Bundling images:\n%s\n' "${IMAGES[*]}"
+
+          for platform in linux/amd64 linux/arm64; do
+            suffix="${platform##*/}"
+            case "$suffix" in
+              amd64)
+                package_label="x86_64-linux-gnu"
+                ;;
+              arm64)
+                package_label="aarch64-linux-gnu"
+                ;;
+              *)
+                echo "Unsupported platform suffix: $suffix" >&2
+                exit 1
+                ;;
+            esac
+
+            archive="$PACKAGE_PREFIX-$package_label.tar.gz"
+            save_images=()
+
+            for image in "${IMAGES[@]}"; do
+              docker pull --platform "$platform" "$image"
+              save_images+=("$image")
+            done
+
+            docker save "${save_images[@]}" | gzip > "$archive"
+          done
+
+      - name: Upload Docker compose image bundles
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ github.event.repository.name }}-${{ github.ref_name }}-docker-images
+          path: wp-station-${{ github.ref_name }}-docker-images-*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         continue-on-error: true
