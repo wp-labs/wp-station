@@ -1,6 +1,6 @@
 use config::{Config, File};
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -212,8 +212,10 @@ pub struct Setting {
     pub log: LogConf,
     pub web: WebConf,
     pub database: DatabaseConf,
-    #[serde(default = "default_project_root")]
-    pub project_root: String,
+    #[serde(default = "default_project_models")]
+    pub project_models: String,
+    #[serde(default = "default_project_infra")]
+    pub project_infra: String,
     #[serde(default)]
     pub gitea: GiteaConf,
     #[serde(default)]
@@ -224,8 +226,18 @@ pub struct Setting {
     pub features: FeaturesConf,
 }
 
-fn default_project_root() -> String {
-    "./project_root".to_string()
+#[derive(Debug, Clone)]
+pub struct ProjectLayout {
+    pub models_root: PathBuf,
+    pub infra_root: PathBuf,
+}
+
+fn default_project_models() -> String {
+    "./project_models".to_string()
+}
+
+fn default_project_infra() -> String {
+    "./project_infra".to_string()
 }
 
 impl Default for Setting {
@@ -234,7 +246,8 @@ impl Default for Setting {
             log: LogConf::default(),
             web: WebConf::default(),
             database: DatabaseConf::default(),
-            project_root: default_project_root(),
+            project_models: default_project_models(),
+            project_infra: default_project_infra(),
             gitea: GiteaConf::default(),
             assist: AssistConf::default(),
             warparse: WarparseConf::default(),
@@ -288,5 +301,22 @@ impl Setting {
             // 在服务启动时保存当前工作目录
             std::env::current_dir().unwrap_or_else(|err| panic!("无法获取当前工作目录: {}", err))
         })
+    }
+
+    /// 返回双仓库布局的绝对路径。
+    pub fn project_layout(&self) -> ProjectLayout {
+        ProjectLayout {
+            models_root: resolve_workspace_path(&self.project_models),
+            infra_root: resolve_workspace_path(&self.project_infra),
+        }
+    }
+}
+
+fn resolve_workspace_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        Setting::workspace_root().join(path)
     }
 }

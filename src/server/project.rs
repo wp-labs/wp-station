@@ -5,14 +5,15 @@ use serde::Serialize;
 
 use crate::db::RuleType;
 use crate::error::AppError;
-use crate::server::sync::{handle_draft_release, sync_to_gitea};
+use crate::server::ProjectLayout;
+use crate::server::sync::sync_to_gitea_all;
 use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
     write_operation_log_for_result,
 };
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::check_component;
-use crate::utils::{ProjectSnapshot, load_project_snapshot};
+use crate::utils::{ProjectSnapshot, load_project_snapshot_from_layout};
 
 #[derive(Serialize)]
 pub struct ProjectImportResponse {
@@ -49,12 +50,13 @@ pub async fn import_project_from_files_logic(
 ) -> Result<ProjectImportResponse, AppError> {
     let operator_for_log = operator.clone();
     let setting = Setting::load();
-    let project_path = resolve_project_path(&setting.project_root);
+    let layout = setting.project_layout();
+    let project_path = resolve_project_path(&layout);
 
-    let snapshot = load_project_snapshot(&project_path)?;
+    let snapshot = load_project_snapshot_from_layout(&layout)?;
     if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
         return Err(AppError::validation(
-            "project_root 中未找到可导入的规则或知识库".to_string(),
+            "项目目录中未找到可导入的规则或知识库".to_string(),
         ));
     }
 
@@ -73,14 +75,12 @@ pub async fn import_project_from_files_logic(
         let total_rules = rules.len();
         let total_knowledge = knowledge.len();
 
-        if let Err(err) = reload_knowledge(&setting.project_root) {
+        if let Err(err) = reload_knowledge(&layout) {
             warn!("知识库重载失败（忽略）: {}", err);
         }
 
-        handle_draft_release(operator.as_deref()).await?;
-
         let commit_message = format!("初始化更新配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-        sync_to_gitea(&commit_message).await;
+        sync_to_gitea_all(&commit_message).await;
 
         let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
             .into_iter()
@@ -140,11 +140,14 @@ pub async fn import_project_from_files_logic(
     result
 }
 
-fn resolve_project_path(project_root: &str) -> PathBuf {
-    let project_dir = PathBuf::from(project_root);
-    if project_dir.is_absolute() {
-        project_dir
-    } else {
-        Setting::workspace_root().join(project_dir)
-    }
+fn resolve_project_path(layout: &ProjectLayout) -> PathBuf {
+    let base = Setting::workspace_root()
+        .join("tmp")
+        .join("project-import-view");
+    let summary = format!(
+        "{} + {}",
+        layout.models_root.display(),
+        layout.infra_root.display()
+    );
+    PathBuf::from(format!("{} ({})", base.display(), summary))
 }

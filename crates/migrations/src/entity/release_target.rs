@@ -8,6 +8,8 @@ pub struct Model {
     pub id: i32,
     pub release_id: i32,
     pub device_id: i32,
+    #[sea_orm(default_value = "models")]
+    pub release_group: String,
     pub status: String,
     pub stage_trace: Option<String>,
     pub remote_job_id: Option<String>,

@@ -44,4 +44,7 @@ temp.*
 .cursor/
 project_root/
 .vscode/
+project_infra/
+project_models/
 tmp/
+clean.py

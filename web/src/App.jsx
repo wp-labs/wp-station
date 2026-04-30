@@ -90,7 +90,7 @@ function App() {
                 <Navigation onLocaleChange={handleLocaleChange}>
                   <RequireAuth>
                     <Routes>
-                      <Route path="/" element={<Navigate to="/features" replace />} />
+                      <Route path="/" element={<Navigate to="/rule-manage" replace />} />
                       <Route path="/features" element={<FeaturesPage />} />
                       <Route path="/system-release" element={<SystemReleasePage />} />
                       <Route path="/system-release/:id" element={<ReleaseDetailPage />} />
@@ -102,7 +102,7 @@ function App() {
                       <Route path="/config-manage" element={<ConfigManagePage />} />
                       <Route path="/simulate-debug" element={<SimulateDebugPage />} />
                       <Route path="/system-manage" element={<SystemManagePage />} />
-                      <Route path="*" element={<Navigate to="/features" replace />} />
+                      <Route path="*" element={<Navigate to="/rule-manage" replace />} />
                     </Routes>
                     {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
                     <AssistTaskCenter />

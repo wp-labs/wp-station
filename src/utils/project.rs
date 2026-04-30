@@ -1,6 +1,6 @@
 //! 项目文件 I/O 模块。
 //!
-//! 负责 `project_root` 中规则、配置、知识库文件的读写、扫描和快照加载，
+//! 负责双仓库项目中的规则、配置、知识库文件读写、扫描和快照加载，
 //! 是文件系统与业务层之间的桥梁。
 
 use std::{
@@ -12,7 +12,7 @@ use std::{
 
 use crate::db::RuleType;
 use crate::error::AppError;
-use crate::server::Setting;
+use crate::server::{ProjectLayout, Setting};
 use crate::utils::common::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
 
 #[derive(Debug, Clone)]
@@ -69,6 +69,16 @@ impl ProjectSnapshot {
         self.knowledge.push(config);
     }
 
+    pub fn merge(&mut self, mut other: ProjectSnapshot) {
+        self.rules.append(&mut other.rules);
+        self.knowledge.append(&mut other.knowledge);
+        for (rule_type, count) in other.rule_stats {
+            *self.rule_stats.entry(rule_type).or_insert(0) += count;
+        }
+        self.warnings.append(&mut other.warnings);
+        self.failed_files += other.failed_files;
+    }
+
     pub fn rule_breakdown(&self) -> Vec<(RuleType, usize)> {
         let mut items: Vec<(RuleType, usize)> = self
             .rule_stats
@@ -80,7 +90,7 @@ impl ProjectSnapshot {
     }
 }
 
-/// 统一将配置中的 project_root 解析成工作区下的稳定路径，避免相对路径受当前工作目录影响。
+/// 统一将配置中的目录解析成工作区下的稳定路径，避免相对路径受当前工作目录影响。
 pub fn resolve_project_root(project_root: &str) -> PathBuf {
     let path = PathBuf::from(project_root);
     if path.is_absolute() {
@@ -90,13 +100,36 @@ pub fn resolve_project_root(project_root: &str) -> PathBuf {
     }
 }
 
-/// 扫描 project_root 中某一类规则的文件名列表。
-pub fn list_rule_files(project_root: &str, rule_type: RuleType) -> Result<Vec<String>, AppError> {
+/// 根据规则类型确定应访问的物理仓库目录。
+pub fn resolve_dir_for_rule(layout: &ProjectLayout, rule_type: RuleType) -> PathBuf {
+    match rule_type {
+        RuleType::Wpl | RuleType::Oml | RuleType::Knowledge => layout.models_root.clone(),
+        _ => layout.infra_root.clone(),
+    }
+}
+
+/// 将双仓库的逻辑目录合成到一个目标目录中。
+pub fn compose_project_layout_into(
+    layout: &ProjectLayout,
+    target_dir: &Path,
+) -> Result<(), AppError> {
+    copy_named_entry(&layout.models_root, target_dir, "models")?;
+    copy_named_entry(&layout.infra_root, target_dir, "conf")?;
+    copy_named_entry(&layout.infra_root, target_dir, "topology")?;
+    copy_named_entry(&layout.infra_root, target_dir, "connectors")?;
+    Ok(())
+}
+
+/// 扫描项目中某一类规则的文件名列表。
+pub fn list_rule_files(
+    layout: &ProjectLayout,
+    rule_type: RuleType,
+) -> Result<Vec<String>, AppError> {
     if matches!(rule_type, RuleType::Knowledge) {
-        return list_knowledge_dirs(project_root);
+        return list_knowledge_dirs(layout);
     }
 
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = resolve_dir_for_rule(layout, rule_type);
     if !project_dir.exists() {
         return Ok(Vec::new());
     }
@@ -115,33 +148,33 @@ pub fn list_rule_files(project_root: &str, rule_type: RuleType) -> Result<Vec<St
 
 /// 读取单个规则文件内容和文件 mtime。
 pub fn read_rule_content(
-    project_root: &str,
+    layout: &ProjectLayout,
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<Option<(String, SystemTime)>, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = resolve_dir_for_rule(layout, rule_type);
     let path = rule_target_path(&project_dir, rule_type, file_name)?;
     read_file_with_mtime(&path)
 }
 
 /// 读取 WPL 的 sample.dat 内容和文件 mtime。
 pub fn read_wpl_sample_content(
-    project_root: &str,
+    layout: &ProjectLayout,
     file_name: &str,
 ) -> Result<Option<(String, SystemTime)>, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = layout.models_root.clone();
     let (_, sample_path) = wpl_rule_paths(&project_dir, file_name);
     read_file_with_mtime(&sample_path)
 }
 
 /// 直接写入单个规则文件，返回实际写入路径。
 pub fn write_rule_content(
-    project_root: &str,
+    layout: &ProjectLayout,
     rule_type: RuleType,
     file_name: &str,
     content: &str,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = resolve_dir_for_rule(layout, rule_type);
     let path = rule_target_path(&project_dir, rule_type, file_name)?;
     ensure_parent_dir(&path)?;
     fs::write(&path, content).map_err(AppError::internal)?;
@@ -150,11 +183,11 @@ pub fn write_rule_content(
 
 /// 直接写入 WPL 的 sample.dat，返回实际写入路径。
 pub fn write_wpl_sample_content(
-    project_root: &str,
+    layout: &ProjectLayout,
     file_name: &str,
     content: &str,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = layout.models_root.clone();
     let (_, sample_path) = wpl_rule_paths(&project_dir, file_name);
     ensure_parent_dir(&sample_path)?;
     fs::write(&sample_path, content).map_err(AppError::internal)?;
@@ -163,11 +196,11 @@ pub fn write_wpl_sample_content(
 
 /// 在项目目录中创建一个空的规则文件，返回实际写入路径。
 pub fn touch_rule_in_project(
-    project_root: &str,
+    layout: &ProjectLayout,
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = resolve_dir_for_rule(layout, rule_type);
 
     if matches!(rule_type, RuleType::Wpl) {
         let (parse_path, sample_path) = wpl_rule_paths(&project_dir, file_name);
@@ -182,8 +215,11 @@ pub fn touch_rule_in_project(
 }
 
 /// 在项目目录中创建一个空的知识库目录和文件，返回知识库目录路径。
-pub fn touch_knowledge_in_project(project_root: &str, file_name: &str) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+pub fn touch_knowledge_in_project(
+    layout: &ProjectLayout,
+    file_name: &str,
+) -> Result<String, AppError> {
+    let project_dir = layout.models_root.clone();
     let table_dir = project_dir.join("models").join("knowledge").join(file_name);
     ensure_dir(&table_dir)?;
     write_empty_if_missing(&table_dir.join("create.sql"))?;
@@ -194,11 +230,11 @@ pub fn touch_knowledge_in_project(project_root: &str, file_name: &str) -> Result
 
 /// 从项目目录中删除规则文件。
 pub fn delete_rule_from_project(
-    project_root: &str,
+    layout: &ProjectLayout,
     rule_type: RuleType,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = resolve_dir_for_rule(layout, rule_type);
 
     if matches!(rule_type, RuleType::Wpl) {
         let dir = project_dir.join("models").join("wpl").join(file_name);
@@ -223,10 +259,10 @@ pub fn delete_rule_from_project(
 
 /// 从项目目录中删除知识库配置。knowdb.toml 是全局配置，不随单个表删除。
 pub fn delete_knowledge_from_project(
-    project_root: &str,
+    layout: &ProjectLayout,
     file_name: &str,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = layout.models_root.clone();
     let table_dir = project_dir.join("models").join("knowledge").join(file_name);
 
     if table_dir.exists() {
@@ -237,16 +273,20 @@ pub fn delete_knowledge_from_project(
 }
 
 /// 扫描 models/knowledge/ 下的知识库表目录。
-pub fn list_knowledge_dirs(project_root: &str) -> Result<Vec<String>, AppError> {
-    let project_dir = resolve_project_root(project_root);
+pub fn list_knowledge_dirs(layout: &ProjectLayout) -> Result<Vec<String>, AppError> {
+    let project_dir = layout.models_root.clone();
     let knowledge_root = project_dir.join("models").join("knowledge");
+    list_knowledge_dirs_in_dir(&knowledge_root)
+}
+
+fn list_knowledge_dirs_in_dir(knowledge_root: &Path) -> Result<Vec<String>, AppError> {
     let mut dirs = Vec::new();
 
     if !knowledge_root.exists() {
         return Ok(dirs);
     }
 
-    for entry in fs::read_dir(&knowledge_root).map_err(AppError::internal)? {
+    for entry in fs::read_dir(knowledge_root).map_err(AppError::internal)? {
         let entry = entry.map_err(AppError::internal)?;
         if entry.path().is_dir()
             && let Some(name) = entry.file_name().to_str()
@@ -263,13 +303,13 @@ pub fn list_knowledge_dirs(project_root: &str) -> Result<Vec<String>, AppError> 
 
 /// 写入知识库表相关文件，返回知识库目录路径。
 pub fn write_knowledge_files(
-    project_root: &str,
+    layout: &ProjectLayout,
     file_name: &str,
     create_sql: Option<String>,
     insert_sql: Option<String>,
     data_content: Option<String>,
 ) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = layout.models_root.clone();
     let table_dir = project_dir.join("models").join("knowledge").join(file_name);
     ensure_dir(&table_dir)?;
 
@@ -282,10 +322,10 @@ pub fn write_knowledge_files(
 
 /// 读取知识库表文件，并附带全局 knowdb.toml 内容。
 pub fn read_knowledge_files(
-    project_root: &str,
+    layout: &ProjectLayout,
     file_name: &str,
 ) -> Result<Option<KnowledgeFiles>, AppError> {
-    let project_dir = resolve_project_root(project_root);
+    let project_dir = layout.models_root.clone();
     let knowledge_root = project_dir.join("models").join("knowledge");
     let table_dir = knowledge_root.join(file_name);
 
@@ -315,8 +355,10 @@ pub fn read_knowledge_files(
 }
 
 /// 读取全局 knowdb.toml。
-pub fn read_knowdb_config(project_root: &str) -> Result<Option<(String, SystemTime)>, AppError> {
-    let project_dir = resolve_project_root(project_root);
+pub fn read_knowdb_config(
+    layout: &ProjectLayout,
+) -> Result<Option<(String, SystemTime)>, AppError> {
+    let project_dir = layout.models_root.clone();
     let path = project_dir
         .join("models")
         .join("knowledge")
@@ -325,8 +367,8 @@ pub fn read_knowdb_config(project_root: &str) -> Result<Option<(String, SystemTi
 }
 
 /// 写入全局 knowdb.toml。
-pub fn write_knowdb_config(project_root: &str, content: &str) -> Result<String, AppError> {
-    let project_dir = resolve_project_root(project_root);
+pub fn write_knowdb_config(layout: &ProjectLayout, content: &str) -> Result<String, AppError> {
+    let project_dir = layout.models_root.clone();
     let path = project_dir
         .join("models")
         .join("knowledge")
@@ -477,6 +519,20 @@ pub fn load_project_snapshot(project_root: &Path) -> Result<ProjectSnapshot, App
     load_oml_rules(project_root, &mut snapshot)?;
     load_knowledge_tables(project_root, &mut snapshot)?;
 
+    Ok(snapshot)
+}
+
+/// 从双仓库布局加载规则与知识库快照，并在内存中合并成统一视图。
+pub fn load_project_snapshot_from_layout(
+    layout: &ProjectLayout,
+) -> Result<ProjectSnapshot, AppError> {
+    let mut snapshot = ProjectSnapshot::default();
+    load_parse_and_wpgen(&layout.infra_root, &mut snapshot)?;
+    load_connector_rules(&layout.infra_root, &mut snapshot)?;
+    load_topology_rules(&layout.infra_root, &mut snapshot)?;
+    load_wpl_rules(&layout.models_root, &mut snapshot)?;
+    load_oml_rules(&layout.models_root, &mut snapshot)?;
+    load_knowledge_tables(&layout.models_root, &mut snapshot)?;
     Ok(snapshot)
 }
 
@@ -710,9 +766,9 @@ fn load_knowledge_tables(
     project_root: &Path,
     snapshot: &mut ProjectSnapshot,
 ) -> Result<(), AppError> {
-    let project_root = project_root.to_string_lossy().to_string();
-    for table_name in list_knowledge_dirs(&project_root)? {
-        let Some(config) = read_knowledge_files(&project_root, &table_name)? else {
+    let knowledge_root = project_root.join("models").join("knowledge");
+    for table_name in list_knowledge_dirs_in_dir(&knowledge_root)? {
+        let Some(config) = read_knowledge_files_in_dir(project_root, &table_name)? else {
             continue;
         };
 
@@ -732,6 +788,38 @@ fn load_knowledge_tables(
     }
 
     Ok(())
+}
+
+fn read_knowledge_files_in_dir(
+    project_dir: &Path,
+    file_name: &str,
+) -> Result<Option<KnowledgeFiles>, AppError> {
+    let knowledge_root = project_dir.join("models").join("knowledge");
+    let table_dir = knowledge_root.join(file_name);
+
+    if !table_dir.is_dir() {
+        return Ok(None);
+    }
+
+    let config_content = read_file_if_exists(&knowledge_root.join("knowdb.toml"))?;
+    let create_path = table_dir.join("create.sql");
+    let insert_path = table_dir.join("insert.sql");
+    let data_path = table_dir.join("data.csv");
+
+    let mut last_modified = None;
+    update_last_modified(&mut last_modified, &knowledge_root.join("knowdb.toml"))?;
+    update_last_modified(&mut last_modified, &create_path)?;
+    update_last_modified(&mut last_modified, &insert_path)?;
+    update_last_modified(&mut last_modified, &data_path)?;
+
+    Ok(Some(KnowledgeFiles {
+        file_name: file_name.to_string(),
+        config_content,
+        create_sql: read_file_if_exists(&create_path)?,
+        insert_sql: read_file_if_exists(&insert_path)?,
+        data_content: read_file_if_exists(&data_path)?,
+        last_modified,
+    }))
 }
 
 fn collect_relative_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, AppError> {
@@ -773,6 +861,46 @@ fn collect_relative_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, AppError
 
     walk(dir, dir, &mut result)?;
     Ok(result)
+}
+
+fn copy_named_entry(source_root: &Path, target_root: &Path, name: &str) -> Result<(), AppError> {
+    let source = source_root.join(name);
+    if !source.exists() {
+        return Ok(());
+    }
+    let target = target_root.join(name);
+    copy_dir_recursive(&source, &target)
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), AppError> {
+    if source.is_file() {
+        ensure_parent_dir(target)?;
+        fs::copy(source, target).map_err(AppError::internal)?;
+        return Ok(());
+    }
+
+    ensure_dir(target)?;
+    for entry in fs::read_dir(source).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let file_name = entry.file_name();
+        if file_name
+            .to_str()
+            .map(|name| name == ".git" || name.starts_with('.'))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+
+        let source_path = entry.path();
+        let target_path = target.join(file_name);
+        if source_path.is_dir() {
+            copy_dir_recursive(&source_path, &target_path)?;
+        } else if source_path.is_file() {
+            ensure_parent_dir(&target_path)?;
+            fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+        }
+    }
+    Ok(())
 }
 
 fn read_file_if_exists(path: &Path) -> Result<Option<String>, AppError> {

@@ -2,11 +2,12 @@
 
 use crate::db::{
     Device, ReleaseStatus, ReleaseTarget, ReleaseTargetStatus, ReleaseTargetUpdate,
-    find_devices_by_ids, find_due_release_targets, find_release_targets_by_release,
-    update_device_runtime_state, update_release_status, update_release_target,
+    find_devices_by_ids, find_due_release_targets, find_release_by_id,
+    find_release_targets_by_release, update_device_runtime_state, update_release_group,
+    update_release_status, update_release_target,
 };
 use crate::server::release::{
-    parse_stage_trace, serialize_stage_summary, serialize_stage_trace, stage_summary_for_status,
+    parse_stage_trace, serialize_stage_summary, serialize_stage_trace, stage_summary_for_release,
 };
 use crate::server::setting::WarparseConf;
 use crate::server::{
@@ -20,6 +21,23 @@ use crate::utils::common::{
 use anyhow::Result;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::collections::{HashMap, HashSet};
+
+fn latest_target_per_device_group(targets: Vec<ReleaseTarget>) -> Vec<ReleaseTarget> {
+    let mut latest: HashMap<(i32, String), ReleaseTarget> = HashMap::new();
+    for target in targets {
+        let key = (target.device_id, target.release_group.clone());
+        match latest.get(&key) {
+            Some(existing) if existing.created_at >= target.created_at => {}
+            _ => {
+                latest.insert(key, target);
+            }
+        }
+    }
+
+    let mut values = latest.into_values().collect::<Vec<_>>();
+    values.sort_by_key(|target| target.id);
+    values
+}
 
 pub fn spawn_release_task_runner(conf: WarparseConf) {
     tokio::spawn(async move { ReleaseTaskRunner::new(conf).run().await });
@@ -153,30 +171,6 @@ impl ReleaseTaskRunner {
             return Ok(true);
         }
 
-        // 在发布前先推送代码并创建 tag（回滚操作跳过此步骤）
-        if !is_rollback {
-            info!(
-                "发布前推送代码并打 tag: release_id={}, device_id={}, version={}",
-                target.release_id, target.device_id, target.target_config_version
-            );
-
-            match crate::server::push_and_tag_release(&target.target_config_version).await {
-                Ok(_) => {
-                    info!(
-                        "代码和 tag 推送成功: version={}",
-                        target.target_config_version
-                    );
-                }
-                Err(e) => {
-                    let error_msg = format!("推送代码或创建 tag 失败: {}", e);
-                    warn!("{}", error_msg);
-                    self.mark_target_fail(target, Some(device), &error_msg)
-                        .await?;
-                    return Ok(true);
-                }
-            }
-        }
-
         // 去除版本号 "v" 前缀（例如 "v1.0.0" -> "1.0.0"）
         let version = target
             .target_config_version
@@ -184,7 +178,12 @@ impl ReleaseTaskRunner {
             .unwrap_or(&target.target_config_version);
 
         // 使用新服务发起部署
-        let result = self.service.deploy(device, &self.conf, version).await;
+        let release_group = crate::db::ReleaseGroup::parse(&target.release_group)
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let result = self
+            .service
+            .deploy(device, &self.conf, version, release_group)
+            .await;
 
         let resp = match result {
             Ok(resp) => resp,
@@ -267,6 +266,8 @@ impl ReleaseTaskRunner {
         } else {
             target.remote_job_id.as_deref()
         };
+        let release_group = crate::db::ReleaseGroup::parse(&target.release_group)
+            .map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
         // 去除版本号 "v" 前缀（例如 "v1.0.0" -> "1.0.0"）
         let version = target
@@ -277,7 +278,13 @@ impl ReleaseTaskRunner {
         // 使用新服务检查部署成功
         match self
             .service
-            .check_deploy_success(device, &self.conf, version, expected_request_id)
+            .check_deploy_success(
+                device,
+                &self.conf,
+                version,
+                release_group,
+                expected_request_id,
+            )
             .await
         {
             Ok(result) => {
@@ -469,7 +476,12 @@ impl ReleaseTaskRunner {
     }
 
     async fn refresh_release_status(&self, release_id: i32) -> Result<()> {
-        let targets = find_release_targets_by_release(release_id).await?;
+        let release = match find_release_by_id(release_id).await? {
+            Some(release) => release,
+            None => return Ok(()),
+        };
+        let targets =
+            latest_target_per_device_group(find_release_targets_by_release(release_id).await?);
         if targets.is_empty() {
             return Ok(());
         }
@@ -512,12 +524,38 @@ impl ReleaseTaskRunner {
             ReleaseStatus::PARTIAL_FAIL
         };
 
-        let summary = serialize_stage_summary(&stage_summary_for_status(&new_status));
+        let aggregated_group = match (
+            targets
+                .iter()
+                .any(|target| target.release_group == "models"),
+            targets.iter().any(|target| target.release_group == "infra"),
+        ) {
+            (true, true) => "all".to_string(),
+            (true, false) => "models".to_string(),
+            (false, true) => "infra".to_string(),
+            (false, false) => release.release_group.clone(),
+        };
+
+        let summary =
+            serialize_stage_summary(&stage_summary_for_release(&new_status, &aggregated_group));
         let error_text = if fail_messages.is_empty() {
             None
         } else {
             Some(fail_messages.join("; "))
         };
+
+        info!(
+            "刷新发布单状态: release_id={}, previous_status={}, new_status={}, aggregated_group={}, success={}, fail={}, running={}",
+            release_id,
+            release.status,
+            new_status.as_ref(),
+            aggregated_group,
+            success,
+            fail,
+            running
+        );
+
+        update_release_group(release_id, &aggregated_group).await?;
 
         update_release_status(
             release_id,

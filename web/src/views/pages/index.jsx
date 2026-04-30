@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router-dom';
 
 export default function Home() {
-  return <Navigate to="/features" replace />;
+  return <Navigate to="/rule-manage" replace />;
 }

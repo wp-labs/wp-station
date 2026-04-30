@@ -3,9 +3,10 @@
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::Setting;
-use crate::server::sync::{handle_draft_release, sync_delete_to_gitea, sync_to_gitea};
+use crate::server::sync::{sync_delete_to_gitea, sync_to_gitea};
 use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
+    OperationLogAction, OperationLogBiz, OperationLogParams, ProjectLayout,
+    refresh_draft_release_logic, write_operation_log_for_result,
 };
 use crate::utils::{
     common::fallback_sink_display, delete_rule_from_project, list_rule_files, read_rule_content,
@@ -81,21 +82,8 @@ pub struct SimpleResult {
 
 // ============ 业务逻辑函数 ============
 
-async fn refresh_draft_release_after_config_change(
-    action: &str,
-    rule_type: RuleType,
-    file: &str,
-    operator: Option<&str>,
-) {
-    if let Err(err) = handle_draft_release(operator).await {
-        warn!(
-            "更新草稿发布记录失败: action={}, rule_type={}, file={}, error={}",
-            action,
-            rule_type.as_ref(),
-            file,
-            err
-        );
-    }
+fn project_layout() -> ProjectLayout {
+    Setting::load().project_layout()
 }
 
 fn fallback_display_name(rule_type: RuleType, file_name: &str) -> Option<String> {
@@ -115,8 +103,8 @@ pub async fn get_config_files_logic(
     rule_type: RuleType,
     keyword: Option<String>,
 ) -> Result<ConfigFilesResponse, AppError> {
-    let setting = Setting::load();
-    let files = list_rule_files(&setting.project_root, rule_type)?;
+    let layout = project_layout();
+    let files = list_rule_files(&layout, rule_type)?;
     let should_filter_default_sink = matches!(rule_type, RuleType::Sink);
 
     // `defaults.toml` 仅作为内部默认配置，不在 sink 文件列表中展示。
@@ -140,16 +128,15 @@ pub async fn get_config_files_logic(
             continue;
         }
 
-        let (file_size, last_modified) = if let Some((content, modified)) =
-            read_rule_content(&setting.project_root, rule_type, &file)?
-        {
-            (
-                Some(content.len() as i32),
-                Some(system_time_to_rfc3339(modified)),
-            )
-        } else {
-            (None, None)
-        };
+        let (file_size, last_modified) =
+            if let Some((content, modified)) = read_rule_content(&layout, rule_type, &file)? {
+                (
+                    Some(content.len() as i32),
+                    Some(system_time_to_rfc3339(modified)),
+                )
+            } else {
+                (None, None)
+            };
 
         items.push(ConfigFileItem {
             file,
@@ -167,12 +154,10 @@ pub async fn get_config_logic(
     rule_type: RuleType,
     file: Option<String>,
 ) -> Result<serde_json::Value, AppError> {
-    let setting = Setting::load();
+    let layout = project_layout();
 
     if let Some(file) = &file {
-        return if let Some((content, modified)) =
-            read_rule_content(&setting.project_root, rule_type, file)?
-        {
+        return if let Some((content, modified)) = read_rule_content(&layout, rule_type, file)? {
             let display_name = fallback_display_name(rule_type, file);
             let item = ConfigItem {
                 rule_type,
@@ -197,13 +182,11 @@ pub async fn get_config_logic(
         };
     }
 
-    let files = list_rule_files(&setting.project_root, rule_type)?;
+    let files = list_rule_files(&layout, rule_type)?;
 
     let mut items = Vec::new();
     for file in files {
-        if let Some((content, modified)) =
-            read_rule_content(&setting.project_root, rule_type, &file)?
-        {
+        if let Some((content, modified)) = read_rule_content(&layout, rule_type, &file)? {
             items.push(ConfigItem {
                 rule_type,
                 display_name: fallback_display_name(rule_type, &file),
@@ -222,7 +205,7 @@ pub async fn save_config_logic(
     rule_type: RuleType,
     file: String,
     content: String,
-    operator: Option<String>,
+    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "保存配置文件: rule_type={}, file={}, size={}",
@@ -232,13 +215,12 @@ pub async fn save_config_logic(
     );
 
     let size = content.len() as i32;
-    let project_root = Setting::load().project_root;
-    let is_update = read_rule_content(&project_root, rule_type, &file)?.is_some();
+    let layout = project_layout();
+    let is_update = read_rule_content(&layout, rule_type, &file)?.is_some();
 
-    let operator_cloned = operator.clone();
     let file_for_log = file.clone();
     let result = async move {
-        let written_path = write_rule_content(&project_root, rule_type, &file, &content)?;
+        let written_path = write_rule_content(&layout, rule_type, &file, &content)?;
 
         info!(
             "配置写入项目目录成功: rule_type={}, file={}, path={}",
@@ -248,15 +230,12 @@ pub async fn save_config_logic(
         );
 
         let commit_message = format!("配置改动: {} - {}", rule_type.as_ref(), file);
-        sync_to_gitea(&commit_message).await;
-
-        refresh_draft_release_after_config_change(
-            "save",
-            rule_type,
-            &file,
-            operator_cloned.as_deref(),
+        sync_to_gitea(
+            &commit_message,
+            crate::db::ReleaseGroup::from_rule_type(rule_type),
         )
         .await;
+        let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }
@@ -286,7 +265,7 @@ pub async fn create_config_file_logic(
     rule_type: RuleType,
     file: String,
     display_name: Option<String>,
-    operator: Option<String>,
+    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "创建配置文件: rule_type={}, file={}, display_name={}",
@@ -295,12 +274,11 @@ pub async fn create_config_file_logic(
         display_name.as_deref().unwrap_or("-")
     );
 
-    let operator_cloned = operator.clone();
     let file_for_log = file.clone();
     let display_name_for_log = display_name.clone();
     let result = async move {
-        let setting = Setting::load();
-        let created_path = touch_rule_in_project(&setting.project_root, rule_type, &file)?;
+        let layout = project_layout();
+        let created_path = touch_rule_in_project(&layout, rule_type, &file)?;
         info!(
             "配置文件已创建到项目目录: rule_type={}, file={}, path={}",
             rule_type.as_ref(),
@@ -309,15 +287,12 @@ pub async fn create_config_file_logic(
         );
 
         let commit_message = format!("新增配置文件: {} - {}", rule_type.as_ref(), file);
-        sync_to_gitea(&commit_message).await;
-
-        refresh_draft_release_after_config_change(
-            "create",
-            rule_type,
-            &file,
-            operator_cloned.as_deref(),
+        sync_to_gitea(
+            &commit_message,
+            crate::db::ReleaseGroup::from_rule_type(rule_type),
         )
         .await;
+        let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }
@@ -346,7 +321,7 @@ pub async fn create_config_file_logic(
 pub async fn delete_config_file_logic(
     rule_type: RuleType,
     file: String,
-    operator: Option<String>,
+    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "删除配置文件: rule_type={}, file={}",
@@ -354,11 +329,10 @@ pub async fn delete_config_file_logic(
         file
     );
 
-    let operator_cloned = operator.clone();
     let file_for_log = file.clone();
     let result = async move {
-        let setting = Setting::load();
-        let deleted_path = delete_rule_from_project(&setting.project_root, rule_type, &file)?;
+        let layout = project_layout();
+        let deleted_path = delete_rule_from_project(&layout, rule_type, &file)?;
         info!(
             "配置文件项目目录删除成功: rule_type={}, file={}, path={}",
             rule_type.as_ref(),
@@ -367,14 +341,8 @@ pub async fn delete_config_file_logic(
         );
 
         sync_delete_to_gitea(rule_type, &file).await;
-
-        refresh_draft_release_after_config_change(
-            "delete",
-            rule_type,
-            &file,
-            operator_cloned.as_deref(),
-        )
-        .await;
+        let draft_note = format!("删除配置文件: {} - {}", rule_type.as_ref(), file);
+        let _ = refresh_draft_release_logic(Some(&draft_note)).await;
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }

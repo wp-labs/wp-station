@@ -15,6 +15,7 @@ import {
 } from '@/services/config';
 import { wplCodeFormat, omlCodeFormat } from '@/services/debug';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
+import ValidateResultModal from '@/components/ValidateResultModal';
 
 const WPL_PAGE_SIZE = 14;
 const WPL_FETCH_PAGE_SIZE = 50;
@@ -241,7 +242,7 @@ const findOmlGroupForFile = (treeData, file) => {
 /**
  * 规则配置管理页面
  * 功能：
- * 1. 显示和编辑各类规则配置（source/wpl/oml/knowledge/sink）
+ * 1. 显示和编辑各类规则配置（wpl/oml/knowledge）
  * 2. 支持配置校验和保存
  * 对应原型：pages/views/rule-manage/source-config.html
  */
@@ -270,7 +271,7 @@ function RuleManagePage() {
     return meta[type] || {};
   };
   
-  const [activeKey, setActiveKey] = useState(RuleType.SOURCE);
+  const [activeKey, setActiveKey] = useState(RuleType.WPL);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -296,7 +297,8 @@ function RuleManagePage() {
   // knowledge 配置的数据集列表
   const [knowledgeDatasets, setKnowledgeDatasets] = useState([]);
   const [activeKnowledgeDataset, setActiveKnowledgeDataset] = useState('');
-  const [localKnowledgeDatasets, setLocalKnowledgeDatasets] = useState([]);
+  const [validateModalVisible, setValidateModalVisible] = useState(false);
+  const [validateResult, setValidateResult] = useState(null);
   const [knowledgePage, setKnowledgePage] = useState(1);
   const [knowledgeTotal, setKnowledgeTotal] = useState(0);
   
@@ -322,8 +324,6 @@ function RuleManagePage() {
   // 跟踪内容是否已修改
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
-  const isKnowdbSelected = activeKey === RuleType.KNOWLEDGE && activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE;
-
   // 跟踪 wpl/oml 列表当前悬停的文件名，用于展示删除按钮
   const [hoveredRepoFile, setHoveredRepoFile] = useState('');
   const [wplSearch, setWplSearch] = useState('');
@@ -371,10 +371,6 @@ function RuleManagePage() {
     return [KNOWLEDGE_CONFIG_FILE, ...datasets];
   }, [pagedKnowledgeDatasets]);
   
-  // sink 配置的文件列表（从后端加载）
-  const [sinkFiles, setSinkFiles] = useState([]);
-  const [activeSinkFile, setActiveSinkFile] = useState('');
-
   /**
    * 加载配置内容
    */
@@ -424,11 +420,6 @@ function RuleManagePage() {
         return;
       }
       options.file = activeKnowledgeDataset;
-    } else if (activeKey === 'sink') {
-      if (!activeSinkFile) {
-        return;
-      }
-      options.file = activeSinkFile;
     }
     
     setLoading(true);
@@ -461,7 +452,7 @@ function RuleManagePage() {
       }
     } catch (error) {
       console.error('加载配置失败:', error);
-      message.error(t('configManage.loadFailed', { message: error?.message || error }));
+      message.error(t('ruleManage.loadFailed', { message: error?.message || error }));
       // 加载失败时设置为空
       if (activeKey === 'knowledge') {
         if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
@@ -677,6 +668,12 @@ function RuleManagePage() {
     [applyOmlListState, fetchAllRuleFiles, omlSearch],
   );
 
+  useEffect(() => {
+    refreshWplFiles({ preserveActive: true, page: 1 }).catch((error) => {
+      message.error(t('ruleManage.loadWplFailed', { message: error.message }));
+    });
+  }, [refreshWplFiles, t]);
+
   const toggleWplRule = (rule) => {
     setWplExpandedRules((prev) =>
       prev.includes(rule) ? prev.filter((item) => item !== rule) : [...prev, rule],
@@ -729,7 +726,6 @@ function RuleManagePage() {
     activeWplFile,
     activeOmlFile,
     activeKnowledgeDataset,
-    activeSinkFile,
     // 注意：localWplFiles/localOmlFiles 不放入依赖，避免一次加载导致重复请求
   ]);
 
@@ -805,85 +801,26 @@ function RuleManagePage() {
     }
     const currentContent = buildCurrentContent();
     try {
-      // 调用服务层校验配置（使用对象参数）
+      // 调用服务层校验配置
       const response = await validateRuleConfig({ type: activeKey, file: fileInfo.file, content: currentContent });
-      
-      if (response.valid) {
-        const warnings = response.warnings || 0;
-        const statusColor = warnings === 0 ? '#52c41a' : '#faad14';
-        const statusIcon = warnings === 0 ? '✓' : '⚠';
-        const statusText = warnings === 0 ? t('ruleManage.validateSuccess') : t('ruleManage.validateWarning');
-        const now = new Date().toLocaleString('zh-CN');
-        const lineCount = response.lines ?? (currentContent ? currentContent.split('\n').length : 0);
-        Modal.info({
-          icon: null,
-          okText: t('common.confirm'),
-          width: 580,
-          title: t('ruleManage.validationResult'),
-          content: (
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  marginBottom: 20,
-                  padding: 16,
-                  background: warnings === 0 ? '#f6ffed' : '#fffbe6',
-                  borderLeft: `3px solid ${statusColor}`,
-                  borderRadius: 8,
-                }}
-              >
-                <span style={{ fontSize: 28, color: statusColor }}>{statusIcon}</span>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 600, color: statusColor, marginBottom: 4 }}>{statusText}</div>
-                  <div style={{ fontSize: 13, color: '#666' }}>{t('ruleManage.conforms', { type: typeLabelMap[activeKey] || activeKey })}</div>
-                </div>
-              </div>
-              <div style={{ background: '#fafafa', borderRadius: 8, padding: 16 }}>
-                <table style={{ width: '100%', fontSize: 13, lineHeight: 2 }}>
-                  <tbody>
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.fileName')}</td>
-                      <td style={{ fontWeight: 500 }}>{fileInfo.display || fileInfo.file}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.codeLines')}</td>
-                      <td style={{ fontWeight: 500 }}>{t('ruleManage.lines', { count: lineCount })}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.syntaxCheck')}</td>
-                      <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('ruleManage.passed')}</td>
-                    </tr>
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.formatCheck')}</td>
-                      <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('ruleManage.passed')}</td>
-                    </tr>
-                    {warnings > 0 ? (
-                      <tr>
-                        <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.warningInfo')}</td>
-                        <td style={{ color: '#faad14', fontWeight: 500 }}>{t('ruleManage.warnings', { count: warnings })}</td>
-                      </tr>
-                    ) : null}
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('ruleManage.validationTime')}</td>
-                      <td style={{ fontWeight: 500 }}>{now}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ),
-        });
-      } else {
-        // 显示后端返回的错误信息
-        Modal.error({
-          title: t('ruleManage.validateFailed'),
-          content: response.message || t('ruleManage.validateFailedMessage'),
-        });
-      }
+
+      setValidateResult({
+        filename: response.filename || fileInfo.display || fileInfo.file,
+        valid: Boolean(response.valid),
+        message: response.message || null,
+        details: response.details || [],
+        type: typeLabelMap[activeKey] || activeKey,
+      });
+      setValidateModalVisible(true);
     } catch (error) {
-      message.error(t('ruleManage.validateFailed') + '：' + error.message);
+      setValidateResult({
+        filename: fileInfo.display || fileInfo.file,
+        valid: false,
+        message: error.message || '未知错误',
+        details: [],
+        type: typeLabelMap[activeKey] || activeKey,
+      });
+      setValidateModalVisible(true);
     }
   };
 
@@ -897,9 +834,6 @@ function RuleManagePage() {
       message.warning(t('ruleManage.noFileToSave'));
       return;
     }
-    const currentMenuItem = menuItems.find((item) => item.key === activeKey);
-    const configLabel = currentMenuItem?.label || activeKey;
-    const currentContent = buildCurrentContent();
 
     try {
       if (activeKey === 'knowledge') {
@@ -917,6 +851,7 @@ function RuleManagePage() {
           setOriginalKnowledgeDatasetConfig({ ...knowledgeDatasetConfig });
         }
       } else {
+        const currentContent = buildCurrentContent();
         // 直接调用服务层保存配置（使用对象参数），不再弹出确认框
         await saveRuleConfig({
           type: activeKey,
@@ -1137,37 +1072,23 @@ function RuleManagePage() {
     }
   };
 
-  const menuItems = [
-    { key: RuleType.SOURCE, label: t('ruleManage.sourceConfig') },
-    { key: RuleType.WPL, label: t('ruleManage.wplConfig') },
-    { key: RuleType.OML, label: t('ruleManage.omlConfig') },
-    { key: RuleType.KNOWLEDGE, label: t('ruleManage.knowledgeConfig') },
-    { key: RuleType.SINK, label: t('ruleManage.sinkSource') },
-  ];
   const typeLabelMap = {
-    source: 'Source',
     wpl: 'WPL',
     oml: 'OML',
     knowledge: 'Knowledge',
-    sink: 'Sink',
   };
 
   // 获取页面标题（与旧版本一致）
   const getPageTitle = () => {
     const titles = {
-      source: t('ruleManage.sourceConfig'),
       wpl: t('ruleManage.wplConfig'),
       oml: t('ruleManage.omlConfig'),
       knowledge: t('ruleManage.knowledgeConfig'),
-      sink: t('ruleManage.sinkSource'),
     };
     return titles[activeKey] || t('ruleManage.title');
   };
 
   const getCurrentFileInfo = () => {
-    if (activeKey === 'source') {
-      return { file: 'wpsrc.toml', display: 'source 配置模板' };
-    }
     if (activeKey === 'wpl') {
       const normalized = normalizeWplEntry(activeWplFile);
       return { file: normalized, display: formatWplDisplayName(normalized) };
@@ -1182,9 +1103,6 @@ function RuleManagePage() {
       }
       const datasetName = activeKnowledgeDataset ? `${activeKnowledgeDataset}.dataset` : '';
       return { file: datasetName, display: datasetName };
-    }
-    if (activeKey === 'sink') {
-      return { file: activeSinkFile, display: activeSinkFile };
     }
     return { file: '', display: '' };
   };
@@ -1205,44 +1123,14 @@ function RuleManagePage() {
     return content || '';
   };
 
-  const currentFileInfo = getCurrentFileInfo();
   const codeEditorLanguage =
     activeKey === 'wpl' ? (isWplSampleEntry(activeWplFile) ? 'plain' : 'wpl') : 'oml';
-
-  const displayedSinkFiles = React.useMemo(() => {
-    if (!Array.isArray(sinkFiles) || sinkFiles.length === 0) {
-      return [];
-    }
-
-    return sinkFiles
-      .map((item) => {
-        if (!item || !item.file) {
-          return null;
-        }
-        const label =
-          typeof item.displayName === 'string' && item.displayName.trim()
-            ? item.displayName.trim()
-            : item.file;
-        return {
-          file: item.file,
-          displayName: label,
-        };
-      })
-      .filter(Boolean);
-  }, [sinkFiles]);
 
   return (
     <>
       {/* 左侧侧边栏 */}
       <aside className="side-nav" data-group="rule-manage">
         <h2>{t('ruleManage.title')}</h2>
-        <button
-          type="button"
-          className={`side-item ${activeKey === 'source' ? 'is-active' : ''}`}
-          onClick={() => handleNavigation('source')}
-        >
-          {t('ruleManage.sourceConfig')}
-        </button>
         <button
           type="button"
           className={`side-item ${activeKey === 'wpl' ? 'is-active' : ''}`}
@@ -1305,24 +1193,6 @@ function RuleManagePage() {
         >
           {t('ruleManage.knowledgeConfig')}
         </button>
-        <button
-          type="button"
-          className={`side-item ${activeKey === 'sink' ? 'is-active' : ''}`}
-          onClick={() =>
-            handleNavigation('sink', async () => {
-              try {
-                const result = await fetchRuleFiles({ type: 'sink' });
-                const files = Array.isArray(result?.items) ? result.items : [];
-                setSinkFiles(files);
-                setActiveSinkFile((prev) => prev || files[0]?.file || '');
-              } catch (error) {
-                message.error('加载 sink 配置列表失败：' + error.message);
-              }
-            })
-          }
-        >
-          {t('ruleManage.sinkSource')}
-        </button>
       </aside>
 
       {/* 右侧配置内容区 */}
@@ -1332,31 +1202,7 @@ function RuleManagePage() {
             <h2>{getPageTitle()}</h2>
           </header>
           <section className="panel-body config-body">
-            {/* source 配置 */}
-            {activeKey === 'source' ? (
-              <div className="single-config">
-                <header className="single-config-header">
-                  <span className="single-config-name" aria-hidden="true">
-                    wpsrc.toml
-                  </span>
-                  <div className="single-config-actions">
-                    <button type="button" className="btn tertiary" onClick={handleValidate}>
-                      {t('ruleManage.validate')}
-                    </button>
-                    <button type="button" className="btn primary" onClick={handleSave}>
-                      {t('ruleManage.save')}
-                    </button>
-                  </div>
-                </header>
-                <CodeEditor
-                  className="code-area code-area--full"
-                  value={content}
-                  onChange={(value) => setContent(value)}
-                  language="toml"
-                  theme="vscodeDark"
-                />
-              </div>
-            ) : activeKey === 'knowledge' ? (
+            {activeKey === 'knowledge' ? (
               /* knowledge 配置显示 repo 布局（与 wpl/oml 一致） */
               <div className="repo-layout" data-repo="knowledge">
                 <aside className="repo-tree" aria-label="知识库数据集列表">
@@ -2015,63 +1861,6 @@ function RuleManagePage() {
               </div>
             </div>
           </div>
-        ) : activeKey === 'sink' ? (
-          /* sink 配置显示语义化列表，内部文件路径保持不变 */
-          <div className="repo-layout" data-repo="sink">
-            <aside className="repo-tree" aria-label="sink 源配置文件列表">
-              <h3>{t('ruleManage.configFiles')}</h3>
-              <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
-                {displayedSinkFiles.map((item) => (
-                  <button
-                    key={item.file}
-                    type="button"
-                    className={`repo-file ${activeSinkFile === item.file ? 'is-active' : ''}`}
-                    onClick={() => {
-                      if (hasUnsavedChanges && item.file !== activeSinkFile) {
-                        Modal.confirm({
-                          title: t('ruleManage.leaveConfirm'),
-                          content: t('ruleManage.leaveConfirmMessage'),
-                          okText: t('common.confirm'),
-                          cancelText: t('common.cancel'),
-                          onOk: () => {
-                            setActiveSinkFile(item.file);
-                          },
-                        });
-                      } else {
-                        setActiveSinkFile(item.file);
-                      }
-                    }}
-                    style={{ textAlign: 'left' }}
-                  >
-                    {item.displayName}
-                  </button>
-                ))}
-              </div>
-            </aside>
-
-            <div className="repo-content">
-              <div className="repo-toolbar">
-                <div className="repo-path">{activeSinkFile}</div>
-                <div className="editor-actions">
-                  <button type="button" className="btn tertiary" onClick={handleValidate}>
-                    {t('ruleManage.validate')}
-                  </button>
-                  <button type="button" className="btn primary" onClick={handleSave}>
-                    {t('ruleManage.save')}
-                  </button>
-                </div>
-              </div>
-              <div className="repo-view">
-                <CodeEditor
-                  className="code-area code-area--large repo-doc is-visible"
-                  value={content}
-                  onChange={(value) => setContent(value)}
-                  language="toml"
-                  theme="vscodeDark"
-                />
-              </div>
-            </div>
-          </div>
         ) : null}
           </section>
         </article>
@@ -2109,6 +1898,16 @@ function RuleManagePage() {
           ) : null}
         </div>
       </Modal>
+
+      {/* 校验结果弹窗 */}
+      <ValidateResultModal
+        open={validateModalVisible}
+        onClose={() => {
+          setValidateModalVisible(false);
+          setValidateResult(null);
+        }}
+        result={validateResult}
+      />
     </>
   );
 }

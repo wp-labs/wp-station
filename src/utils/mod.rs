@@ -11,7 +11,7 @@ pub mod oml;
 pub mod pagination;
 pub mod project;
 pub mod project_check;
-pub(crate) mod sandbox;
+pub mod sandbox;
 pub mod warparse_service;
 pub mod wpl;
 
@@ -29,11 +29,12 @@ pub use knowledge::{
 pub use oml::OmlFormatter;
 pub use pagination::{MemoryPaginate, PageQuery, PageResponse};
 pub use project::{
-    ProjectSnapshot, delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs,
-    list_rule_files, load_project_snapshot, read_knowdb_config, read_knowledge_files,
-    read_rule_content, read_wpl_sample_content, resolve_project_root, touch_knowledge_in_project,
-    touch_rule_in_project, write_knowdb_config, write_knowledge_files, write_rule_content,
-    write_wpl_sample_content,
+    ProjectSnapshot, compose_project_layout_into, delete_knowledge_from_project,
+    delete_rule_from_project, list_knowledge_dirs, list_rule_files, load_project_snapshot,
+    load_project_snapshot_from_layout, read_knowdb_config, read_knowledge_files, read_rule_content,
+    read_wpl_sample_content, resolve_dir_for_rule, resolve_project_root,
+    touch_knowledge_in_project, touch_rule_in_project, write_knowdb_config, write_knowledge_files,
+    write_rule_content, write_wpl_sample_content,
 };
 pub use warparse_service::{
     DeployCheckResult, DeployResult, OnlineStatus, ServiceError, WarpParseService,

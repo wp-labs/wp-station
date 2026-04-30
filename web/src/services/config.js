@@ -1043,10 +1043,10 @@ export async function validateRuleConfig(options) {
     filename: targetFile,
     lines: lineCount,
     valid: Boolean(response?.valid),
-    // 后端目前仅返回 valid/message，这里先不生成逐行错误列表
     warnings: 0,
     errors: [],
     message: response?.message,
+    details: response?.details || [],
   };
 }
 

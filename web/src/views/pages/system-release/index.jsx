@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin } from 'antd';
+import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
+import ValidateResultModal from '@/components/ValidateResultModal';
 
 /**
  * 系统发布列表页面
@@ -40,6 +41,45 @@ function SystemReleasePage() {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
   const [publishNote, setPublishNote] = useState('');
+  const [publishReleaseGroup, setPublishReleaseGroup] = useState('models');
+
+  const getAvailablePublishGroups = (releaseRecord) => {
+    const status = String(releaseRecord?.status || '').toUpperCase();
+    const releaseGroup = releaseRecord?.releaseGroup || 'draft';
+
+    if (status === 'RUNNING') {
+      return [];
+    }
+
+    if (status === 'PASS') {
+      if (releaseGroup === 'all') return [];
+      if (releaseGroup === 'models') return ['infra'];
+      if (releaseGroup === 'infra') return ['models'];
+      return ['models', 'infra'];
+    }
+
+    if (releaseGroup === 'models') return ['models', 'infra'];
+    if (releaseGroup === 'infra') return ['infra', 'models'];
+    return ['models', 'infra'];
+  };
+  const availablePublishGroups = getAvailablePublishGroups(currentRelease);
+
+  const getErrorMessage = (error, fallback) => {
+    const responseData = error?.response?.data || error?.data || error?.responseData;
+    const backendError = responseData?.error;
+    const details = backendError?.details || backendError?.detail;
+
+    if (typeof responseData === 'string' && responseData.trim()) {
+      return responseData;
+    }
+    if (typeof details === 'string' && details.trim()) {
+      return details;
+    }
+    if (backendError?.message) {
+      return backendError.message;
+    }
+    return error?.message || fallback;
+  };
 
   /**
    * 翻译阶段名称
@@ -116,29 +156,24 @@ function SystemReleasePage() {
     setCurrentRelease(releaseRecord);
     try {
       const result = await validateRelease(releaseRecord.id);
-      if (result && result.valid === false) {
-        const details = Array.isArray(result.details) ? result.details : [];
-        const messageText =
-          details[0] || result.message || t('systemRelease.validateFailedMessage');
-        Modal.error({
-          title: t('systemRelease.validateFailed'),
-          content: messageText,
-        });
-        return;
-      }
-
+      const details = Array.isArray(result.details) ? result.details : [];
       setValidateResult({
         filename: result.filename || `版本 ${releaseRecord.version}`,
-        lines: result.lines ?? 0,
-        warnings: result.warnings ?? 0,
-        type: result.type || t('systemRelease.releasePackage'),
+        valid: result.valid !== false,
+        message: result.message || (details.length > 0 ? details.join('\n') : ''),
+        details,
+        type: result.type || t('validation.releasePackage'),
       });
       setValidateModalVisible(true);
     } catch (error) {
-      Modal.error({
-        title: t('systemRelease.validateFailed'),
-        content: error.message || t('systemRelease.validateFailedMessage'),
+      setValidateResult({
+        filename: `版本 ${releaseRecord.version}`,
+        valid: false,
+        message: error.message || t('systemRelease.validateFailedMessage'),
+        details: [],
+        type: t('validation.releasePackage'),
       });
+      setValidateModalVisible(true);
     }
   };
 
@@ -155,9 +190,19 @@ function SystemReleasePage() {
       return;
     }
 
+    const availableGroups = getAvailablePublishGroups(releaseRecord);
+    if (availableGroups.length === 0) {
+      Modal.warning({
+        title: t('systemRelease.publishWarning'),
+        content: t('systemRelease.statusPublishedAll'),
+      });
+      return;
+    }
+
     setCurrentRelease(releaseRecord);
     setSelectedConnectionIds([]);
     setPublishNote('');
+    setPublishReleaseGroup(availableGroups[0] || 'models');
     setPublishModalVisible(true);
     // 异步加载在线机器
     setLoadingConnections(true);
@@ -174,6 +219,13 @@ function SystemReleasePage() {
    */
   const handleConfirmPublish = async () => {
     if (!currentRelease) return;
+    if (availablePublishGroups.length === 0) {
+      Modal.warning({
+        title: t('systemRelease.publishWarning'),
+        content: t('systemRelease.statusPublishedAll'),
+      });
+      return;
+    }
 
     // 校验：必须至少选择一台机器
     if (selectedConnectionIds.length === 0) {
@@ -186,7 +238,12 @@ function SystemReleasePage() {
 
     try {
       // 将选中的在线机器 ID 传给后端
-      const result = await publishRelease(currentRelease.id, selectedConnectionIds, publishNote);
+      const result = await publishRelease(
+        currentRelease.id,
+        publishReleaseGroup,
+        selectedConnectionIds,
+        publishNote,
+      );
       Modal.success({
         title: t('systemRelease.publishSuccess'),
         content:
@@ -197,15 +254,78 @@ function SystemReleasePage() {
       setCurrentRelease(null);
       setSelectedConnectionIds([]);
       setPublishNote('');
+      setPublishReleaseGroup('models');
 
       // 刷新列表
       loadReleases();
     } catch (error) {
       Modal.error({
         title: t('systemRelease.publishFailed'),
-        content: error.message || t('systemRelease.publishFailedMessage'),
+        content: getErrorMessage(error, t('systemRelease.publishFailedMessage')),
       });
     }
+  };
+
+  const renderReleaseGroupTag = (releaseGroup) => {
+    if (!releaseGroup || releaseGroup === 'draft') return null;
+    const label =
+      releaseGroup === 'models'
+        ? t('systemRelease.groupModels')
+        : releaseGroup === 'infra'
+          ? t('systemRelease.groupInfra')
+          : t('systemRelease.groupAll');
+    return (
+      <span className="release-status" style={{ marginLeft: 8 }}>
+        {label}
+      </span>
+    );
+  };
+
+  const getReleaseStatusMeta = (record) => {
+    const normalizedStatus = String(record?.status || '').toUpperCase();
+    const releaseGroup = record?.releaseGroup || 'draft';
+
+    if (normalizedStatus === 'RUNNING') {
+      return { className: 'release-status is-running', text: t('systemRelease.statusRunning') };
+    }
+    if (normalizedStatus === 'FAIL' || normalizedStatus === 'PARTIAL_FAIL') {
+      return { className: 'release-status is-fail', text: t('systemRelease.statusFailed') };
+    }
+    if (normalizedStatus === 'PASS') {
+      if (releaseGroup === 'models') {
+        return { className: 'release-status is-pass', text: t('systemRelease.statusPublishedModels') };
+      }
+      if (releaseGroup === 'infra') {
+        return { className: 'release-status is-pass', text: t('systemRelease.statusPublishedInfra') };
+      }
+      if (releaseGroup === 'all') {
+        return { className: 'release-status is-pass', text: t('systemRelease.statusPublishedAll') };
+      }
+    }
+    return { className: 'release-status is-wait', text: t('systemRelease.statusDraft') };
+  };
+
+  const renderStageIcon = (stage, index) => {
+    const status = String(stage?.status || '').toLowerCase();
+    let stageClass = 'stage-icon';
+    let stageIcon = '>>';
+
+    if (status === 'pass') {
+      stageClass = 'stage-icon is-pass';
+      stageIcon = '✓';
+    } else if (status === 'fail') {
+      stageClass = 'stage-icon is-fail';
+      stageIcon = '✗';
+    } else if (status === 'running') {
+      stageClass = 'stage-icon is-running';
+      stageIcon = '…';
+    }
+
+    return (
+      <span key={index} className={stageClass} title={translateStageLabel(stage.label || '')}>
+        {stageIcon}
+      </span>
+    );
   };
 
   const columns = [
@@ -214,35 +334,21 @@ function SystemReleasePage() {
       dataIndex: 'status',
       key: 'status',
       // 不设置固定宽度，让表格自动分配，与旧版本一致
-      render: (status) => {
-        // 根据状态设置样式，使用与旧版本一致的类名
-        const normalizedStatus = String(status || '').toUpperCase();
-        const statusClassMap = {
-          WAIT: 'release-status is-wait',
-          PASS: 'release-status is-pass',
-          FAIL: 'release-status is-fail',
-          RUNNING: 'release-status is-running',
-          PARTIAL_FAIL: 'release-status is-running',
-          INIT: 'release-status is-wait',
-        };
-        const statusTextMap = {
-          WAIT: '草稿',
-          PASS: '已发布',
-          FAIL: 'FAIL',
-          RUNNING: 'RUNNING',
-          PARTIAL_FAIL: 'PARTIAL_FAIL',
-          INIT: 'INIT',
-        };
-        const statusClass = statusClassMap[normalizedStatus] || 'release-status';
-        const statusText = statusTextMap[normalizedStatus] || normalizedStatus || '—';
-        return <span className={statusClass}>{statusText}</span>;
+      render: (_, record) => {
+        const meta = getReleaseStatusMeta(record);
+        return <span className={meta.className}>{meta.text}</span>;
       },
     },
     {
       title: t('systemRelease.versionNumber'),
       dataIndex: 'version',
       key: 'version',
-      // 不设置固定宽度，让表格自动分配
+      render: (version, record) => (
+        <span>
+          {version}
+          {renderReleaseGroupTag(record.releaseGroup)}
+        </span>
+      ),
     },
     {
       title: t('systemRelease.remark'),
@@ -257,41 +363,12 @@ function SystemReleasePage() {
       key: 'stages',
       // 不设置固定宽度，让表格自动分配
       render: (stages) => {
-        // 渲染阶段图标，使用与旧版本一致的类名
         if (!stages || stages.length === 0) {
           return <div className="release-stages release-stages--empty">—</div>;
         }
-        let hasFailedBefore = false;
         return (
           <div className="release-stages">
-            {stages.map((stage, index) => {
-              const status = String(stage?.status || '').toLowerCase();
-              let stageClass = 'stage-icon';
-              let stageIcon = '>>';
-
-              if (hasFailedBefore) {
-                // 之前已经有失败阶段，后续统一展示待执行 >>
-                stageClass = 'stage-icon';
-                stageIcon = '>>';
-              } else if (status === 'pass') {
-                stageClass = 'stage-icon is-pass';
-                stageIcon = '✓';
-              } else if (status === 'fail') {
-                stageClass = 'stage-icon is-fail';
-                stageIcon = '✗';
-                hasFailedBefore = true;
-              } else {
-                // pending 等待执行，使用白色圆形 >>
-                stageClass = 'stage-icon';
-                stageIcon = '>>';
-              }
-
-              return (
-                <span key={index} className={stageClass} title={translateStageLabel(stage.label || '')}>
-                  {stageIcon}
-                </span>
-              );
-            })}
+            {stages.map(renderStageIcon)}
           </div>
         );
       },
@@ -319,7 +396,10 @@ function SystemReleasePage() {
       // 不设置固定宽度，让表格自动分配
       render: (_, releaseRecord) => {
         const statusUpper = String(releaseRecord.status || '').toUpperCase();
-        const publishDisabled = !(releaseRecord.sandboxReady ?? false);
+        const availableGroups = getAvailablePublishGroups(releaseRecord);
+        const publishHidden = statusUpper === 'PASS' && availableGroups.length === 0;
+        const publishDisabled =
+          !(releaseRecord.sandboxReady ?? false) || statusUpper === 'RUNNING';
         return (
           <>
             <button
@@ -340,7 +420,7 @@ function SystemReleasePage() {
                 ? t('sandbox.prepublishDetail')
                 : t('sandbox.startSandbox')}
             </button>
-            {statusUpper === 'WAIT' && (
+            {statusUpper !== 'RUNNING' && (
               <>
                 <button
                   type="button"
@@ -349,20 +429,22 @@ function SystemReleasePage() {
                 >
                   {t('systemRelease.validate')}
                 </button>
-                <button
-                  type="button"
-                  className="link-btn release-publish-btn"
-                  onClick={() => handlePublish(releaseRecord)}
-                  disabled={publishDisabled}
-                  title={publishDisabled ? t('sandbox.publishBlocked') : undefined}
-                  style={
-                    publishDisabled
-                      ? { opacity: 0.4, cursor: 'not-allowed' }
-                      : undefined
-                  }
-                >
-                  {t('systemRelease.publish')}
-                </button>
+                {!publishHidden && (
+                  <button
+                    type="button"
+                    className="link-btn release-publish-btn"
+                    onClick={() => handlePublish(releaseRecord)}
+                    disabled={publishDisabled}
+                    title={publishDisabled ? t('sandbox.publishBlocked') : undefined}
+                    style={
+                      publishDisabled
+                        ? { opacity: 0.4, cursor: 'not-allowed' }
+                        : undefined
+                    }
+                  >
+                    {t('systemRelease.publish')}
+                  </button>
+                )}
               </>
             )}
           </>
@@ -448,7 +530,9 @@ function SystemReleasePage() {
         <div className="release-main">
           <header className="release-list-header">
             <h3>{t('systemRelease.releaseRecords')}</h3>
-            <span className="release-list-hint">{t('systemRelease.recentRecords', { count: total })}</span>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <span className="release-list-hint">{t('systemRelease.recentRecords', { count: total })}</span>
+            </div>
           </header>
           
           {/* 发布列表表格 */}
@@ -474,109 +558,15 @@ function SystemReleasePage() {
       </section>
 
       {/* 校验结果弹窗 */}
-      <Modal
-        title={t('systemRelease.validateResult')}
+      <ValidateResultModal
         open={validateModalVisible}
-        onCancel={() => {
+        onClose={() => {
           setValidateModalVisible(false);
           setValidateResult(null);
         }}
-        footer={[
-          <button
-            key="confirm"
-            type="button"
-            className="btn primary"
-            onClick={() => {
-              setValidateModalVisible(false);
-              setValidateResult(null);
-            }}
-          >
-            {t('common.confirm')}
-          </button>,
-        ]}
-        width={540}
-        className="validate-result-modal"
-      >
-        {validateResult && (
-          <div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                marginBottom: '20px',
-                padding: '16px',
-                background: validateResult.warnings === 0 ? '#f6ffed' : '#fffbe6',
-                borderLeft: `3px solid ${validateResult.warnings === 0 ? '#52c41a' : '#faad14'}`,
-                borderRadius: '8px',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '28px',
-                  color: validateResult.warnings === 0 ? '#52c41a' : '#faad14',
-                }}
-              >
-                {validateResult.warnings === 0 ? '✓' : '⚠'}
-              </span>
-              <div>
-                <div
-                  style={{
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    color: validateResult.warnings === 0 ? '#52c41a' : '#faad14',
-                    marginBottom: '4px',
-                  }}
-                >
-                  {validateResult.warnings === 0 ? t('systemRelease.validateSuccess') : t('systemRelease.validateWarning')}
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  {t('systemRelease.conforms', { type: validateResult.type })}
-                </div>
-              </div>
-            </div>
+        result={validateResult}
+      />
 
-            <div style={{ background: '#fafafa', borderRadius: '8px', padding: '16px' }}>
-              <table style={{ width: '100%', fontSize: '13px', lineHeight: '2' }}>
-                <tbody>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.fileName')}</td>
-                    <td style={{ fontWeight: 500 }}>{validateResult.filename}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.codeLines')}</td>
-                    <td style={{ fontWeight: 500 }}>{t('systemRelease.lines', { count: validateResult.lines })}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.syntaxCheck')}</td>
-                    <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('systemRelease.passed')}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.formatCheck')}</td>
-                    <td style={{ color: '#52c41a', fontWeight: 500 }}>{t('systemRelease.passed')}</td>
-                  </tr>
-                  {validateResult.warnings > 0 && (
-                    <tr>
-                      <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.warningInfo')}</td>
-                      <td style={{ color: '#faad14', fontWeight: 500 }}>
-                        {t('systemRelease.warnings', { count: validateResult.warnings })}
-                      </td>
-                    </tr>
-                  )}
-                  <tr>
-                    <td style={{ color: '#666', padding: '4px 0' }}>{t('systemRelease.validationTime')}</td>
-                    <td style={{ fontWeight: 500 }}>
-                      {new Date().toLocaleString('zh-CN')}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* 发布确认弹窗 */}
       <Modal
         title={t('systemRelease.confirmPublish')}
         open={publishModalVisible}
@@ -585,6 +575,7 @@ function SystemReleasePage() {
           setCurrentRelease(null);
           setSelectedConnectionIds([]);
           setPublishNote('');
+          setPublishReleaseGroup('models');
         }}
         footer={[
           <button
@@ -596,6 +587,7 @@ function SystemReleasePage() {
               setCurrentRelease(null);
               setSelectedConnectionIds([]);
               setPublishNote('');
+              setPublishReleaseGroup('models');
             }}
           >
             {t('common.cancel')}
@@ -614,6 +606,22 @@ function SystemReleasePage() {
         <p style={{ margin: '0 0 12px', fontSize: '14px', lineHeight: '1.6' }}>
           {t('systemRelease.confirmPublishMessage', { version: currentRelease?.version })}
         </p>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '8px', fontSize: '13px', color: '#666', fontWeight: 500 }}>
+            {t('systemRelease.releaseGroup')}
+          </div>
+          <Radio.Group
+            value={publishReleaseGroup}
+            onChange={(e) => setPublishReleaseGroup(e.target.value)}
+          >
+            {availablePublishGroups.includes('models') && (
+              <Radio value="models">{t('systemRelease.groupModels')}</Radio>
+            )}
+            {availablePublishGroups.includes('infra') && (
+              <Radio value="infra">{t('systemRelease.groupInfraAlt')}</Radio>
+            )}
+          </Radio.Group>
+        </div>
         <div style={{ marginBottom: '8px', fontSize: '13px', color: '#666', fontWeight: 500 }}>
           {t('systemRelease.selectTargetMachines')}
         </div>

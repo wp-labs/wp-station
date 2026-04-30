@@ -7,6 +7,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub version: String,
+    #[sea_orm(default_value = "models")]
+    pub release_group: String,
     pub status: String,
     pub pipeline: Option<String>,
     pub created_by: Option<String>,

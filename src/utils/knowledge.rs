@@ -3,10 +3,10 @@
 //! 负责知识库的加载、卸载、重载以及 SQL 查询等操作，支持配置数据源和本地 authority 两种模式。
 
 use crate::error::AppError;
-use crate::server::Setting;
+use crate::server::ProjectLayout;
 use lazy_static::lazy_static;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -82,8 +82,8 @@ fn set_loaded_source(source: KnowledgeLoadedSource) {
 }
 
 /// 读取 knowdb.toml 中声明的 provider 名称。
-pub fn configured_provider_name(project_dir: &str) -> Result<Option<String>, AppError> {
-    let Some(context) = build_knowledge_context(project_dir)? else {
+pub fn configured_provider_name(layout: &ProjectLayout) -> Result<Option<String>, AppError> {
+    let Some(context) = build_knowledge_context(layout)? else {
         return Ok(None);
     };
 
@@ -102,13 +102,13 @@ pub fn configured_provider_name(project_dir: &str) -> Result<Option<String>, App
 }
 
 /// 加载 knowdb.toml 当前声明的数据源；若配置了 provider，则走正式数据库。
-pub fn load_knowledge(project_dir: &str) -> AnyResult<()> {
+pub fn load_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
     if is_loaded_source(KnowledgeLoadedSource::Configured) {
         info!("知识库已加载，跳过初始化");
         return Ok(());
     }
 
-    let Some(context) = build_knowledge_context(project_dir)? else {
+    let Some(context) = build_knowledge_context(layout)? else {
         return Ok(());
     };
 
@@ -146,13 +146,13 @@ pub fn load_knowledge(project_dir: &str) -> AnyResult<()> {
 }
 
 /// 强制加载本地 authority sqlite，忽略 knowdb.toml 中的 provider，供调试页查询本地知识库使用。
-pub fn load_sqlite_knowledge(project_dir: &str) -> AnyResult<()> {
+pub fn load_sqlite_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
     if is_loaded_source(KnowledgeLoadedSource::SqliteAuthority) {
         info!("本地知识库已加载，跳过初始化");
         return Ok(());
     }
 
-    let Some(context) = build_knowledge_context(project_dir)? else {
+    let Some(context) = build_knowledge_context(layout)? else {
         return Ok(());
     };
 
@@ -208,20 +208,19 @@ pub fn unload_knowledge() {
 }
 
 /// 重新加载知识库
-pub fn reload_knowledge(project_dir: &str) -> AnyResult<()> {
+pub fn reload_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
     unload_knowledge();
-    load_knowledge(project_dir)
+    load_knowledge(layout)
 }
 
 /// 重新加载本地 authority sqlite。
-pub fn reload_sqlite_knowledge(project_dir: &str) -> AnyResult<()> {
+pub fn reload_sqlite_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
     unload_knowledge();
-    load_sqlite_knowledge(project_dir)
+    load_sqlite_knowledge(layout)
 }
 
-fn build_knowledge_context(project_dir: &str) -> Result<Option<KnowledgeContext>, AppError> {
-    let resolved_root = resolve_project_root(project_dir)?;
-    let Some(root) = resolved_root else {
+fn build_knowledge_context(layout: &ProjectLayout) -> Result<Option<KnowledgeContext>, AppError> {
+    let Some(root) = ensure_models_root_exists(&layout.models_root)? else {
         return Ok(None);
     };
 
@@ -266,23 +265,12 @@ fn build_knowledge_context(project_dir: &str) -> Result<Option<KnowledgeContext>
     }))
 }
 
-fn resolve_project_root(project_dir: &str) -> Result<Option<PathBuf>, AppError> {
-    let input_path = PathBuf::from(project_dir);
-    let absolute_path = if input_path.is_absolute() {
-        input_path
-    } else {
-        Setting::workspace_root().join(input_path)
-    };
-
-    if !absolute_path.exists() {
-        warn!("知识库目录不存在，跳过初始化: {}", absolute_path.display());
+fn ensure_models_root_exists(root: &Path) -> Result<Option<PathBuf>, AppError> {
+    if !root.exists() {
+        warn!("知识库目录不存在，跳过初始化: {}", root.display());
         return Ok(None);
     }
 
-    let canonical = absolute_path.canonicalize().map_err(|e| {
-        error!("无法解析项目目录路径: {}", e);
-        AppError::internal(e)
-    })?;
-
+    let canonical = root.canonicalize().map_err(AppError::internal)?;
     Ok(Some(canonical))
 }

@@ -24,7 +24,7 @@ pub struct KnowdbQuery {
 /// 查询知识库（数据库）列表
 pub async fn get_db_list_logic() -> Result<Vec<String>, AppError> {
     let setting = Setting::load();
-    let names = list_knowledge_dirs(&setting.project_root)?;
+    let names = list_knowledge_dirs(&setting.project_layout())?;
     debug!("查询知识库列表成功: count={}", names.len());
 
     Ok(names)
@@ -41,10 +41,10 @@ pub async fn query_logic(sql: String) -> Result<Value, AppError> {
 
     // 确保知识库已加载
     let setting = Setting::load();
-    let project_dir = &setting.project_root;
+    let layout = setting.project_layout();
 
     // 加载知识库（如果已加载则跳过）
-    if let Err(e) = load_knowledge(project_dir) {
+    if let Err(e) = load_knowledge(&layout) {
         warn!("加载知识库失败: {}", e);
         // 继续尝试查询，可能知识库已经加载过了
     }
