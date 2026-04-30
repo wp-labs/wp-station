@@ -37,7 +37,7 @@ key = "sink_stat"
 target = "*"
 
 [admin_api]
-enabled = false
+enabled = true
 bind = "127.0.0.1:19090"
 request_timeout_ms = 15000
 max_body_bytes = 4096
@@ -51,5 +51,12 @@ enabled = false
 
 [project_remote]
 enabled = true
-repo = "http://localhost:3000/gitea/project_root.git"
+repo = ""
+
+[project_remote.models]
+repo = "http://localhost:3000/gitea/project_models.git"
+init_version = "1.0.0"
+
+[project_remote.infra]
+repo = "http://localhost:3000/gitea/project_infra.git"
 init_version = "1.0.0"

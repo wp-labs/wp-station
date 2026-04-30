@@ -7,6 +7,7 @@ pub mod operation_log;
 pub mod performance;
 pub mod pool_manager;
 pub mod release;
+pub mod release_group;
 pub mod release_target;
 pub mod rule_type;
 pub mod sandbox;
@@ -20,6 +21,7 @@ pub use device::{Device, DeviceStatus, NewDevice, UpdateDevice};
 pub use operation_log::{NewOperationLog, OperationLog};
 pub use performance::{NewPerformanceTask, PerformanceResult, PerformanceTask};
 pub use release::{NewRelease, Release, ReleaseStatus};
+pub use release_group::ReleaseGroup;
 pub use release_target::{
     NewReleaseTarget, ReleaseTarget, ReleaseTargetStatus, ReleaseTargetUpdate,
     create_release_targets, find_device_previous_success_version, find_due_release_targets,
@@ -41,9 +43,9 @@ pub use device::{
 
 // 导出 release 函数
 pub use release::{
-    create_release, find_all_releases, find_draft_release, find_latest_passed_release,
-    find_release_by_id, init_release, update_release_pipeline, update_release_status,
-    update_release_timestamp,
+    archive_extra_draft_releases, create_release, find_all_releases, find_latest_draft_release,
+    find_latest_passed_release, find_latest_passed_release_by_group, find_release_by_id,
+    touch_release_as_draft, update_release_group, update_release_pipeline, update_release_status,
 };
 
 // 导出 performance 函数
@@ -67,7 +69,7 @@ pub use assist_task::{
 };
 
 // 导出默认配置加载函数
-pub use default_rules_loader::init_default_configs_to_project;
+pub use default_rules_loader::{init_default_configs_to_infra, init_default_configs_to_models};
 
 // 导出连接池管理函数
 pub use pool_manager::{DbPool, get_pool, init_pool, is_pool_initialized, try_get_pool};

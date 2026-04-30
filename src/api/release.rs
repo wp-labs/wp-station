@@ -42,8 +42,7 @@ pub async fn get_release_detail(
 pub async fn create_release(
     req: web::Json<CreateReleaseRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let resp =
-        create_release_logic(req.version.clone(), req.pipeline.clone(), req.note.clone()).await?;
+    let resp = create_release_logic(req.pipeline.clone(), req.note.clone()).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }
@@ -65,10 +64,13 @@ pub async fn publish_release(
     path: web::Path<ReleaseActionPath>,
     req: web::Json<ReleaseActionRequest>,
 ) -> Result<HttpResponse, AppError> {
+    let release_group = req
+        .release_group
+        .ok_or_else(|| AppError::Validation("发布时必须选择发布类型".to_string()))?;
     let device_ids = req.device_ids.clone().unwrap_or_default();
     let note = req.note.clone();
 
-    let resp = publish_release_logic(path.id, device_ids, note).await?;
+    let resp = publish_release_logic(path.id, release_group, device_ids, note).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

@@ -1,6 +1,6 @@
 [[connectors]]
-id = "file_kv_sink"
-type = "file"
+id = "file_rescue_sink"
+type = "test_rescue"
 allow_override = ["base","file","sync"]
 [connectors.params]
 fmt  = "kv"

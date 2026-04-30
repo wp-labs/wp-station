@@ -1,6 +1,6 @@
 //! 项目组件校验模块。
 //!
-//! 基于 wp_proj 对 `project_root` 中的项目组件（规则、配置等）进行完整性校验。
+//! 基于 wp_proj 对项目组件（规则、配置等）进行完整性校验。
 
 use wp_proj::project::{
     CheckComponents, WarpProject,
@@ -10,23 +10,31 @@ use wp_proj::project::{
 
 use crate::Setting;
 use crate::error::AppError;
+use crate::utils::compose_project_layout_into;
+use std::path::Path;
 
 /// 校验项目组件（全局共享项目目录）。
 ///
-/// 加载 `project_root` 并执行指定组件的校验规则，校验失败返回 `AppError::Validation`。
+/// 合成双仓库到临时目录并执行指定组件的校验规则，校验失败返回 `AppError::Validation`。
 pub fn check_component(components: Vec<CheckComponent>) -> Result<(), AppError> {
     let setting = Setting::load();
+    let layout = setting.project_layout();
+    let tmp_dir = Setting::workspace_root()
+        .join("tmp")
+        .join("project-check")
+        .join(format!("{}", chrono::Utc::now().timestamp_millis()));
+    std::fs::create_dir_all(&tmp_dir).map_err(AppError::internal)?;
+    compose_project_layout_into(&layout, &tmp_dir)?;
+    let result = check_component_in_dir(&tmp_dir, components);
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    result
+}
 
-    // 构建项目路径
-    let project_root = std::path::PathBuf::from(&setting.project_root);
-    let project_path = if project_root.is_absolute() {
-        project_root
-    } else {
-        // 相对路径：基于服务启动时的工作目录
-        Setting::workspace_root().join(&setting.project_root)
-    };
-
-    // 检查项目路径是否存在
+/// 对指定目录执行组件校验。
+pub fn check_component_in_dir(
+    project_path: &Path,
+    components: Vec<CheckComponent>,
+) -> Result<(), AppError> {
     if !project_path.exists() {
         return Err(AppError::Validation(format!(
             "项目路径不存在: {}",

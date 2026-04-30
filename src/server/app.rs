@@ -143,32 +143,31 @@ pub async fn start() -> std::io::Result<()> {
     let warparse_conf = setting.warparse.clone();
     spawn_release_task_runner(warparse_conf);
 
-    // 规则与知识库以 project_root 文件为主数据源；默认配置只补齐缺失文件，不覆盖用户编辑。
-    use crate::db::init_default_configs_to_project;
-    init_default_configs_to_project(&setting.project_root).map_err(|e| {
-        error!("加载默认配置到 project_root 失败: {}", e);
+    // 双仓库默认配置只补齐缺失文件，不覆盖用户编辑。
+    use crate::db::{init_default_configs_to_infra, init_default_configs_to_models};
+    init_default_configs_to_models(&setting.project_models).map_err(|e| {
+        error!("加载默认 models 配置失败: {}", e);
+        std::io::Error::other(format!("加载默认配置失败: {}", e))
+    })?;
+    init_default_configs_to_infra(&setting.project_infra).map_err(|e| {
+        error!("加载默认 infra 配置失败: {}", e);
         std::io::Error::other(format!("加载默认配置失败: {}", e))
     })?;
     info!("默认配置检查完成");
 
-    let project_root = std::path::PathBuf::from(&setting.project_root);
-    let project_path = if project_root.is_absolute() {
-        project_root
-    } else {
-        crate::server::Setting::workspace_root().join(&setting.project_root)
-    };
+    let layout = setting.project_layout();
 
-    // 独立检查本地 Git 仓库是否已初始化。
-    if !project_path.join(".git").exists() {
-        info!("本地 Git 仓库未初始化，开始初始化 Gitea 仓库");
+    // 检查双仓库本地 Git 是否已初始化。
+    if !layout.models_root.join(".git").exists() || !layout.infra_root.join(".git").exists() {
+        info!("本地 Git 仓库未初始化，开始初始化双 Gitea 仓库");
         use crate::server::sync::init_gitea_repo;
         init_gitea_repo().await.map_err(|e| {
             error!("初始化 Gitea 仓库失败: {}", e);
             std::io::Error::other(format!("初始化 Gitea 仓库失败: {}", e))
         })?;
-        info!("Gitea 仓库初始化完成，已创建 v1.0.0 tag");
+        info!("双 Gitea 仓库初始化完成，已创建基线 tag");
     } else {
-        info!("本地 Git 仓库已存在，跳过 Gitea 初始化");
+        info!("本地双 Git 仓库已存在，跳过 Gitea 初始化");
     }
 
     // 启动健康检查后台定时任务

@@ -37,6 +37,7 @@ export async function fetchReleases(options = {}) {
   const mappedItems = items.map((item) => ({
     id: item.id,
     version: item.version,
+    releaseGroup: item.release_group,
     status: item.status,
     pipeline: item.pipeline,
     owner: item.owner || item.created_by || '',
@@ -53,6 +54,22 @@ export async function fetchReleases(options = {}) {
     page: payload.page ?? page,
     pageSize: payload.page_size ?? pageSize,
   };
+}
+
+/**
+ * 创建发布记录
+ * @param {"models"|"infra"} releaseGroup
+ * @param {string} [note]
+ * @returns {Promise<Object>}
+ */
+export async function createRelease(releaseGroup, note) {
+  const formattedNote =
+    typeof note === 'string' && note.trim().length > 0 ? note.trim() : undefined;
+  const response = await httpRequest.post('/releases', {
+    pipeline: formattedNote,
+    note: formattedNote,
+  });
+  return typeof response?.success === 'boolean' ? response : response?.data || response;
 }
 
 /**
@@ -84,10 +101,11 @@ export async function validateRelease(releaseId) {
  * @param {string} [note] - 发布备注
  * @returns {Promise<Object>} 发布结果
  */
-export async function publishRelease(releaseId, deviceIds = [], note) {
+export async function publishRelease(releaseId, releaseGroup, deviceIds = [], note) {
   const formattedNote =
     typeof note === 'string' && note.trim().length > 0 ? note.trim() : undefined;
   const response = await httpRequest.post(`/releases/${releaseId}/publish`, {
+    release_group: releaseGroup,
     device_ids: deviceIds,
     note: formattedNote,
   });
@@ -110,9 +128,10 @@ export async function fetchReleaseDiff(releaseId) {
  * @param {number[]} deviceIds - 设备 ID 列表
  * @returns {Promise<Object>} 回滚结果
  */
-export async function rollbackRelease(releaseId, deviceIds = []) {
+export async function rollbackRelease(releaseId, deviceIds = [], targetIds = []) {
   const response = await httpRequest.post(`/releases/${releaseId}/rollback`, {
     device_ids: deviceIds,
+    target_ids: targetIds,
   });
   return typeof response?.success === 'boolean' ? response : response?.data || response;
 }

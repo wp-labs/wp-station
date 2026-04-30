@@ -137,13 +137,18 @@ async fn stage_prepare_workspace(
     let mut log_lines = vec![
         format!("task_id: {}", task.task_id()),
         format!(
-            "source_project_root: {}",
-            workspace.display_relative(&workspace.source_project_root)
+            "source_models_root: {}",
+            workspace.display_relative(&workspace.source_models_root)
+        ),
+        format!(
+            "source_infra_root: {}",
+            workspace.display_relative(&workspace.source_infra_root)
         ),
         format!(
             "sandbox_project_dir: {}",
             workspace.display_relative(&workspace.project_dir)
         ),
+        "已按双仓库合成沙盒目录：models + conf/topology/connectors".to_string(),
         "目录结构（截断预览）:".to_string(),
         format!(
             "$ tree -L 4 {}",

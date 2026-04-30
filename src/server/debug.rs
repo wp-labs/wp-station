@@ -5,7 +5,7 @@ use crate::db::{
     get_performance_results,
 };
 use crate::error::AppError;
-use crate::server::Setting;
+use crate::server::{ProjectLayout, Setting};
 use crate::utils::{
     configured_provider_name, list_knowledge_dirs, load_knowledge, load_sqlite_knowledge,
     reload_knowledge, reload_sqlite_knowledge, sql_query_rows, warp_check_record,
@@ -164,14 +164,14 @@ pub async fn debug_transform_logic(
 /// 查询知识库配置状态列表
 pub async fn debug_knowledge_status_logic() -> Result<Vec<DebugKnowledgeStatusItem>, AppError> {
     let setting = Setting::load();
-    let project_root = &setting.project_root;
-    let provider_name = configured_provider_name(project_root)?;
-    let local_tables = list_knowledge_dirs(project_root)?;
+    let layout = setting.project_layout();
+    let provider_name = configured_provider_name(&layout)?;
+    let local_tables = list_knowledge_dirs(&layout)?;
 
     if provider_name.is_some() {
-        reload_knowledge(project_root).map_err(AppError::internal)?;
+        reload_knowledge(&layout).map_err(AppError::internal)?;
     } else if !local_tables.is_empty() {
-        reload_sqlite_knowledge(project_root).map_err(AppError::internal)?;
+        reload_sqlite_knowledge(&layout).map_err(AppError::internal)?;
     }
 
     let mut list = Vec::new();
@@ -242,15 +242,15 @@ fn resolve_knowledge_query_source(
 }
 
 fn ensure_knowledge_source_loaded(
-    project_root: &str,
+    layout: &ProjectLayout,
     source: KnowledgeQuerySource,
     force_reload: bool,
 ) -> Result<(), AppError> {
     let result = match (source, force_reload) {
-        (KnowledgeQuerySource::ConfiguredProvider, true) => reload_knowledge(project_root),
-        (KnowledgeQuerySource::ConfiguredProvider, false) => load_knowledge(project_root),
-        (KnowledgeQuerySource::LocalSqlite, true) => reload_sqlite_knowledge(project_root),
-        (KnowledgeQuerySource::LocalSqlite, false) => load_sqlite_knowledge(project_root),
+        (KnowledgeQuerySource::ConfiguredProvider, true) => reload_knowledge(layout),
+        (KnowledgeQuerySource::ConfiguredProvider, false) => load_knowledge(layout),
+        (KnowledgeQuerySource::LocalSqlite, true) => reload_sqlite_knowledge(layout),
+        (KnowledgeQuerySource::LocalSqlite, false) => load_sqlite_knowledge(layout),
     };
 
     result.map_err(|e| AppError::validation(format!("加载知识库失败: {}", e)))
@@ -266,10 +266,11 @@ async fn debug_knowledge_query_rows_for_source_logic(
     }
 
     let setting = Setting::load();
-    let provider_name = configured_provider_name(&setting.project_root)?;
+    let layout = setting.project_layout();
+    let provider_name = configured_provider_name(&layout)?;
     let source = resolve_knowledge_query_source(table.as_deref(), provider_name.as_deref());
 
-    ensure_knowledge_source_loaded(&setting.project_root, source, false)?;
+    ensure_knowledge_source_loaded(&layout, source, false)?;
 
     sql_query_rows(&sql)
         .await

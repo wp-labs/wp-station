@@ -28,6 +28,7 @@ pub enum ReleaseTargetStatus {
 pub struct NewReleaseTarget {
     pub release_id: i32,
     pub device_id: i32,
+    pub release_group: String,
     pub status: ReleaseTargetStatus,
     pub stage_trace: Option<String>,
     pub remote_job_id: Option<String>,
@@ -67,6 +68,7 @@ pub async fn create_release_targets(targets: Vec<NewReleaseTarget>) -> DbResult<
         let active_model = ActiveModel {
             release_id: Set(target.release_id),
             device_id: Set(target.device_id),
+            release_group: Set(target.release_group),
             status: Set(target.status.as_ref().to_string()),
             stage_trace: Set(target.stage_trace),
             remote_job_id: Set(target.remote_job_id),
@@ -199,15 +201,21 @@ pub async fn update_release_target(
 
 /// 查找指定设备的上一个成功发布版本
 /// 按完成时间倒序查找，返回第一个 SUCCESS 状态的版本号
-pub async fn find_device_previous_success_version(device_id: i32) -> DbResult<Option<String>> {
-    debug!("查找设备上一个成功版本: device_id={}", device_id);
+pub async fn find_device_previous_success_version(
+    device_id: i32,
+    group: &str,
+) -> DbResult<Option<String>> {
+    debug!(
+        "查找设备上一个成功版本: device_id={}, release_group={}",
+        device_id, group
+    );
 
     let pool = get_pool();
     let db = pool.inner();
 
-    // 查询该设备所有 SUCCESS 状态的 release_targets，按完成时间倒序
     let targets = Entity::find()
         .filter(Column::DeviceId.eq(device_id))
+        .filter(Column::ReleaseGroup.eq(group))
         .filter(Column::Status.eq(ReleaseTargetStatus::SUCCESS.as_ref()))
         .order_by_desc(Column::CompletedAt)
         .all(db)

@@ -1627,8 +1627,8 @@ body:not(.login-page) .connection-page-wrapper {
 }
 
 .release-status.is-wait {
-  background: rgba(247, 144, 9, 0.18);
-  color: var(--warning);
+  background: rgba(18, 166, 232, 0.16);
+  color: var(--info);
 }
 
 .release-status.is-running {

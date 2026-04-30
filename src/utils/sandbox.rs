@@ -24,6 +24,7 @@ use crate::utils::common::{
     SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_PROTOCOL, SANDBOX_RUNTIME_SOURCE_ADDR,
     SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_SOURCE_KEY, SANDBOX_RUNTIME_UDP_PORT,
 };
+use crate::utils::compose_project_layout_into;
 
 // ============ 命令解析 ============
 
@@ -45,17 +46,19 @@ fn resolve_toolchain_command(cmd: &str) -> PathBuf {
 
 /// 管理沙盒运行时的临时项目目录与日志目录。
 ///
-/// 每次沙盒任务会复制 `project_root` 到临时目录并应用用户覆盖文件及沙盒运行时必需配置。
+/// 每次沙盒任务会将双仓库合成到临时目录，并应用用户覆盖文件及沙盒运行时必需配置。
 #[derive(Debug, Clone)]
 pub struct SandboxWorkspace {
     /// 沙盒根目录（包含 project/ 和 logs/）。
     pub root: PathBuf,
-    /// 沙盒项目目录（project_root 的副本）。
+    /// 沙盒项目目录（由 models + infra 合成而来）。
     pub project_dir: PathBuf,
     /// 日志目录。
     pub logs_dir: PathBuf,
-    /// 源项目根目录。
-    pub source_project_root: PathBuf,
+    /// 源 models 仓库目录。
+    pub source_models_root: PathBuf,
+    /// 源 infra 仓库目录。
+    pub source_infra_root: PathBuf,
 }
 
 impl SandboxWorkspace {
@@ -74,8 +77,8 @@ impl SandboxWorkspace {
         fs::create_dir_all(&logs_dir).map_err(AppError::internal)?;
 
         let setting = Setting::load();
-        let project_root = resolve_project_root(&setting);
-        copy_dir_recursive(&project_root, &project_dir)?;
+        let layout = setting.project_layout();
+        compose_project_layout_into(&layout, &project_dir)?;
 
         apply_overrides(&project_dir, overrides)?;
         apply_static_overrides(&project_dir)?;
@@ -85,7 +88,8 @@ impl SandboxWorkspace {
             root: base_dir,
             project_dir,
             logs_dir,
-            source_project_root: project_root,
+            source_models_root: layout.models_root,
+            source_infra_root: layout.infra_root,
         })
     }
 
@@ -348,44 +352,6 @@ file_path = "./data/logs"
         port = SANDBOX_RUNTIME_UDP_PORT,
         protocol = SANDBOX_RUNTIME_PROTOCOL,
     )
-}
-
-/// 将 Setting 中的 project_root 解析为绝对路径。
-fn resolve_project_root(setting: &Setting) -> PathBuf {
-    let project_root = PathBuf::from(&setting.project_root);
-    if project_root.is_absolute() {
-        project_root
-    } else {
-        Setting::workspace_root().join(project_root)
-    }
-}
-
-/// 递归复制目录，跳过 .git 目录。
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), AppError> {
-    for entry in fs::read_dir(src).map_err(AppError::internal)? {
-        let entry = entry.map_err(AppError::internal)?;
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let file_type = entry.file_type().map_err(AppError::internal)?;
-        let target_path = dst.join(entry.file_name());
-        if file_type.is_dir() {
-            fs::create_dir_all(&target_path).map_err(AppError::internal)?;
-            copy_dir_recursive(&entry.path(), &target_path)?;
-        } else if file_type.is_file() {
-            copy_file(&entry.path(), &target_path)?;
-        }
-    }
-    Ok(())
-}
-
-/// 复制单个文件，自动创建父目录。
-fn copy_file(src: &Path, dst: &Path) -> Result<(), AppError> {
-    if let Some(parent) = dst.parent() {
-        fs::create_dir_all(parent).map_err(AppError::internal)?;
-    }
-    fs::copy(src, dst).map_err(AppError::internal)?;
-    Ok(())
 }
 
 /// 校验用户提交的文件覆盖路径为 project_root 内的安全相对路径，

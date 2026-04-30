@@ -12,7 +12,8 @@ pub mod utils;
 // 重新导出常用模块
 pub use db::{
     DbPool, Device, DeviceStatus, NewDevice, NewPerformanceTask, NewRelease, PerformanceResult,
-    PerformanceTask, Release, RuleType, init_default_configs_to_project, init_pool,
+    PerformanceTask, Release, RuleType, init_default_configs_to_infra,
+    init_default_configs_to_models, init_pool,
 };
 pub use server::{DatabaseConf, Setting, WebConf};
 pub use utils::{ParsedField, warp_check_record};
