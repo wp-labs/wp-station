@@ -31,7 +31,7 @@ dependencies = [
  "actix-web",
  "bitflags 2.11.0",
  "bytes",
- "derive_more 2.1.1",
+ "derive_more",
  "futures-core",
  "http-range",
  "log",
@@ -57,7 +57,7 @@ dependencies = [
  "brotli",
  "bytes",
  "bytestring",
- "derive_more 2.1.1",
+ "derive_more",
  "encoding_rs",
  "flate2",
  "foldhash 0.1.5",
@@ -155,9 +155,9 @@ dependencies = [
 
 [[package]]
 name = "actix-web"
-version = "4.4.1"
+version = "4.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e43428f3bf11dee6d166b00ec2df4e3aa8cc1606aaa0b7433c146852e2f4e03b"
+checksum = "ff87453bc3b56e9b2b23c1cc0b1be8797184accf51d2abe0f8a33ec275d316bf"
 dependencies = [
  "actix-codec",
  "actix-http",
@@ -168,15 +168,16 @@ dependencies = [
  "actix-service",
  "actix-utils",
  "actix-web-codegen",
- "ahash 0.8.12",
  "bytes",
  "bytestring",
  "cfg-if",
  "cookie",
- "derive_more 0.99.20",
+ "derive_more",
  "encoding_rs",
+ "foldhash 0.1.5",
  "futures-core",
  "futures-util",
+ "impl-more",
  "itoa",
  "language-tags",
  "log",
@@ -184,12 +185,14 @@ dependencies = [
  "once_cell",
  "pin-project-lite",
  "regex",
+ "regex-lite",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "smallvec",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "time",
+ "tracing",
  "url",
 ]
 
@@ -1163,12 +1166,6 @@ dependencies = [
 
 [[package]]
 name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
-name = "convert_case"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
@@ -1484,19 +1481,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
 dependencies = [
  "derive_builder_core",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "derive_more"
-version = "0.99.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
-dependencies = [
- "convert_case 0.4.0",
- "proc-macro2",
- "quote",
- "rustc_version",
  "syn 2.0.117",
 ]
 
@@ -2626,6 +2610,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "impl-more"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8a5a9a0ff0086c7a148acb942baaabeadf9504d10400b5a05645853729b9cd2"
+
+[[package]]
 name = "include-flate"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3056,7 +3046,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "flate2",
  "fnv",
  "humantime",
@@ -3100,6 +3090,17 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "mac_address"
+version = "1.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0aeb26bf5e836cc1c341c8106051b573f1766dfa05aa87f0b98be5e51b02303"
+dependencies = [
+ "nix 0.29.0",
+ "serde",
+ "winapi",
+]
 
 [[package]]
 name = "mailchecker"
@@ -3153,6 +3154,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3186,9 +3196,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
  "log",
@@ -3387,6 +3397,19 @@ dependencies = [
  "cfg-if",
  "cfg_aliases 0.1.1",
  "libc",
+]
+
+[[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "cfg_aliases 0.2.1",
+ "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -3799,7 +3822,7 @@ version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6719d23a898c158da039ec98dd111f209dd1d578290a1ef219b3e70b8a5f3861"
 dependencies = [
- "derive_more 2.1.1",
+ "derive_more",
  "log",
  "serde",
  "thiserror 2.0.18",
@@ -3813,7 +3836,7 @@ checksum = "bfcff2ede38d9e802abc3c998cc73a353ea1022702d3892f4ed55b97eb4c1ed2"
 dependencies = [
  "chrono",
  "contracts",
- "derive_more 2.1.1",
+ "derive_more",
  "fs_extra",
  "getset",
  "indexmap",
@@ -3838,7 +3861,7 @@ checksum = "f317e9a644b8a108f8fd929eabd892f394d62882a025e03dd550cadb7cabb00d"
 dependencies = [
  "contracts",
  "derive-getters",
- "derive_more 2.1.1",
+ "derive_more",
  "getset",
  "indexmap",
  "log",
@@ -3861,7 +3884,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61f9daa1383db51b6620614bfb3c462b535fcc7e5ac033826fae2b732e35db35"
 dependencies = [
  "derive-getters",
- "derive_more 2.1.1",
+ "derive_more",
  "log",
  "orion-error",
  "orion-variate",
@@ -4986,17 +5009,18 @@ dependencies = [
 
 [[package]]
 name = "sea-orm"
-version = "1.1.19"
+version = "1.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d945f62558fac19e5988680d2fdf747b734c2dbc6ce2cb81ba33ed8dde5b103"
+checksum = "2dc312fedd460a47ea563911761d254a84e7b51d8cc73ec92c929e78f33fa957"
 dependencies = [
  "async-stream",
  "async-trait",
  "bigdecimal",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "futures-util",
  "log",
+ "mac_address",
  "ouroboros",
  "pgvector",
  "rust_decimal",
@@ -5033,9 +5057,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-macros"
-version = "1.1.19"
+version = "1.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c2e64a50a9cc8339f10a27577e10062c7f995488e469f2c95762c5ee847832"
+checksum = "9b9a3f90e336ec74803e8eb98c61bc98754c1adfba3b4f84d946237b752b1c88"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -6036,9 +6060,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.50.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "bytes",
  "libc",
@@ -6059,9 +6083,9 @@ checksum = "2e57fbf1da3f18c8a95469f8973c138b0a99f4ae761885c3646b0c61139b0522"
 
 [[package]]
 name = "tokio-macros"
-version = "2.6.1"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c55a2eff8b69ce66c84f85e1da1c233edc36ceb85a2058d11b0d6a3c7e7569c"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6328,9 +6352,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.26.7"
+version = "0.26.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a6592b1aec0109df37b6bafea77eb4e61466e37b0a5a98bef4f89bfb81b7a2"
+checksum = "887bd495d0582c5e3e0d8ece2233666169fa56a9644d172fc22ad179ab2d0538"
 dependencies = [
  "cc",
  "regex",
@@ -7341,7 +7365,7 @@ checksum = "429a73c355b37c93270c20f8891120137b90906cfa7bb316e35bf798d1e501e8"
 dependencies = [
  "anyhow",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "getset",
  "log",
  "orion-error",
@@ -7365,7 +7389,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "derive-getters",
- "derive_more 2.1.1",
+ "derive_more",
  "educe",
  "getset",
  "glob",
@@ -7405,7 +7429,7 @@ dependencies = [
  "anyhow",
  "async-broadcast",
  "async-trait",
- "derive_more 2.1.1",
+ "derive_more",
  "once_cell",
  "orion-error",
  "serde",
@@ -7509,7 +7533,7 @@ dependencies = [
  "ctor",
  "derive-getters",
  "derive_builder",
- "derive_more 2.1.1",
+ "derive_more",
  "educe",
  "enum_dispatch",
  "futures-lite",
@@ -7588,7 +7612,7 @@ checksum = "dba3a0dddbd2c75bcddd5ac5674e4923bc63baf8be83e7aee080537fe9304abf"
 dependencies = [
  "anyhow",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "getset",
  "log",
  "log4rs",
@@ -7652,7 +7676,7 @@ dependencies = [
  "chrono",
  "contracts",
  "derive-getters",
- "derive_more 2.1.1",
+ "derive_more",
  "glob",
  "hex",
  "ipnet",
@@ -7691,7 +7715,7 @@ checksum = "5bc364e56eccac8dd27fe05f2ca054d5f3cfc57a55aef63e7c496beed71fa233"
 dependencies = [
  "anyhow",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "getset",
  "log",
  "log4rs",
@@ -7787,7 +7811,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9108cdcb3f90e5b4f986ec7a1403f85e967916a21e660089b12690e5ecf72c32"
 dependencies = [
  "bytes",
- "derive_more 2.1.1",
+ "derive_more",
  "orion-error",
  "serde",
  "serde_derive",
@@ -7840,7 +7864,7 @@ checksum = "505634ff67cca575b2bd7fc13bc6dda287407f830531164f8be43832cb191a9c"
 dependencies = [
  "anyhow",
  "chrono",
- "derive_more 2.1.1",
+ "derive_more",
  "log",
  "orion-error",
  "serde",
