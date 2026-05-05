@@ -1,14 +1,18 @@
 use rand::Rng;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio::sync::OnceCell;
-use wp_station::db::{get_pool, init_default_configs_to_project};
+use wp_station::db::{get_pool, init_default_configs_to_infra, init_default_configs_to_models};
+use wp_station::server::ProjectLayout;
 use wp_station::{Setting, init_pool};
 
 static SETTINGS: OnceCell<Setting> = OnceCell::const_new();
+static POOL_DONE: OnceCell<()> = OnceCell::const_new();
 static MIGRATIONS_DONE: OnceCell<()> = OnceCell::const_new();
+static PROJECT_DEFAULTS_DONE: OnceCell<()> = OnceCell::const_new();
 static TEST_PROJECT_ROOT: OnceLock<PathBuf> = OnceLock::new();
+static PROJECT_FS_LOCK: Mutex<()> = Mutex::new(());
 
 fn init_test_environment() {
     TEST_PROJECT_ROOT.get_or_init(|| {
@@ -17,7 +21,8 @@ fn init_test_environment() {
         let _ = std::fs::remove_dir_all(&project_dir);
         std::fs::create_dir_all(&project_dir).expect("failed to create test project root");
         unsafe {
-            std::env::set_var("WP_STATION__PROJECT_ROOT", &project_dir);
+            std::env::set_var("WP_STATION__PROJECT_MODELS", &project_dir);
+            std::env::set_var("WP_STATION__PROJECT_INFRA", &project_dir);
             std::env::set_var("WARP_STATION_SKIP_GITEA", "1");
             std::env::set_var("WARP_STATION_SKIP_RULE_CHECK", "1");
             std::env::set_var("WARP_STATION_SKIP_SANDBOX", "1");
@@ -34,13 +39,15 @@ pub async fn setup_db() {
             init_test_environment();
             Setting::load()
         })
-        .await
-        .clone();
+        .await;
 
-    // Always reinitialize the pool so each test owns a fresh Sqlx connection
-    init_pool(&setting.database)
-        .await
-        .expect("failed to initialize database pool");
+    POOL_DONE
+        .get_or_init(|| async {
+            init_pool(&setting.database)
+                .await
+                .expect("failed to initialize database pool");
+        })
+        .await;
 
     MIGRATIONS_DONE
         .get_or_init(|| async {
@@ -52,7 +59,11 @@ pub async fn setup_db() {
         })
         .await;
 
-    cleanup_test_artifacts().await;
+    PROJECT_DEFAULTS_DONE
+        .get_or_init(|| async {
+            cleanup_test_artifacts();
+        })
+        .await;
 }
 
 pub fn test_project_root() -> PathBuf {
@@ -61,6 +72,14 @@ pub fn test_project_root() -> PathBuf {
         .get()
         .expect("test project root initialized")
         .clone()
+}
+
+pub fn test_project_layout() -> ProjectLayout {
+    let root = test_project_root();
+    ProjectLayout {
+        models_root: root.clone(),
+        infra_root: root,
+    }
 }
 
 pub fn remove_project_path(relative: impl AsRef<std::path::Path>) {
@@ -80,10 +99,14 @@ pub fn unique_name(prefix: &str) -> String {
     format!("{prefix}-{}", rand_suffix())
 }
 
-async fn cleanup_test_artifacts() {
+fn cleanup_test_artifacts() {
+    let _guard = PROJECT_FS_LOCK.lock().expect("project fs lock poisoned");
     let project_root = test_project_root();
     let _ = fs::remove_dir_all(&project_root);
     fs::create_dir_all(&project_root).expect("recreate test project root");
-    init_default_configs_to_project(project_root.to_str().expect("utf-8 test project root"))
-        .expect("initialize default configs to test project root");
+    let project_root_str = project_root.to_str().expect("utf-8 test project root");
+    init_default_configs_to_models(project_root_str)
+        .expect("initialize default model configs to test project root");
+    init_default_configs_to_infra(project_root_str)
+        .expect("initialize default infra configs to test project root");
 }

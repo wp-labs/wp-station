@@ -97,7 +97,7 @@ fn test_oml_formatter_or_original_returns_input_on_error() {
 #[test]
 fn test_oml_formatter_formats_project_samples() {
     let formatter = OmlFormatter::new();
-    let samples = sample_files_with_extension("project_root/models/oml", "oml");
+    let samples = sample_files_with_extension("default_configs/models/oml", "oml");
     assert!(!samples.is_empty(), "expected at least one OML sample");
 
     for path in samples {

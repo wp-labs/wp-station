@@ -1,4 +1,6 @@
-use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root};
+use crate::common::{
+    rand_suffix, remove_project_path, setup_db, test_project_layout, test_project_root,
+};
 use actix_web::{App, http::StatusCode, test, web};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -16,10 +18,9 @@ async fn test_debug_api_endpoints_cover_all_handlers() {
         .expect("prepare knowledge runtime dir");
 
     let know_file = format!("debug-knowledge-{}", rand_suffix());
-    let project_root = test_project_root();
-    let project_root = project_root.to_str().expect("utf-8 test project root");
+    let layout = test_project_layout();
     write_knowdb_config(
-        project_root,
+        &layout,
         &format!(
             r#"version = 2
 
@@ -34,7 +35,7 @@ by_header = ["id"]
     )
     .expect("write knowdb");
     write_knowledge_files(
-        project_root,
+        &layout,
         &know_file,
         Some(format!(
             "CREATE TABLE IF NOT EXISTS {} (id INTEGER);",

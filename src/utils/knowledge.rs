@@ -12,8 +12,8 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use wp_knowledge::facade;
 use wp_knowledge::loader::{self, ProviderKind};
+use wp_knowledge::mem::RowData;
 use wp_model_core::model::DataField;
-use wp_oml::types::AnyResult;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KnowledgeLoadedSource {
@@ -33,26 +33,28 @@ lazy_static! {
     static ref KNOWLEDGE_LOADED: RwLock<Option<KnowledgeLoadedSource>> = RwLock::new(None);
 }
 
-pub fn db_init() -> AnyResult<Vec<DataField>> {
+pub fn db_init() -> anyhow::Result<Vec<DataField>> {
     //todo 写一个加载 project_root/models/knowledge下所有数据的方法
     Ok(vec![])
 }
 
-pub async fn sql_query(sql: &str) -> AnyResult<Vec<DataField>> {
-    let rows = sql_query_rows(sql).await?;
+pub async fn sql_query(sql: &str) -> anyhow::Result<Vec<DataField>> {
+    let rows: Vec<RowData> = sql_query_rows(sql).await?;
     Ok(rows.into_iter().next().unwrap_or_default())
 }
 
 /// 直接通过 wp-knowledge provider 执行 SQL，支持 knowdb.toml 配置的真实数据库。
-pub async fn sql_query_rows(sql: &str) -> AnyResult<Vec<Vec<DataField>>> {
-    let rows = facade::query_async(sql).await?;
+pub async fn sql_query_rows(sql: &str) -> anyhow::Result<Vec<RowData>> {
+    let rows: Vec<RowData> = facade::query_async(sql)
+        .await
+        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
     debug!("知识库工具执行 SQL 查询完成: rows={}", rows.len());
     Ok(rows)
 }
 
-pub async fn sql_knowdb_list() -> AnyResult<Vec<String>> {
+pub async fn sql_knowdb_list() -> anyhow::Result<Vec<String>> {
     let sql = r#"SELECT GROUP_CONCAT(name, ', ') as name FROM sqlite_master WHERE type='table'"#;
-    let result = sql_query(sql).await?;
+    let result: RowData = sql_query(sql).await?;
     debug!("知识库工具查询数据表列表完成");
     match result.first() {
         Some(value) => {
@@ -102,7 +104,7 @@ pub fn configured_provider_name(layout: &ProjectLayout) -> Result<Option<String>
 }
 
 /// 加载 knowdb.toml 当前声明的数据源；若配置了 provider，则走正式数据库。
-pub fn load_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
+pub fn load_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     if is_loaded_source(KnowledgeLoadedSource::Configured) {
         info!("知识库已加载，跳过初始化");
         return Ok(());
@@ -146,7 +148,7 @@ pub fn load_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
 }
 
 /// 强制加载本地 authority sqlite，忽略 knowdb.toml 中的 provider，供调试页查询本地知识库使用。
-pub fn load_sqlite_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
+pub fn load_sqlite_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     if is_loaded_source(KnowledgeLoadedSource::SqliteAuthority) {
         info!("本地知识库已加载，跳过初始化");
         return Ok(());
@@ -208,13 +210,13 @@ pub fn unload_knowledge() {
 }
 
 /// 重新加载知识库
-pub fn reload_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
+pub fn reload_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     unload_knowledge();
     load_knowledge(layout)
 }
 
 /// 重新加载本地 authority sqlite。
-pub fn reload_sqlite_knowledge(layout: &ProjectLayout) -> AnyResult<()> {
+pub fn reload_sqlite_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     unload_knowledge();
     load_sqlite_knowledge(layout)
 }

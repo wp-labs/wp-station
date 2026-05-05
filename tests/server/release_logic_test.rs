@@ -1,4 +1,4 @@
-use crate::common::{rand_suffix, setup_db};
+use crate::common::setup_db;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use wp_station::server::release::{
     ReleaseListQuery, create_release_logic, get_release_detail_logic, list_releases_logic,
@@ -18,15 +18,11 @@ async fn cleanup_release(version: &str) {
 #[tokio::test]
 async fn test_release_logic_flow() {
     setup_db().await;
-    let version = format!("REL-{}", rand_suffix());
 
-    let create_resp = create_release_logic(
-        version.clone(),
-        Some("pipeline-a".to_string()),
-        Some("note".to_string()),
-    )
-    .await
-    .expect("create release logic");
+    let create_resp =
+        create_release_logic(Some("pipeline-a".to_string()), Some("note".to_string()))
+            .await
+            .expect("create release logic");
     assert!(create_resp.success);
 
     let detail = get_release_detail_logic(create_resp.id)
@@ -56,5 +52,5 @@ async fn test_release_logic_flow() {
         .expect("validate release logic");
     assert!(validate_resp.valid);
 
-    cleanup_release(&version).await;
+    cleanup_release(&actual_version).await;
 }
