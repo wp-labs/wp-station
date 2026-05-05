@@ -1,0 +1,10 @@
+name : nginx
+rule : nginx/nginx
+---
+http_agent = read(http/agent) ;
+http_request = read(http/request) ;
+referer = read(referer) ;
+sip = read(sip) ;
+size = read(size) ;
+status = read(status) ;
+timestamp = read(timestamp) ;

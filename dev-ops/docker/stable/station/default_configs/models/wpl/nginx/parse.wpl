@@ -1,0 +1,15 @@
+package nginx {
+    rule nginx {
+        (
+            ip:sip,
+            2*_,
+            time:timestamp<[,]>,
+            chars:request",
+            digit:status,
+            digit:size,
+            chars:referer",
+            http/agent",
+            _,
+        )
+    }
+}

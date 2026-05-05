@@ -62,7 +62,7 @@ services:
     volumes:
       - gitea-data:/data
     ports:
-      - "3000:3000"
+      - "300:3000"
       - "222:22"
     networks:
       - warp-network
@@ -99,7 +99,6 @@ services:
   warp-station:
     user: "root"
     image: ghcr.io/wp-labs/wp-station:latest
-    container_name: ${CONTAINER_NAME}
     depends_on:
       warp-toolchain:
         condition: service_completed_successfully

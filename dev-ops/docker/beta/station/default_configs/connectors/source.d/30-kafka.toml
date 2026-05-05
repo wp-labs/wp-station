@@ -1,0 +1,8 @@
+[[connectors]]
+id = "kafka_src"
+type = "kafka"
+allow_override = ["brokers", "topic", "group_id", "config"]
+[connectors.params]
+brokers = "127.0.0.1:9092"
+topic   = ["access_log"]
+group_id = "wparse_default_group"

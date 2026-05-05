@@ -380,3 +380,156 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
           files: artifacts/*
+
+  deploy:
+    needs: [docker-images-export]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    env:
+      WORK_DIR: ${{ vars.WORK_DIR }}
+      HOST_IP: ${{ secrets.HOST_IP }}
+      HOST_USER: ${{ secrets.HOST_USER }}
+      HOST_SSH: ${{ secrets.HOST_SSH }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Resolve deploy target
+        id: deploy_target
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.ref_name }}" == *-alpha* ]]; then
+            echo "channel=alpha" >> "$GITHUB_OUTPUT"
+            echo "compose_file=docker-compose-alpha.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=.env.alpha" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_name }}" == *-beta* ]]; then
+            echo "channel=beta" >> "$GITHUB_OUTPUT"
+            echo "compose_file=docker-compose-beta.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=.env.beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "compose_file=docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=.env" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "remote_stage=${WORK_DIR}/.deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare SSH
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$HOST_SSH"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$HOST_SSH" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST_IP" >> ~/.ssh/known_hosts
+
+      - name: Detect remote architecture
+        id: remote_arch
+        run: |
+          set -euo pipefail
+
+          remote_arch=$(ssh -i ~/.ssh/id_ed25519 "$HOST_USER@$HOST_IP" 'uname -m')
+          case "$remote_arch" in
+            x86_64|amd64)
+              echo "artifact_arch=x86-linux-gnu" >> "$GITHUB_OUTPUT"
+              ;;
+            aarch64|arm64)
+              echo "artifact_arch=aarch64-linux-gnu" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "不支持的远程机器架构: $remote_arch" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Download docker images artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: wp-station-${{ github.ref_name }}-docker-images-${{ steps.remote_arch.outputs.artifact_arch }}
+          path: deploy-artifacts/images
+
+      - name: Prepare deploy bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+
+          DEPLOY_ROOT="deploy-bundle"
+          CONFIG_ARCHIVE="wp-station-${{ github.ref_name }}-${{ steps.deploy_target.outputs.channel }}-docker-config.tar.gz"
+          IMAGE_ARCHIVE="wp-station-${{ github.ref_name }}-docker-images-${{ steps.remote_arch.outputs.artifact_arch }}.tar.gz"
+
+          rm -rf "$DEPLOY_ROOT"
+          mkdir -p "$DEPLOY_ROOT"
+          cp -a dev-ops/docker/. "$DEPLOY_ROOT/"
+
+          sed -i "s|ghcr.io/wp-labs/wp-station:latest|${REGISTRY}/${IMAGE_NAME}:${GITHUB_REF_NAME}|g" \
+            "$DEPLOY_ROOT/${{ steps.deploy_target.outputs.compose_file }}"
+
+          tar -C "$DEPLOY_ROOT" -czf "$CONFIG_ARCHIVE" .
+
+          echo "config_archive=$CONFIG_ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "image_archive=$IMAGE_ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Create remote staging directory
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_ed25519 "$HOST_USER@$HOST_IP" \
+            "mkdir -p '${{ steps.deploy_target.outputs.remote_stage }}' '${WORK_DIR}/${{ steps.deploy_target.outputs.channel }}'"
+
+      - name: Upload deploy assets
+        run: |
+          set -euo pipefail
+
+          scp -i ~/.ssh/id_ed25519 \
+            "deploy-artifacts/images/${{ steps.bundle.outputs.image_archive }}" \
+            "${{ steps.bundle.outputs.config_archive }}" \
+            "$HOST_USER@$HOST_IP:'${{ steps.deploy_target.outputs.remote_stage }}/'"
+
+      - name: Deploy remotely
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/id_ed25519 "$HOST_USER@$HOST_IP" \
+            bash -s -- \
+            "$WORK_DIR" \
+            "${{ steps.deploy_target.outputs.channel }}" \
+            "${{ steps.deploy_target.outputs.compose_file }}" \
+            "${{ steps.deploy_target.outputs.env_file }}" \
+            "${{ steps.bundle.outputs.image_archive }}" \
+            "${{ steps.bundle.outputs.config_archive }}" \
+            "${{ steps.deploy_target.outputs.remote_stage }}" <<'EOF'
+          set -euo pipefail
+
+          WORK_DIR="$1"
+          CHANNEL="$2"
+          COMPOSE_FILE="$3"
+          ENV_FILE="$4"
+          IMAGE_ARCHIVE="$5"
+          CONFIG_ARCHIVE="$6"
+          REMOTE_STAGE="$7"
+          TARGET_DIR="${WORK_DIR}/${CHANNEL}"
+
+          docker load -i "${REMOTE_STAGE}/${IMAGE_ARCHIVE}"
+          rm -f "${REMOTE_STAGE}/${IMAGE_ARCHIVE}"
+
+          if [ -f "${TARGET_DIR}/${COMPOSE_FILE}" ] && [ -f "${TARGET_DIR}/${ENV_FILE}" ]; then
+            docker compose \
+              --env-file "${TARGET_DIR}/${ENV_FILE}" \
+              -f "${TARGET_DIR}/${COMPOSE_FILE}" \
+              stop warp-station || true
+          fi
+
+          mkdir -p "$TARGET_DIR"
+          shopt -s dotglob nullglob
+          rm -rf -- "$TARGET_DIR"/*
+          tar -xzf "${REMOTE_STAGE}/${CONFIG_ARCHIVE}" -C "$TARGET_DIR"
+          rm -rf "$REMOTE_STAGE"
+
+          docker compose \
+            --env-file "${TARGET_DIR}/${ENV_FILE}" \
+            -f "${TARGET_DIR}/${COMPOSE_FILE}" \
+            up -d warp-station
+          EOF
