@@ -53,7 +53,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 gitea = {package = "gitea", path = "crates/gitea"}
 
 # 命令行辅助
-which = "6.0"
+which = "8.0"
 tokio-util = { version = "0.7", features = ["full"] }
 nix = { version = "0.28", default-features = false, features = ["signal", "process"] }
 
