@@ -225,14 +225,14 @@ jobs:
           set -euo pipefail
 
           if [[ "${{ github.ref_name }}" == *-alpha* ]]; then
-            echo "compose_file=dev-ops/docker/docker-compose-alpha.yml" >> "$GITHUB_OUTPUT"
-            echo "env_file=dev-ops/docker/.env.alpha" >> "$GITHUB_OUTPUT"
+            echo "compose_file=dev-ops/docker/alpha/docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=dev-ops/docker/alpha/.env" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.ref_name }}" == *-beta* ]]; then
-            echo "compose_file=dev-ops/docker/docker-compose-beta.yml" >> "$GITHUB_OUTPUT"
-            echo "env_file=dev-ops/docker/.env.beta" >> "$GITHUB_OUTPUT"
+            echo "compose_file=dev-ops/docker/beta/docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=dev-ops/docker/beta/.env" >> "$GITHUB_OUTPUT"
           else
-            echo "compose_file=dev-ops/docker/docker-compose.yml" >> "$GITHUB_OUTPUT"
-            echo "env_file=dev-ops/docker/.env" >> "$GITHUB_OUTPUT"
+            echo "compose_file=dev-ops/docker/stable/docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=dev-ops/docker/stable/.env" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Export compose images
@@ -402,14 +402,17 @@ jobs:
 
           if [[ "${{ github.ref_name }}" == *-alpha* ]]; then
             echo "channel=alpha" >> "$GITHUB_OUTPUT"
-            echo "compose_file=docker-compose-alpha.yml" >> "$GITHUB_OUTPUT"
-            echo "env_file=.env.alpha" >> "$GITHUB_OUTPUT"
+            echo "channel_dir=dev-ops/docker/alpha" >> "$GITHUB_OUTPUT"
+            echo "compose_file=docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=.env" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.ref_name }}" == *-beta* ]]; then
             echo "channel=beta" >> "$GITHUB_OUTPUT"
-            echo "compose_file=docker-compose-beta.yml" >> "$GITHUB_OUTPUT"
-            echo "env_file=.env.beta" >> "$GITHUB_OUTPUT"
+            echo "channel_dir=dev-ops/docker/beta" >> "$GITHUB_OUTPUT"
+            echo "compose_file=docker-compose.yml" >> "$GITHUB_OUTPUT"
+            echo "env_file=.env" >> "$GITHUB_OUTPUT"
           else
             echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "channel_dir=dev-ops/docker/stable" >> "$GITHUB_OUTPUT"
             echo "compose_file=docker-compose.yml" >> "$GITHUB_OUTPUT"
             echo "env_file=.env" >> "$GITHUB_OUTPUT"
           fi
@@ -462,7 +465,7 @@ jobs:
 
           rm -rf "$DEPLOY_ROOT"
           mkdir -p "$DEPLOY_ROOT"
-          cp -a dev-ops/docker/. "$DEPLOY_ROOT/"
+          cp -a "${{ steps.deploy_target.outputs.channel_dir }}/." "$DEPLOY_ROOT/"
 
           sed -i "s|ghcr.io/wp-labs/wp-station:latest|${REGISTRY}/${IMAGE_NAME}:${GITHUB_REF_NAME}|g" \
             "$DEPLOY_ROOT/${{ steps.deploy_target.outputs.compose_file }}"
