@@ -129,7 +129,7 @@ fn test_wpl_formatter_reports_unbalanced_brackets() {
 #[test]
 fn test_wpl_formatter_formats_project_samples() {
     let formatter = WplFormatter::new();
-    let samples = sample_files_with_extension("project_root/models/wpl", "wpl");
+    let samples = sample_files_with_extension("default_configs/models/wpl", "wpl");
     assert!(!samples.is_empty(), "expected at least one WPL sample");
 
     for path in samples {

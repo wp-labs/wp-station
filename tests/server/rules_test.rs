@@ -1,4 +1,4 @@
-use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root};
+use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_layout};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use wp_station::db::{NewRelease, ReleaseStatus, RuleType, create_release};
 use wp_station::server::rules::{
@@ -11,10 +11,6 @@ use wp_station::utils::{
     write_rule_content, write_wpl_sample_content,
 };
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
-
-fn project_root_str() -> String {
-    test_project_root().to_string_lossy().to_string()
-}
 
 fn cleanup_knowledge(file: &str) {
     remove_project_path(format!("models/knowledge/{file}"));
@@ -46,10 +42,10 @@ async fn cleanup_release(version: &str) {
 async fn test_get_rule_files_and_content_for_knowledge() {
     setup_db().await;
     let file = format!("knowledge-{}", rand_suffix());
-    let root = project_root_str();
-    write_knowdb_config(&root, "version = 2").expect("write knowdb");
+    let layout = test_project_layout();
+    write_knowdb_config(&layout, "version = 2").expect("write knowdb");
     write_knowledge_files(
-        &root,
+        &layout,
         &file,
         Some("CREATE TABLE t(id INTEGER);".to_string()),
         Some("INSERT INTO t VALUES (?1);".to_string()),
@@ -91,7 +87,7 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
         .expect("create knowledge rule");
 
     assert!(
-        read_knowledge_files(&project_root_str(), &file)
+        read_knowledge_files(&test_project_layout(), &file)
             .expect("read created knowledge")
             .is_some()
     );
@@ -101,7 +97,7 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
         .expect("delete knowledge rule");
 
     assert!(
-        read_knowledge_files(&project_root_str(), &file)
+        read_knowledge_files(&test_project_layout(), &file)
             .expect("read deleted knowledge")
             .is_none()
     );
@@ -116,6 +112,7 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     // 确保 handle_draft_release 能找到草稿记录
     create_release(NewRelease {
         version: draft_version.clone(),
+        release_group: "draft".to_string(),
         pipeline: Some("draft".to_string()),
         created_by: Some("tester".to_string()),
         stages: None,
@@ -142,7 +139,7 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     .await
     .expect("update existing rule");
 
-    let (content, _) = read_rule_content(&project_root_str(), RuleType::Wpl, &file)
+    let (content, _) = read_rule_content(&test_project_layout(), RuleType::Wpl, &file)
         .expect("query rule")
         .expect("rule exists");
     assert!(content.contains("chars:name"));
@@ -155,7 +152,7 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
 async fn test_get_rule_content_logic_returns_list() {
     setup_db().await;
     let file = format!("bulk-{}", rand_suffix());
-    write_rule_content(&project_root_str(), RuleType::Oml, &file, "content")
+    write_rule_content(&test_project_layout(), RuleType::Oml, &file, "content")
         .expect("create sample oml");
 
     let result = get_rule_content_logic(RuleType::Oml, None)
@@ -169,7 +166,7 @@ async fn test_get_rule_content_logic_returns_list() {
 async fn test_get_rule_files_logic_filters_keyword() {
     setup_db().await;
     let target = "wparse.toml".to_string();
-    write_rule_content(&project_root_str(), RuleType::Parse, &target, "content")
+    write_rule_content(&test_project_layout(), RuleType::Parse, &target, "content")
         .expect("write parse rule");
 
     let files = get_rule_files_logic(RuleFilesQuery {
@@ -189,13 +186,14 @@ async fn test_get_rule_files_logic_filters_keyword() {
 async fn test_delete_rule_file_logic_for_standard_rule() {
     setup_db().await;
     let file = format!("delete-{}", rand_suffix());
-    write_rule_content(&project_root_str(), RuleType::Sink, &file, "content")
+    write_rule_content(&test_project_layout(), RuleType::Sink, &file, "content")
         .expect("insert sink rule");
 
     delete_rule_file_logic(RuleType::Sink, file.clone(), None)
         .await
         .expect("delete sink rule");
-    let record = read_rule_content(&project_root_str(), RuleType::Sink, &file).expect("query rule");
+    let record =
+        read_rule_content(&test_project_layout(), RuleType::Sink, &file).expect("query rule");
     assert!(record.is_none());
 }
 
@@ -203,9 +201,14 @@ async fn test_delete_rule_file_logic_for_standard_rule() {
 async fn test_wpl_virtual_sample_round_trip() {
     setup_db().await;
     let file = format!("sample-{}", rand_suffix());
-    write_rule_content(&project_root_str(), RuleType::Wpl, &file, "package demo {}")
-        .expect("write wpl parse");
-    write_wpl_sample_content(&project_root_str(), &file, "sample-data").expect("write sample");
+    write_rule_content(
+        &test_project_layout(),
+        RuleType::Wpl,
+        &file,
+        "package demo {}",
+    )
+    .expect("write wpl parse");
+    write_wpl_sample_content(&test_project_layout(), &file, "sample-data").expect("write sample");
 
     let content = get_rule_content_logic(RuleType::Wpl, Some(format!("{file}/sample.dat")))
         .await
