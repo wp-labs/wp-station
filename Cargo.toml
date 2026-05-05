@@ -24,7 +24,7 @@ strum = { version = "0.26", features = ["derive"] }
 anyhow = "~1"
 lazy_static = "1.4"
 bcrypt = "0.15"
-rand = "0.8"
+rand = "0.10"
 regex = "1"
 urlencoding = "2.1"
 

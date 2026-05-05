@@ -7499,7 +7499,7 @@ dependencies = [
  "lazy_static",
  "mime_guess",
  "nix 0.28.0",
- "rand 0.8.6",
+ "rand 0.10.1",
  "regex",
  "reqwest 0.12.28",
  "rust-embed",
