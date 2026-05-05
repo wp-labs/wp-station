@@ -1,7 +1,6 @@
 services:
   warp-toolchain:
     image: ghcr.io/wp-labs/warp-parse:latest
-    container_name: warp-toolchain
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -38,7 +37,6 @@ services:
 
   gitea:
     image: gitea/gitea:1.25.5
-    container_name: gitea
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +74,6 @@ services:
 
   gitea-init:
     image: gitea/gitea:1.25.5
-    container_name: gitea-init
     depends_on:
       gitea:
         condition: service_healthy
@@ -99,15 +96,15 @@ services:
   warp-station:
     user: "root"
     image: ghcr.io/wp-labs/wp-station:latest
-    depends_on:
-      warp-toolchain:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      gitea:
-        condition: service_healthy
-      gitea-init:
-        condition: service_completed_successfully
+    # depends_on:
+    #   warp-toolchain:
+    #     condition: service_completed_successfully
+    #   postgres:
+    #     condition: service_healthy
+    #   gitea:
+    #     condition: service_healthy
+    #   gitea-init:
+    #     condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -130,7 +127,7 @@ services:
       # - ./station/project_root:/app/project_root
       - warp-toolchain-data:/app/toolchain:ro
     ports:  
-      - "8081:8081"
+      - "18081:8081"
     networks:
       - warp-network
     restart: unless-stopped
