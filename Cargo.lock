@@ -7509,7 +7509,7 @@ dependencies = [
  "simple-log",
  "small_ctor",
  "strum 0.26.3",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toml 0.8.23",
