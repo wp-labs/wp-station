@@ -1,3 +1,4 @@
+use crate::common::test_models_root;
 use wp_model_core::model::{DataField, DataRecord, DataType, Value};
 use wp_station::utils::oml::{OmlFormatter, convert_record};
 
@@ -97,7 +98,8 @@ fn test_oml_formatter_or_original_returns_input_on_error() {
 #[test]
 fn test_oml_formatter_formats_project_samples() {
     let formatter = OmlFormatter::new();
-    let samples = sample_files_with_extension("project_root/models/oml", "oml");
+    let root = test_models_root().join("models/oml");
+    let samples = sample_files_with_extension(&root.to_string_lossy(), "oml");
     assert!(!samples.is_empty(), "expected at least one OML sample");
 
     for path in samples {

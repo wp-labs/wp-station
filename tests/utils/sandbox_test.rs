@@ -8,9 +8,7 @@ use std::path::PathBuf;
 
 use wp_station::server::Setting;
 use wp_station::utils::common::OUTPUT_PATHS;
-use wp_station::utils::sandbox::{
-    SandboxWorkspace, check_command_exists, collect_output_checks, command_version_output,
-};
+use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
 
 // ============ 测试辅助函数 ============
 
@@ -88,7 +86,8 @@ fn display_relative_prefers_workspace_root() {
         root: workspace_root.clone(),
         project_dir: workspace_root.clone(),
         logs_dir,
-        source_project_root: workspace_root.clone(),
+        source_models_root: workspace_root.clone(),
+        source_infra_root: workspace_root.clone(),
     };
 
     let nested = workspace_root.join("foo/bar/example.txt");
@@ -97,42 +96,6 @@ fn display_relative_prefers_workspace_root() {
     assert!(display.contains("foo"));
     assert!(!display.starts_with('/'));
     assert!(!display.starts_with('\\'));
-}
-
-#[test]
-fn bundle_logs_writes_sections() {
-    let base = temp_dir("bundle-logs");
-    let logs_dir = base.join("logs");
-    fs::create_dir_all(&logs_dir).unwrap();
-    let project_dir = base.join("project");
-    fs::create_dir_all(&project_dir).unwrap();
-
-    let workspace = SandboxWorkspace {
-        root: base.clone(),
-        project_dir: project_dir.clone(),
-        logs_dir: logs_dir.clone(),
-        source_project_root: base.join("source"),
-    };
-
-    let existing = project_dir.join("existing.log");
-    if let Some(parent) = existing.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    fs::write(&existing, "line-a\nline-b\n").unwrap();
-    let missing = project_dir.join("missing.log");
-
-    let bundle_path = workspace
-        .bundle_logs(
-            "bundle.txt",
-            &[("存在", existing.as_path()), ("缺失", missing.as_path())],
-        )
-        .expect("bundle logs");
-    let content = fs::read_to_string(&bundle_path).unwrap();
-    assert!(content.contains("===== 存在 ====="));
-    assert!(content.contains("line-a"));
-    assert!(content.contains("文件不存在"));
-
-    fs::remove_dir_all(&base).unwrap();
 }
 
 #[test]
@@ -148,7 +111,8 @@ fn render_tree_listing_displays_structure() {
         root: base.clone(),
         project_dir: project_dir.clone(),
         logs_dir,
-        source_project_root: base.join("source"),
+        source_models_root: base.join("source-models"),
+        source_infra_root: base.join("source-infra"),
     };
 
     let listing = workspace
@@ -161,12 +125,6 @@ fn render_tree_listing_displays_structure() {
 }
 
 // ============ 进程管理测试 ============
-
-#[test]
-fn check_command_exists_accepts_absolute_path() {
-    let exe = std::env::current_exe().unwrap();
-    check_command_exists(exe.to_str().unwrap()).expect("current executable exists");
-}
 
 #[tokio::test]
 async fn command_version_output_reads_stdout() {

@@ -1,3 +1,4 @@
+use crate::common::test_models_root;
 use wp_model_core::model::{DataField, DataRecord, DataType, Value};
 use wp_station::utils::{
     warp_check_record,
@@ -129,7 +130,8 @@ fn test_wpl_formatter_reports_unbalanced_brackets() {
 #[test]
 fn test_wpl_formatter_formats_project_samples() {
     let formatter = WplFormatter::new();
-    let samples = sample_files_with_extension("project_root/models/wpl", "wpl");
+    let root = test_models_root().join("models/wpl");
+    let samples = sample_files_with_extension(&root.to_string_lossy(), "wpl");
     assert!(!samples.is_empty(), "expected at least one WPL sample");
 
     for path in samples {

@@ -113,7 +113,7 @@ function Navigation({ children, onLocaleChange }) {
 
   const handleMenuNavigate = (menuItem) => {
     if (menuItem.external) {
-      window.location.assign(runtimeMonitorUrl || DEFAULT_DATA_COLLECT_URL);
+      window.open(runtimeMonitorUrl || DEFAULT_DATA_COLLECT_URL, '_blank', 'noopener,noreferrer');
       return;
     }
 

@@ -1,9 +1,11 @@
-use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_root};
+use crate::common::{
+    rand_suffix, remove_project_path, setup_db, test_models_root, test_project_layout,
+};
 use actix_web::{App, http::StatusCode, test, web};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use wp_station::server::SharedRecord;
-use wp_station::utils::{write_knowdb_config, write_knowledge_files};
+use wp_station::utils::{read_knowdb_config, write_knowdb_config, write_knowledge_files};
 
 fn cleanup_knowledge_entry(file: &str) {
     remove_project_path(format!("models/knowledge/{file}"));
@@ -12,36 +14,39 @@ fn cleanup_knowledge_entry(file: &str) {
 #[actix_web::test]
 async fn test_debug_api_endpoints_cover_all_handlers() {
     setup_db().await;
-    std::fs::create_dir_all(test_project_root().join(".run"))
+    std::fs::create_dir_all(test_models_root().join(".run"))
         .expect("prepare knowledge runtime dir");
 
-    let know_file = format!("debug-knowledge-{}", rand_suffix());
-    let project_root = test_project_root();
-    let project_root = project_root.to_str().expect("utf-8 test project root");
-    write_knowdb_config(
-        project_root,
-        &format!(
-            r#"version = 2
+    let know_file = format!("debug_knowledge_{}", rand_suffix());
+    let layout = test_project_layout();
+    let existing_knowdb = read_knowdb_config(&layout)
+        .expect("read knowdb")
+        .and_then(|(content, _)| Some(content))
+        .unwrap_or_else(|| "version = 2\n".to_string());
+    let updated_knowdb = format!(
+        r#"{existing}
 
 [[tables]]
-name = "{}"
-
+enabled = true
+name = "{table_name}"
 [tables.columns]
-by_header = ["id"]
+by_index = [0]
+[tables.csv]
+has_header = false
+[tables.expected_rows]
+min = 0
+max = 10
 "#,
-            know_file
-        ),
-    )
-    .expect("write knowdb");
+        existing = existing_knowdb.trim_end(),
+        table_name = know_file
+    );
+    write_knowdb_config(&layout, &updated_knowdb).expect("write knowdb");
     write_knowledge_files(
-        project_root,
+        &layout,
         &know_file,
-        Some(format!(
-            "CREATE TABLE IF NOT EXISTS {} (id INTEGER);",
-            know_file
-        )),
-        Some(format!("INSERT INTO {} (id) VALUES (?1);", know_file)),
-        Some("id\n1\n".to_string()),
+        Some("CREATE TABLE IF NOT EXISTS {table} (id INTEGER);".to_string()),
+        Some("INSERT INTO {table} (id) VALUES (?1);".to_string()),
+        Some("1\n".to_string()),
     )
     .expect("write knowledge files");
 
@@ -74,6 +79,28 @@ by_header = ["id"]
     let parse_body: serde_json::Value = test::read_body_json(parse_resp).await;
     assert!(parse_body.get("format_json").is_some());
 
+    // run a simple SQL query via knowledge API
+    let query_req = test::TestRequest::post()
+        .uri("/api/debug/knowledge/query")
+        .set_json(&serde_json::json!({
+            "table": know_file,
+            "sql": "SELECT 1 as value"
+        }))
+        .to_request();
+    let query_resp = test::call_service(&app, query_req).await;
+    let query_status = query_resp.status();
+    let query_body_bytes = test::read_body(query_resp).await;
+    let query_body_text = String::from_utf8_lossy(&query_body_bytes).to_string();
+    assert_eq!(
+        query_status,
+        StatusCode::OK,
+        "query body: {query_body_text}"
+    );
+    let query_body: serde_json::Value =
+        serde_json::from_slice(&query_body_bytes).expect("parse query body");
+    assert_eq!(query_body["success"], true);
+    assert_eq!(query_body["columns"], serde_json::json!(["value"]));
+
     // knowledge status should list the inserted entry
     let status_req = test::TestRequest::get()
         .uri("/api/debug/knowledge/status")
@@ -88,19 +115,6 @@ by_header = ["id"]
             .iter()
             .any(|item| item.get("tag_name").and_then(|n| n.as_str()) == Some(know_file.as_str()))
     );
-
-    // run a simple SQL query via knowledge API
-    let query_req = test::TestRequest::post()
-        .uri("/api/debug/knowledge/query")
-        .set_json(&serde_json::json!({
-            "table": "demo",
-            "sql": "SELECT 1 as value"
-        }))
-        .to_request();
-    let query_resp = test::call_service(&app, query_req).await;
-    assert_eq!(query_resp.status(), StatusCode::OK);
-    let query_body: serde_json::Value = test::read_body_json(query_resp).await;
-    assert_eq!(query_body["success"], true);
 
     // start a performance task and fetch it back
     let run_req = test::TestRequest::post()

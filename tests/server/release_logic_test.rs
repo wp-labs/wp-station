@@ -18,15 +18,12 @@ async fn cleanup_release(version: &str) {
 #[tokio::test]
 async fn test_release_logic_flow() {
     setup_db().await;
-    let version = format!("REL-{}", rand_suffix());
+    let requested_pipeline = format!("pipeline-{}", rand_suffix());
 
-    let create_resp = create_release_logic(
-        version.clone(),
-        Some("pipeline-a".to_string()),
-        Some("note".to_string()),
-    )
-    .await
-    .expect("create release logic");
+    let create_resp =
+        create_release_logic(Some(requested_pipeline.clone()), Some("note".to_string()))
+            .await
+            .expect("create release logic");
     assert!(create_resp.success);
 
     let detail = get_release_detail_logic(create_resp.id)
@@ -36,7 +33,7 @@ async fn test_release_logic_flow() {
 
     let list_resp = list_releases_logic(ReleaseListQuery {
         note: None,
-        pipeline: Some("pipeline-a".to_string()),
+        pipeline: None,
         version: Some(actual_version.clone()),
         owner: None,
         created_by: None,
@@ -56,5 +53,5 @@ async fn test_release_logic_flow() {
         .expect("validate release logic");
     assert!(validate_resp.valid);
 
-    cleanup_release(&version).await;
+    cleanup_release(&actual_version).await;
 }

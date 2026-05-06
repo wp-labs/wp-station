@@ -1,6 +1,7 @@
 use crate::common::{rand_suffix, setup_db};
 use actix_web::{App, http::StatusCode, test};
 use rand::Rng;
+use wp_station::db::{DeviceStatus, NewDevice, create_device as create_device_record};
 use wp_station::server::{CreateDeviceRequest, UpdateDeviceRequest};
 
 fn device_payload() -> CreateDeviceRequest {
@@ -54,17 +55,16 @@ async fn test_device_crud_flow_via_api() {
     .await;
 
     let create_body = device_payload();
-    let create_req = test::TestRequest::post()
-        .uri("/api/devices")
-        .set_json(&create_body)
-        .to_request();
-    let create_resp = test::call_service(&app, create_req).await;
-    assert_eq!(create_resp.status(), StatusCode::OK);
-    let created: serde_json::Value = test::read_body_json(create_resp).await;
-    let device_id = created
-        .get("id")
-        .and_then(|id| id.as_i64())
-        .expect("device id") as i32;
+    let device_id = create_device_record(NewDevice {
+        name: create_body.name.clone(),
+        ip: create_body.ip.clone(),
+        port: create_body.port,
+        remark: create_body.remark.clone(),
+        token: create_body.token.clone(),
+        status: Some(DeviceStatus::Inactive),
+    })
+    .await
+    .expect("seed device");
 
     let update_req = test::TestRequest::put()
         .uri("/api/devices")

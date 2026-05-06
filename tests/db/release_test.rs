@@ -1,8 +1,8 @@
 use crate::common::{rand_suffix, setup_db};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use wp_station::db::{
-    NewRelease, ReleaseStatus, create_release, find_all_releases, find_draft_release,
-    find_release_by_id, update_release_status, update_release_timestamp,
+    NewRelease, ReleaseStatus, create_release, find_all_releases, find_latest_draft_release,
+    find_release_by_id, touch_release_as_draft, update_release_status,
 };
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
 
@@ -22,6 +22,7 @@ async fn test_release_crud_flow() {
 
     let release = NewRelease {
         version: version.clone(),
+        release_group: "models".to_string(),
         pipeline: Some("auto".to_string()),
         created_by: Some("tester".to_string()),
         stages: Some("[]".to_string()),
@@ -53,13 +54,14 @@ async fn test_release_crud_flow() {
     assert!(total >= 1);
     assert!(items.iter().any(|item| item.id == release_id));
 
-    update_release_timestamp(release_id)
+    touch_release_as_draft(release_id, &version, "draft", Some("[]"))
         .await
-        .expect("update timestamp");
+        .expect("touch as draft");
 
     let draft_version = format!("{}-draft", prefix);
     let draft_id = create_release(NewRelease {
         version: draft_version.clone(),
+        release_group: "draft".to_string(),
         pipeline: Some("draft".to_string()),
         created_by: Some("tester".to_string()),
         stages: None,
@@ -68,7 +70,7 @@ async fn test_release_crud_flow() {
     .await
     .expect("create draft");
 
-    let draft = find_draft_release()
+    let draft = find_latest_draft_release()
         .await
         .expect("find draft")
         .expect("draft exists");

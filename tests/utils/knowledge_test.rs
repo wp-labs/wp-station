@@ -1,3 +1,4 @@
+use crate::common::{setup_db, test_models_root, test_project_layout};
 use wp_station::utils::{
     is_knowledge_loaded, load_knowledge, sql_knowdb_list, sql_query, unload_knowledge,
 };
@@ -24,11 +25,12 @@ fn test_knowledge_loaded_flags_can_toggle() {
     assert!(!is_knowledge_loaded());
 }
 
-#[test]
-fn test_load_knowledge_from_project_root() {
+#[tokio::test]
+async fn test_load_knowledge_from_project_root() {
+    setup_db().await;
     unload_knowledge();
-    std::fs::create_dir_all("project_root/.run").expect("create .run dir");
-    let result = load_knowledge("project_root");
+    std::fs::create_dir_all(test_models_root().join(".run")).expect("create .run dir");
+    let result = load_knowledge(&test_project_layout());
     assert!(
         result.is_ok(),
         "expected knowledge load to succeed: {:?}",
