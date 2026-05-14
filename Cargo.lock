@@ -3146,6 +3146,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags 2.11.1",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7334,7 +7346,7 @@ dependencies = [
  "gitea",
  "lazy_static",
  "mime_guess",
- "nix 0.30.1",
+ "nix 0.31.3",
  "rand 0.10.1",
  "regex",
  "reqwest 0.12.28",

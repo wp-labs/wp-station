@@ -54,7 +54,7 @@ gitea = {package = "gitea", path = "crates/gitea"}
 
 # 命令行辅助
 tokio-util = { version = "0.7", features = ["full"] }
-nix = { version = "0.30.1", default-features = false, features = ["signal", "process"] }
+nix = { version = "0.31.3", default-features = false, features = ["signal", "process"] }
 
 [build-dependencies]
 serde = { version = "~1.0", features = ["derive"] }
