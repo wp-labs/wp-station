@@ -16,7 +16,7 @@ cargo_metadata = "0.23.1"
 tokio = { version = "1.52.3", features = ["full"] }
 rust-embed = "8.11.0"
 mime_guess = "2"
-config = "0.15.22"
+config = "0.15.23"
 toml = "1.1.2"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0.18"
@@ -39,7 +39,7 @@ wpl = { package = "wp-lang", version = "0.3" }
 wp_primitives = { package = "wp-primitives", version = "0.2" }
 
 # Tree-sitter 支持（用于代码格式化）
-tree-sitter = "0.26.6"
+tree-sitter = "0.26.9"
 tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
 
 # PostgreSQL 数据库支持 - SeaORM
