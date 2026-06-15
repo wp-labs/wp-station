@@ -1020,6 +1020,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
+name = "combine"
+version = "4.6.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "comfy-table"
 version = "7.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4268,6 +4282,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
+name = "redis"
+version = "0.25.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e46922bd01fefcfdcf58d9cd626da082bb2cde27211920dacfde6b2ecf9a35b"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "bytes",
+ "combine",
+ "futures",
+ "futures-util",
+ "itoa",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "sha1_smol",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-retry",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5014,6 +5052,12 @@ dependencies = [
  "cpufeatures 0.3.0",
  "digest 0.11.3",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -5781,6 +5825,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
 dependencies = [
  "native-tls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-retry"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a129d95275ebf4c493ec53bf0f8cd95f5ac161bc4f381700809a54f595d4470"
+dependencies = [
+ "pin-project-lite",
+ "rand 0.10.1",
  "tokio",
 ]
 
@@ -6901,7 +6956,7 @@ dependencies = [
  "toml",
  "walkdir",
  "wp-config",
- "wp-knowledge",
+ "wp-knowledge 0.13.0",
 ]
 
 [[package]]
@@ -6965,7 +7020,7 @@ dependencies = [
  "wp-connector-api",
  "wp-data-utils",
  "wp-error",
- "wp-knowledge",
+ "wp-knowledge 0.13.0",
  "wp-lang",
  "wp-log",
  "wp-model-core",
@@ -7124,7 +7179,7 @@ dependencies = [
  "wp-data-fmt",
  "wp-data-utils",
  "wp-error",
- "wp-knowledge",
+ "wp-knowledge 0.13.0",
  "wp-lang",
  "wp-log",
  "wp-model-core",
@@ -7174,6 +7229,37 @@ dependencies = [
  "orion_conf",
  "r2d2",
  "r2d2_sqlite",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "wp-log",
+ "wp-model-core",
+]
+
+[[package]]
+name = "wp-knowledge"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e281b8f7b4feaafcfe078d96cba69e528f297590a92b022fc16610b5c7abc90"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "csv",
+ "derive_more",
+ "enum_dispatch",
+ "futures",
+ "lazy_static",
+ "log",
+ "lru 0.16.4",
+ "orion-error",
+ "orion-variate",
+ "orion_conf",
+ "r2d2",
+ "r2d2_sqlite",
+ "redis",
  "rusqlite",
  "serde",
  "serde_json",
@@ -7311,7 +7397,7 @@ dependencies = [
  "wp-data-fmt",
  "wp-data-utils",
  "wp-error",
- "wp-knowledge",
+ "wp-knowledge 0.13.0",
  "wp-lang",
  "wp-log",
  "wp-model-core",
@@ -7365,7 +7451,7 @@ dependencies = [
  "wp-data-utils",
  "wp-engine",
  "wp-error",
- "wp-knowledge",
+ "wp-knowledge 0.13.0",
  "wp-lang",
  "wp-log",
  "wp-oml",
@@ -7422,7 +7508,7 @@ dependencies = [
  "urlencoding",
  "wp-data-fmt",
  "wp-data-utils",
- "wp-knowledge",
+ "wp-knowledge 0.14.0",
  "wp-lang",
  "wp-model-core",
  "wp-oml",
