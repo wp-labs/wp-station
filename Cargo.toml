@@ -35,7 +35,7 @@ flate2 = "1"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.23.2" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.23.2" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.23.3" }
 wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.23.2" }
 wpl           = { package = "wp-lang",       version = "~0.3" }
 wp_primitives = { package = "wp-primitives", version = "~0.2" }
