@@ -14,7 +14,7 @@ simple-log = "2.4.0"
 small_ctor = "~0.1"
 cargo_metadata = "~0.20"
 tokio = { version = "~1.50", features = ["full"] }
-rust-embed = "~6.8"
+rust-embed = "~8.11"
 mime_guess = "~2"
 config = "~0.14"
 toml = "~0.8"
