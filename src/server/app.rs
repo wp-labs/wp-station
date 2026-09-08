@@ -12,7 +12,11 @@ use crate::{
     api,
     server::{SandboxState, Setting},
 };
-use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Result, middleware::Logger, web};
+use actix_web::{
+    App, HttpRequest, HttpResponse, HttpServer, Result,
+    middleware::{Compress, Logger},
+    web,
+};
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use std::sync::Arc;
@@ -186,6 +190,8 @@ pub async fn start() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            // 响应体压缩(gzip/brotli)
+            .wrap(Compress::default())
             // 只记录 API 请求，使用简洁格式：方法 路径 状态码 耗时
             .wrap(
                 Logger::new("%r %s %Dms")
