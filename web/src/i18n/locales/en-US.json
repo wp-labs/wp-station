@@ -97,6 +97,7 @@
       "tableMode": "Table Mode",
       "jsonMode": "JSON Mode",
       "showEmpty": "Show Empty",
+      "onlyFirstNonEmptyLog": "Multiple logs detected. The result is based on the first non-empty log only.",
       "clickToParse": "Click 'Parse' button to view results",
       "willShowHere": "Parse results will be displayed here",
       "parseFailed": "Parse Failed",

@@ -232,7 +232,11 @@ function SimulateDebugPage() {
 
       let parseResultForTransform = null;
       if (parseResponse?.fields) {
-        parseResultForTransform = { fields: parseResponse.fields, formatJson: parseResponse.formatJson };
+        parseResultForTransform = {
+          fields: parseResponse.fields,
+          formatJson: parseResponse.formatJson,
+          multipleLogs: parseResponse.multipleLogs,
+        };
         setTransformParseResult(parseResultForTransform);
       }
 
@@ -457,7 +461,11 @@ function SimulateDebugPage() {
       setResult(response);
       // 同步更新转换页的解析结果（使用原始数据用于转换）
       if (response?.fields) {
-        setTransformParseResult({ fields: response.fields, formatJson: response.formatJson });
+        setTransformParseResult({
+          fields: response.fields,
+          formatJson: response.formatJson,
+          multipleLogs: response.multipleLogs,
+        });
       }
     } catch (error) {
       setParseError(error); // 将错误存储到状态中
@@ -560,7 +568,11 @@ function SimulateDebugPage() {
       });
       setExampleParseResult(response);
       if (response?.fields) {
-        setExampleTransformParseResult({ fields: response.fields, formatJson: response.formatJson });
+        setExampleTransformParseResult({
+          fields: response.fields,
+          formatJson: response.formatJson,
+          multipleLogs: response.multipleLogs,
+        });
       }
     } catch (error) {
       setExampleParseError(error);
@@ -1431,6 +1443,11 @@ function SimulateDebugPage() {
                           </span>
                         </label>
                       </div>
+                      {result?.multipleLogs && (
+                        <div className="parse-result-hint" role="status">
+                          {t('simulateDebug.parseResult.onlyFirstNonEmptyLog')}
+                        </div>
+                      )}
                       <div className={`mode-content ${viewMode === 'table' ? 'is-active' : ''}`}>
                         {parseError ? (
                           renderParseError()
