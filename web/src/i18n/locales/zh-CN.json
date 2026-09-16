@@ -97,6 +97,7 @@
       "tableMode": "表格模式",
       "jsonMode": "JSON 模式",
       "showEmpty": "显示空值",
+      "onlyFirstNonEmptyLog": "输入包含多条日志，当前结果仅基于第一条非空日志解析",
       "clickToParse": "点击\"解析\"按钮查看结果",
       "willShowHere": "解析结果将显示在这里",
       "parseFailed": "解析失败",

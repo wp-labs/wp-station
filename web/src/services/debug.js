@@ -314,13 +314,14 @@ export async function parseLogs(options) {
       fieldsData = payload.fields.items;
     }
 
-    // 返回原始数据，让页面自己处理显示
-    // 兼容 format_json 和 formatJson 两种命名
+    // 返回页面展示所需的数据，兼容后端字段的 snake_case / camelCase 命名。
     const formatJson = payload?.format_json || payload?.formatJson || '';
+    const multipleLogs = payload?.multiple_logs ?? payload?.multipleLogs;
     
     return {
       fields: fieldsData,
       formatJson: typeof formatJson === 'string' ? formatJson : '',
+      multipleLogs: Boolean(multipleLogs),
     };
   } catch (error) {
     // 将请求异常与业务异常统一为可展示的错误对象，优先挂载后端响应
