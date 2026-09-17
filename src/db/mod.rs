@@ -4,7 +4,6 @@
 
 pub mod assist_task;
 pub mod device;
-pub mod operation_log;
 pub mod pool;
 pub mod release;
 pub mod rule_type;
@@ -16,7 +15,6 @@ pub use assist_task::{
     AssistTargetRule, AssistTask, AssistTaskStatus, AssistTaskType, NewAssistTask,
 };
 pub use device::{Device, DeviceStatus, NewDevice, UpdateDevice};
-pub use operation_log::{NewOperationLog, OperationLog};
 pub use release::{
     NewRelease, NewReleaseTarget, Release, ReleaseGroup, ReleaseStatus, ReleaseTarget,
     ReleaseTargetStatus, ReleaseTargetUpdate, create_release_targets,
@@ -50,9 +48,6 @@ pub use user::{
     change_user_password, create_user, delete_user, find_user_by_id, find_user_by_username,
     find_users_page, reset_user_password, update_user, update_user_status,
 };
-
-// 导出 operation_log 函数
-pub use operation_log::{create_operation_log, find_logs_page};
 
 // 导出 assist_task 函数
 pub use assist_task::{

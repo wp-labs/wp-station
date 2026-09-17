@@ -54,10 +54,6 @@ impl MigrationTrait for Migration {
         let stmt = schema.create_table_from_entity(crate::entity::user::Entity);
         manager.create_table(stmt).await?;
 
-        // 创建 operation_log 表
-        let stmt = schema.create_table_from_entity(crate::entity::operation_log::Entity);
-        manager.create_table(stmt).await?;
-
         // 创建 assist_tasks 表
         let stmt = schema.create_table_from_entity(crate::entity::assist_task::Entity);
         manager.create_table(stmt).await?;
@@ -100,13 +96,6 @@ impl MigrationTrait for Migration {
             .drop_table(
                 Table::drop()
                     .table(crate::entity::sandbox_run::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::operation_log::Entity)
                     .to_owned(),
             )
             .await?;

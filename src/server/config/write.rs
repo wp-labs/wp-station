@@ -2,16 +2,12 @@
 
 use crate::db::RuleType;
 use crate::error::AppError;
+use crate::server::refresh_draft_release_logic;
 use crate::server::sync::{
     sync_delete_to_gitea, sync_shared_connectors_to_infra_gitea, sync_to_gitea,
 };
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, refresh_draft_release_logic,
-    write_operation_log_for_result,
-};
 use crate::utils::{
-    SystemKind, delete_rule_from_project, read_rule_content, touch_rule_in_project,
-    write_rule_content,
+    SystemKind, delete_rule_from_project, touch_rule_in_project, write_rule_content,
 };
 
 use super::{SimpleResult, repo_layout};
@@ -54,13 +50,12 @@ async fn refresh_impacted_drafts(
 
 /// 保存配置文件内容。
 ///
-/// 保存成功后仍需继续触发操作日志、Gitea 同步和草稿刷新。
+/// 保存成功后继续执行 Gitea 同步和草稿刷新。
 pub async fn save_config_logic(
     system: SystemKind,
     rule_type: RuleType,
     file: String,
     content: String,
-    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "保存配置文件: rule_type={}, file={}, size={}",
@@ -69,12 +64,9 @@ pub async fn save_config_logic(
         content.len()
     );
 
-    let size = content.len() as i32;
     let layout = repo_layout(system);
-    let is_update = read_rule_content(&layout, rule_type, &file)?.is_some();
 
-    let file_for_log = file.clone();
-    let result = async move {
+    async move {
         let written_path = write_rule_content(&layout, rule_type, &file, &content)?;
 
         info!(
@@ -90,25 +82,7 @@ pub async fn save_config_logic(
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::ConfigFile,
-        if is_update {
-            OperationLogAction::Update
-        } else {
-            OperationLogAction::Create
-        },
-        OperationLogParams::new()
-            .with_target_name(format!("{}/{}", rule_type.as_ref(), file_for_log))
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field("size", size.to_string())
-            .with_field("sync", "project+gitea"),
-        &result,
-    )
-    .await;
-    result
+    .await
 }
 
 /// 创建新的配置文件。
@@ -117,7 +91,6 @@ pub async fn create_config_file_logic(
     rule_type: RuleType,
     file: String,
     display_name: Option<String>,
-    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "创建配置文件: rule_type={}, file={}, display_name={}",
@@ -126,9 +99,7 @@ pub async fn create_config_file_logic(
         display_name.as_deref().unwrap_or("-")
     );
 
-    let file_for_log = file.clone();
-    let display_name_for_log = display_name.clone();
-    let result = async move {
+    async move {
         let layout = repo_layout(system);
         let created_path = touch_rule_in_project(&layout, rule_type, &file)?;
         info!(
@@ -144,25 +115,7 @@ pub async fn create_config_file_logic(
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::ConfigFile,
-        OperationLogAction::Create,
-        OperationLogParams::new()
-            .with_target_name(format!("{}/{}", rule_type.as_ref(), file_for_log.clone()))
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field(
-                "display_name",
-                display_name_for_log.as_deref().unwrap_or("-"),
-            )
-            .with_field("content", "empty")
-            .with_field("sync", "project+gitea"),
-        &result,
-    )
-    .await;
-    result
+    .await
 }
 
 /// 删除配置文件。
@@ -170,7 +123,6 @@ pub async fn delete_config_file_logic(
     system: SystemKind,
     rule_type: RuleType,
     file: String,
-    _operator: Option<String>,
 ) -> Result<SimpleResult, AppError> {
     info!(
         "删除配置文件: rule_type={}, file={}",
@@ -178,8 +130,7 @@ pub async fn delete_config_file_logic(
         file
     );
 
-    let file_for_log = file.clone();
-    let result = async move {
+    async move {
         let layout = repo_layout(system);
         let deleted_path = delete_rule_from_project(&layout, rule_type, &file)?;
         info!(
@@ -195,18 +146,5 @@ pub async fn delete_config_file_logic(
 
         Ok::<_, AppError>(SimpleResult { success: true })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::ConfigFile,
-        OperationLogAction::Delete,
-        OperationLogParams::new()
-            .with_target_name(format!("{}/{}", rule_type.as_ref(), file_for_log.clone()))
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field("sync", "project+gitea"),
-        &result,
-    )
-    .await;
-    result
+    .await
 }

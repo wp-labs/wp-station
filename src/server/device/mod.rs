@@ -35,7 +35,7 @@ pub struct CreateDeviceRequest {
     pub name: Option<String>,
     pub ip: String,
     pub port: i32,
-    /// 设备访问令牌，仅用于连接，不写入操作日志
+    /// 设备访问令牌，仅用于设备连接。
     pub token: String,
     pub remark: Option<String>,
 }
@@ -49,7 +49,7 @@ pub struct UpdateDeviceRequest {
     pub name: Option<String>,
     pub ip: String,
     pub port: i32,
-    /// 设备访问令牌，仅用于连接，不写入操作日志
+    /// 设备访问令牌，仅用于设备连接。
     pub token: String,
     pub remark: Option<String>,
 }

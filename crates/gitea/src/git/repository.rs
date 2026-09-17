@@ -283,6 +283,16 @@ impl GitRepository {
         Ok(())
     }
 
+    /// 拉取远端全部标签，不改变当前分支指向和工作区内容。
+    pub fn fetch_tags(&self) -> Result<(), GitError> {
+        let mut remote = self.raw_repo().find_remote(DEFAULT_ORIGIN)?;
+        let callbacks = self.configure_remote_callbacks()?;
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+        remote.fetch(&["refs/tags/*:refs/tags/*"], Some(&mut fetch_options), None)?;
+        Ok(())
+    }
+
     /// 推送到远程仓库
     ///
     /// # 参数

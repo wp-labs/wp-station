@@ -1662,6 +1662,20 @@ body:not(.login-page) .connection-page-wrapper {
     grid-template-columns: 1fr;
   }
 
+  .integration-overview-wfusion-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .integration-overview-wfusion-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .integration-overview-wfusion-switch .ant-btn {
+    width: 100%;
+  }
+
   .integration-overview-runtime-list {
     grid-template-columns: 1fr;
   }
@@ -2131,12 +2145,43 @@ body:not(.login-page) .connection-page-wrapper {
   font-size: 13px;
 }
 
+.integration-overview-wfusion-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(249, 251, 255, 0.88);
+}
+
+.integration-overview-wfusion-toolbar-label {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.integration-overview-wfusion-switch {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.integration-overview-wfusion-switch .ant-btn {
+  min-width: 76px;
+  min-height: 40px;
+  border-radius: 9px;
+  font-weight: 600;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
 .integration-overview-log-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 12px;
-  align-items: stretch;
-  max-height: 152px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+  align-content: flex-start;
+  max-height: 128px;
   overflow-y: auto;
   padding-right: 6px;
 }
@@ -2151,14 +2196,16 @@ body:not(.login-page) .connection-page-wrapper {
 }
 
 .integration-overview-log-item {
-  padding: 10px 12px;
-  border-radius: 12px;
+  flex: 0 1 auto;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 9px;
   background: linear-gradient(180deg, rgba(240, 246, 255, 0.95) 0%, rgba(234, 242, 255, 0.88) 100%);
   border: 1px solid rgba(85, 132, 255, 0.12);
   color: #23324a;
   font-size: 13px;
-  line-height: 1.5;
-  min-height: 44px;
+  line-height: 1.35;
+  min-height: 32px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2175,6 +2222,41 @@ body:not(.login-page) .connection-page-wrapper {
 .integration-overview-log-primary {
   font-weight: 600;
   word-break: break-word;
+}
+
+.integration-overview-file-name {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.integration-overview-rule-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-height: 28px;
+}
+
+.integration-overview-rule-tag {
+  max-width: 100%;
+  margin-inline-end: 0 !important;
+  padding: 4px 8px !important;
+  border-radius: 7px !important;
+  background: rgba(42, 99, 255, 0.08) !important;
+  color: #315fc7 !important;
+  font-size: 12px !important;
+  line-height: 1.35 !important;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.integration-overview-rule-empty {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .integration-overview-log-secondary {
@@ -3060,6 +3142,45 @@ mark.diff-highlight {
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
+}
+
+/* 连接管理没有左侧子导航，工具栏和连接卡片使用完整内容宽度。 */
+.connection-manage-page {
+  width: 100%;
+}
+
+.connection-manage-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.connection-manage-toolbar .ant-input {
+  flex: 1 1 280px;
+  width: min(320px, 100%);
+  max-width: 320px;
+}
+
+.connection-manage-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .connection-manage-toolbar .ant-input {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .connection-manage-toolbar .btn {
+    margin-left: 0;
+  }
 }
 
 /* 侧边栏导航样式（与旧版本一致） */

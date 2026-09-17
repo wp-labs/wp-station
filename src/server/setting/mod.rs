@@ -123,7 +123,12 @@ impl DatabaseConf {
     /// 生成连接字符串
     pub fn connection_string(&self) -> String {
         if !self.url.trim().is_empty() {
-            return self.url.trim().to_string();
+            let url = self.url.trim();
+            return if matches!(self.database_kind(), DatabaseKind::Sqlite) {
+                self.resolve_sqlite_url(url)
+            } else {
+                url.to_string()
+            };
         }
         format!(
             "postgresql://{}:{}@{}:{}/{}",
@@ -142,6 +147,33 @@ impl DatabaseConf {
                 format!("{}?sslmode={}", self.connection_string(), self.ssl_mode)
             }
         }
+    }
+
+    /// 将 SQLite 相对路径固定到应用工作区，避免连接池新建连接时随进程 cwd 变化。
+    fn resolve_sqlite_url(&self, url: &str) -> String {
+        let (base, suffix) = url
+            .find(['?', '#'])
+            .map(|index| (&url[..index], &url[index..]))
+            .unwrap_or((url, ""));
+        let (prefix, raw_path) = if let Some(path) = base.strip_prefix("sqlite://") {
+            ("sqlite://", path)
+        } else if let Some(path) = base.strip_prefix("sqlite:") {
+            ("sqlite:", path)
+        } else {
+            return url.to_string();
+        };
+
+        if raw_path.is_empty() || raw_path == ":memory:" {
+            return url.to_string();
+        }
+
+        let path = Path::new(raw_path);
+        if path.is_absolute() {
+            return url.to_string();
+        }
+
+        let absolute_path = Setting::workspace_root().join(path);
+        format!("{}{}{}", prefix, absolute_path.display(), suffix)
     }
 
     /// 生成用于日志输出的脱敏数据库描述

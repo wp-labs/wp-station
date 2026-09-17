@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 
 use crate::constants::project::DIR_CONNECTORS;
 
+use self::publish::sync_named_repo_with_retry;
+
 pub use self::publish::{get_next_version, push_and_tag_release};
 pub use self::setup::{ensure_project_repositories, init_gitea_repo};
 
@@ -163,6 +165,147 @@ pub async fn sync_delete_to_gitea(
             ReleaseGroup::from_rule_type(rule_type),
         )
         .await?;
+    }
+    Ok(())
+}
+
+/// 将指定发布版本的仓库内容还原到本地工作区，并提交推送到 Gitea。
+///
+/// 还原只作用于发布记录包含的仓库分组：models 还原规则配置，infra 还原
+/// 设施配置。工作区会先清理 `.git` 以外的内容，避免草稿中新建的未跟踪文件
+/// 在还原后继续混入下一次发布。
+pub async fn restore_release_to_gitea(
+    system: SystemKind,
+    version: &str,
+    groups: &[ReleaseGroup],
+) -> Result<(), AppError> {
+    if groups.is_empty() {
+        return Err(AppError::validation("还原范围不能为空"));
+    }
+
+    let setting = Setting::load();
+    let layout = layout_for_system(system).as_repo_layout();
+    let gitea_client = build_gitea_client(&setting)?;
+
+    // 先检查所有目标仓库是否都能找到版本标签，避免全量还原过程中途失败而只恢复一半。
+    for group in groups {
+        let project_path = repo_path_for_group(&layout, *group);
+        let repo_label = format!(
+            "system={}, area={}, version={}",
+            system.as_ref(),
+            area_from_group(*group).as_ref(),
+            version
+        );
+        ensure_repo_tag(&gitea_client, &project_path, version, &repo_label)?;
+    }
+
+    for group in groups {
+        let project_path = repo_path_for_group(&layout, *group);
+        let repo_label = format!(
+            "system={}, area={}, version={}",
+            system.as_ref(),
+            area_from_group(*group).as_ref(),
+            version
+        );
+        restore_repo_to_tag(&gitea_client, &project_path, version, &repo_label)?;
+        sync_named_repo_with_retry(
+            &gitea_client,
+            &project_path,
+            &format!("还原发布配置 {}", version),
+            &repo_label,
+        )?;
+    }
+
+    // connectors 是双系统共享的，Infra 发布 tag 中保存的是当时的镜像；还原后
+    // 需要回写共享工作区，再同步到两个系统的 infra Gitea 仓库，避免下一次发布
+    // 又被当前共享 connectors 覆盖。
+    if groups.contains(&ReleaseGroup::Infra) {
+        let shared_root = shared_connectors_root();
+        copy_named_entry(&layout.infra_root, &shared_root, DIR_CONNECTORS)?;
+        sync_shared_connectors_to_infra_gitea(&format!("还原共享 connectors {}", version)).await?;
+    }
+
+    Ok(())
+}
+
+/// 将单个本地仓库恢复到指定 tag，保留 `.git` 目录和当前分支。
+fn restore_repo_to_tag(
+    gitea_client: &GiteaClient,
+    project_path: &Path,
+    version: &str,
+    repo_label: &str,
+) -> Result<(), AppError> {
+    let local_repo = gitea_client
+        .open(project_path)
+        .map_err(|e| AppError::internal(format!("打开还原仓库失败: {}", e)))?;
+
+    ensure_repo_tag_with_open_repo(&local_repo, version, repo_label)?;
+
+    clear_repo_worktree_preserving_git(project_path)?;
+    local_repo
+        .checkout(version)
+        .map_err(|e| AppError::internal(format!("检出发布版本失败: {}", e)))?;
+    info!("发布配置还原到本地仓库成功: repo={}", repo_label);
+    Ok(())
+}
+
+/// 确保本地仓库可解析指定发布 tag；本地缺失时先同步远端标签。
+fn ensure_repo_tag(
+    gitea_client: &GiteaClient,
+    project_path: &Path,
+    version: &str,
+    repo_label: &str,
+) -> Result<(), AppError> {
+    let local_repo = gitea_client
+        .open(project_path)
+        .map_err(|e| AppError::internal(format!("打开还原仓库失败: {}", e)))?;
+    ensure_repo_tag_with_open_repo(&local_repo, version, repo_label)
+}
+
+fn ensure_repo_tag_with_open_repo(
+    local_repo: &gitea::LocalRepository,
+    version: &str,
+    repo_label: &str,
+) -> Result<(), AppError> {
+    if !local_repo
+        .list_tags()
+        .map_err(|e| AppError::internal(format!("读取仓库标签失败: {}", e)))?
+        .iter()
+        .any(|tag| tag == version)
+    {
+        local_repo
+            .fetch_tags()
+            .map_err(|e| AppError::internal(format!("拉取发布标签失败: {}", e)))?;
+    }
+
+    let has_tag = local_repo
+        .list_tags()
+        .map_err(|e| AppError::internal(format!("读取仓库标签失败: {}", e)))?
+        .iter()
+        .any(|tag| tag == version);
+    if !has_tag {
+        return Err(AppError::validation(format!(
+            "Gitea 仓库缺少发布标签: repo={}, version={}",
+            repo_label, version
+        )));
+    }
+    Ok(())
+}
+
+/// 清空仓库工作区但保留 Git 元数据，以便 tag 检出后得到精确快照。
+fn clear_repo_worktree_preserving_git(project_path: &Path) -> Result<(), AppError> {
+    for entry in fs::read_dir(project_path).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        if entry.file_name() == std::ffi::OsStr::new(".git") {
+            continue;
+        }
+
+        let path = entry.path();
+        if path.is_dir() {
+            fs::remove_dir_all(path).map_err(AppError::internal)?;
+        } else {
+            fs::remove_file(path).map_err(AppError::internal)?;
+        }
     }
     Ok(())
 }

@@ -103,7 +103,7 @@ fn cleanup_sandbox_workspace_fixture(task_id: &str) {
 #[test]
 fn collect_output_checks_counts_lines() {
     let base = temp_dir("collect-output");
-    for (idx, (relative, _)) in OUTPUT_PATHS.iter().enumerate() {
+    for (idx, (relative, _, _)) in OUTPUT_PATHS.iter().enumerate() {
         let path = base.join(relative);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
@@ -115,13 +115,19 @@ fn collect_output_checks_counts_lines() {
     let status = collect_output_checks(&base).expect("collect output succeeds");
     assert_eq!(status.len(), OUTPUT_PATHS.len());
 
-    let mut map: HashMap<String, (usize, bool)> = HashMap::new();
+    let mut map: HashMap<String, (usize, bool, bool)> = HashMap::new();
     for item in status {
-        map.insert(item.relative_path.clone(), (item.line_count, item.is_empty));
+        map.insert(
+            item.relative_path.clone(),
+            (item.line_count, item.is_empty, item.affects_pass),
+        );
     }
 
     assert!(map.get("data/out_dat/default.dat").unwrap().0 >= 2);
     assert!(map.get("data/out_dat/miss.dat").unwrap().1);
+    assert!(map.get("data/out_dat/default.dat").unwrap().2);
+    assert!(!map.get("data/out_dat/ignore.json").unwrap().2);
+    assert!(!map.get("data/out_dat/raw_log.json").unwrap().2);
 
     fs::remove_dir_all(&base).unwrap();
 }
@@ -296,6 +302,34 @@ fn sandbox_prepare_overrides_infra_sinks_with_defaults() {
 }
 
 #[test]
+fn sandbox_prepare_overrides_wparse_business_sinks_with_defaults() {
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    runtime.block_on(setup_db());
+
+    let user_business_dir = test_infra_root().join("topology/sinks/business.d");
+    fs::create_dir_all(&user_business_dir).expect("create business sink directory");
+    let user_business_file = user_business_dir.join("sink.toml");
+    fs::write(&user_business_file, "version = \"9.9\"\n").expect("write custom business sink");
+
+    let workspace = SandboxWorkspace::prepare("sandbox-business-defaults", SystemKind::Wparse, &[])
+        .expect("prepare sandbox workspace");
+    let sandbox_business_dir = workspace.project_dir.join("topology/sinks/business.d");
+    let sandbox_content = fs::read_to_string(sandbox_business_dir.join("sink.toml"))
+        .expect("read sandbox business sink");
+
+    assert!(
+        sandbox_content.contains("name = \"kafka_sink\""),
+        "sandbox business sink should use the default template: {sandbox_content}"
+    );
+    assert!(
+        !sandbox_content.contains("version = \"9.9\""),
+        "sandbox should overwrite customized business sink content: {sandbox_content}"
+    );
+
+    let _ = fs::remove_dir_all(workspace.root);
+}
+
+#[test]
 fn sandbox_prepare_overrides_wpgen_output_runtime() {
     let runtime = tokio::runtime::Runtime::new().expect("create runtime");
     runtime.block_on(setup_db());
@@ -454,7 +488,7 @@ fn wparse_runtime_output_accepts_at_least_wpgen_count() {
 
     for (output_count, wpgen_count, expected_passed) in cases {
         let base = temp_dir("wparse-output-count");
-        for (relative, _) in OUTPUT_PATHS {
+        for (relative, _, _) in OUTPUT_PATHS {
             let path = base.join(relative);
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).unwrap();
@@ -478,4 +512,57 @@ fn wparse_runtime_output_accepts_at_least_wpgen_count() {
 
         fs::remove_dir_all(base).unwrap();
     }
+}
+
+#[test]
+fn wparse_runtime_output_advisory_files_do_not_affect_pass() {
+    let base = temp_dir("wparse-advisory-output");
+    for (relative, _, _) in OUTPUT_PATHS {
+        let path = base.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, "").unwrap();
+    }
+
+    fs::write(base.join("data/out_dat/all.json"), "{}\n{}\n").unwrap();
+    fs::write(
+        base.join("data/out_dat/ignore.json"),
+        "{\"ignored\":true}\n",
+    )
+    .unwrap();
+    fs::write(base.join("data/out_dat/raw_log.json"), "{\"raw\":true}\n").unwrap();
+    let daemon_stdout = base.join("wparse.log");
+    fs::write(&daemon_stdout, "").unwrap();
+
+    let analysis = analyse_runtime_output(SystemKind::Wparse, &base, &daemon_stdout, 2)
+        .expect("分析 wparse 输出成功");
+    assert!(analysis.passed);
+    assert!(
+        analysis
+            .log_text
+            .contains("data/out_dat/ignore.json | wc -l")
+    );
+    assert!(
+        analysis
+            .log_text
+            .contains("data/out_dat/raw_log.json | wc -l")
+    );
+    assert!(analysis.log_text.contains("仅观察，不参与通过判定"));
+    assert!(
+        !analysis
+            .log_text
+            .contains("[DIAG] data/out_dat/ignore.json")
+    );
+    assert!(
+        !analysis
+            .log_text
+            .contains("[DIAG] data/out_dat/raw_log.json")
+    );
+
+    let conclusion = finalize_conclusion(&analysis.output_checks, &analysis.metrics);
+    assert!(conclusion.passed);
+    assert!(conclusion.suspected_files.is_empty());
+
+    fs::remove_dir_all(&base).unwrap();
 }

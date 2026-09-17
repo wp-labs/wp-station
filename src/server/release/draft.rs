@@ -7,14 +7,11 @@ use crate::db::{
     find_release_by_id, touch_release_as_draft,
 };
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
-};
 use crate::utils::SystemKind;
 
 use super::{
-    CreateReleaseResponse, normalize_note, release_has_any_published_scope,
-    serialize_stage_summary, stage_summary_for_status,
+    CreateReleaseResponse, release_has_any_published_scope, serialize_stage_summary,
+    stage_summary_for_status,
 };
 
 /// 解析 `v1.2.3` 形式的版本号，供草稿版本自动递增使用。
@@ -119,40 +116,15 @@ pub async fn refresh_draft_release_logic(
 /// 创建或刷新唯一草稿发布记录。
 pub async fn create_release_logic(
     system: SystemKind,
-    pipeline: Option<String>,
-    note: Option<String>,
+    _pipeline: Option<String>,
+    _note: Option<String>,
 ) -> Result<CreateReleaseResponse, AppError> {
-    let normalized_note = normalize_note(note);
-    let final_pipeline = pipeline.clone().or_else(|| normalized_note.clone());
-
-    let result = async {
+    async {
         let release = ensure_single_draft_release(system).await?;
         Ok::<_, AppError>(CreateReleaseResponse {
             id: release.id,
             success: true,
         })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Create,
-        OperationLogParams::new()
-            .with_target_name(GROUP_DRAFT)
-            .with_field("system", system.as_ref())
-            .with_field("version", "auto")
-            .with_field("release_group", GROUP_DRAFT)
-            .with_field(
-                "pipeline",
-                final_pipeline.clone().unwrap_or_else(|| "-".to_string()),
-            )
-            .with_field(
-                "note",
-                normalized_note.clone().unwrap_or_else(|| "-".to_string()),
-            ),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

@@ -13,7 +13,7 @@ use super::stage::{build_device_detail, build_release_summary_stages, parse_rele
 use super::{
     ReleaseDetailResponse, ReleaseItemDto, ReleaseListQuery, ReleaseListResponse,
     all_release_groups, latest_target_per_device_group, release_contains_group, release_system,
-    sandbox_run_passed,
+    sandbox_run_ready_for_release,
 };
 
 /// 获取发布版本列表。
@@ -38,7 +38,10 @@ pub async fn list_releases_logic(query: ReleaseListQuery) -> Result<ReleaseListR
         let latest_run = find_latest_sandbox_run(rel.id)
             .await
             .map_err(AppError::from)?;
-        let sandbox_ready = latest_run.as_ref().map(sandbox_run_passed).unwrap_or(false);
+        let sandbox_ready = latest_run
+            .as_ref()
+            .map(|run| sandbox_run_ready_for_release(&rel, run))
+            .unwrap_or(false);
 
         items.push(ReleaseItemDto {
             id: rel.id,
@@ -81,7 +84,10 @@ pub async fn get_release_detail_logic(id: i32) -> Result<ReleaseDetailResponse, 
         .collect::<Result<Vec<_>, _>>()?;
 
     let latest_run = find_latest_sandbox_run(id).await.map_err(AppError::from)?;
-    let sandbox_ready = latest_run.as_ref().map(sandbox_run_passed).unwrap_or(false);
+    let sandbox_ready = latest_run
+        .as_ref()
+        .map(|run| sandbox_run_ready_for_release(&release, run))
+        .unwrap_or(false);
     let latest_sandbox_status = latest_run
         .as_ref()
         .map(|run| run.status.as_str().to_string());

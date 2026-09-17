@@ -6,8 +6,6 @@ import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import dayjs from 'dayjs';
 import Navigation from '@/views/components/Navigation';
-import RequireAuth from '@/views/components/RequireAuth';
-import LoginPage from '@/views/pages/login';
 import FeaturesPage from '@/views/pages/features';
 import SystemReleasePage from '@/views/pages/system-release';
 import ReleaseDetailPage from '@/views/pages/system-release/detail';
@@ -81,41 +79,37 @@ function App() {
     <ConfigProvider locale={antdLocale} theme={theme}>
       <AntdApp>
         <Routes>
-          {/* 登录页面不包裹在 Navigation 中 */}
-          <Route path="/login" element={<LoginPage />} />
+          {/* 兼容旧地址，应用不再显示独立登录页。 */}
+          <Route path="/login" element={<Navigate to="/rule-manage" replace />} />
 
-          {/* 其他页面包裹在 Navigation 中 */}
+          {/* 统一使用主导航进入各业务页面。 */}
           <Route
             path="/*"
             element={
-              <RequireAuth>
-                {/* 鉴权通过后再初始化系统和页面框架，避免系统 URL 同步覆盖登录跳转。 */}
-                <SystemProvider>
-                  <AssistTaskProvider>
-                    <Navigation onLocaleChange={handleLocaleChange}>
-                      <Routes>
-                        <Route path="/" element={<Navigate to="/rule-manage" replace />} />
-                        <Route path="/features" element={<FeaturesPage />} />
-                        <Route path="/system-release" element={<SystemReleasePage />} />
-                        <Route path="/system-release/:id" element={<ReleaseDetailPage />} />
-                        <Route
-                          path="/system-release/:id/prepublish"
-                          element={<PrepublishPage />}
-                        />
-                        <Route path="/rule-manage" element={<RuleManagePage />} />
-                        <Route path="/config-manage" element={<ConfigManagePage />} />
-                        <Route path="/simulate-debug" element={<SimulateDebugPage />} />
-                        <Route path="/wfusion-rule-editor" element={<WfusionRuleEditorPage />} />
-                        <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
-                        <Route path="/system-manage" element={<SystemManagePage />} />
-                        <Route path="*" element={<Navigate to="/rule-manage" replace />} />
-                      </Routes>
-                      {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
-                      <AssistTaskCenter />
-                    </Navigation>
-                  </AssistTaskProvider>
-                </SystemProvider>
-              </RequireAuth>
+              <SystemProvider>
+                <AssistTaskProvider>
+                  <Navigation onLocaleChange={handleLocaleChange}>
+                    <Routes>
+                      <Route path="/" element={<Navigate to="/rule-manage" replace />} />
+                      <Route path="/features" element={<FeaturesPage />} />
+                      <Route path="/system-release" element={<SystemReleasePage />} />
+                      <Route path="/system-release/:id" element={<ReleaseDetailPage />} />
+                      <Route
+                        path="/system-release/:id/prepublish"
+                        element={<PrepublishPage />}
+                      />
+                      <Route path="/rule-manage" element={<RuleManagePage />} />
+                      <Route path="/config-manage" element={<ConfigManagePage />} />
+                      <Route path="/simulate-debug" element={<SimulateDebugPage />} />
+                      <Route path="/wfusion-rule-editor" element={<WfusionRuleEditorPage />} />
+                      <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
+                      <Route path="/system-manage" element={<SystemManagePage />} />
+                      <Route path="*" element={<Navigate to="/rule-manage" replace />} />
+                    </Routes>
+                    <AssistTaskCenter />
+                  </Navigation>
+                </AssistTaskProvider>
+              </SystemProvider>
             }
           />
         </Routes>

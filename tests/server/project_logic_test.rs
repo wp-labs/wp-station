@@ -122,13 +122,10 @@ async fn test_import_project_requires_legacy_directories() {
     let source_dir = legacy_import_dir("missing-dirs");
     fs::create_dir_all(source_dir.join("conf")).expect("create conf only");
 
-    let result = import_project_from_files_logic(
-        Some("tester".to_string()),
-        ProjectImportRequest {
-            system: SystemKind::Wparse,
-            source_dir: source_dir.to_string_lossy().to_string(),
-        },
-    )
+    let result = import_project_from_files_logic(ProjectImportRequest {
+        system: SystemKind::Wparse,
+        source_dir: source_dir.to_string_lossy().to_string(),
+    })
     .await;
 
     let err = match result {
@@ -154,13 +151,10 @@ async fn test_import_project_validates_source_dir_before_overwrite() {
     write_file(test_infra_root().join("sentinel.txt"), "keep infra");
     write_file(test_models_root().join("sentinel.txt"), "keep models");
 
-    let result = import_project_from_files_logic(
-        Some("tester".to_string()),
-        ProjectImportRequest {
-            system: SystemKind::Wparse,
-            source_dir: source_dir.to_string_lossy().to_string(),
-        },
-    )
+    let result = import_project_from_files_logic(ProjectImportRequest {
+        system: SystemKind::Wparse,
+        source_dir: source_dir.to_string_lossy().to_string(),
+    })
     .await;
 
     let err = match result {
@@ -198,13 +192,10 @@ async fn test_import_project_splits_legacy_directory_into_dual_repos() {
     write_file(test_models_root().join("stale.txt"), "old models");
     write_file(test_infra_root().join("stale.txt"), "old infra");
 
-    let response = import_project_from_files_logic(
-        Some("tester".to_string()),
-        ProjectImportRequest {
-            system: SystemKind::Wparse,
-            source_dir: source_dir.to_string_lossy().to_string(),
-        },
-    )
+    let response = import_project_from_files_logic(ProjectImportRequest {
+        system: SystemKind::Wparse,
+        source_dir: source_dir.to_string_lossy().to_string(),
+    })
     .await
     .expect("import legacy project");
 
@@ -261,7 +252,6 @@ async fn test_import_project_archive_supports_models_only_directory() {
 
     let preview = preview_project_archive_logic(
         SystemKind::Wparse,
-        Some("tester".to_string()),
         "models-only.tar.gz",
         build_archive_with_dirs(&source_dir, &["models"]),
     )
@@ -286,13 +276,9 @@ async fn test_import_project_archive_supports_models_only_directory() {
         preview.summary.rule_breakdown
     );
 
-    let response = confirm_project_archive_import_logic(
-        Some("tester".to_string()),
-        SystemKind::Wparse,
-        &preview.import_id,
-    )
-    .await
-    .expect("confirm models-only archive");
+    let response = confirm_project_archive_import_logic(SystemKind::Wparse, &preview.import_id)
+        .await
+        .expect("confirm models-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["models".to_string()]);
     assert!(
@@ -345,7 +331,6 @@ async fn test_import_project_archive_supports_conf_only_directory() {
 
     let preview = preview_project_archive_logic(
         SystemKind::Wparse,
-        Some("tester".to_string()),
         "conf-only.tar.gz",
         build_archive_with_dirs(&source_dir, &["conf"]),
     )
@@ -371,13 +356,9 @@ async fn test_import_project_archive_supports_conf_only_directory() {
         })
     );
 
-    let response = confirm_project_archive_import_logic(
-        Some("tester".to_string()),
-        SystemKind::Wparse,
-        &preview.import_id,
-    )
-    .await
-    .expect("confirm conf-only archive");
+    let response = confirm_project_archive_import_logic(SystemKind::Wparse, &preview.import_id)
+        .await
+        .expect("confirm conf-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["conf".to_string()]);
     assert_eq!(response.summary.rules_imported, 2);
@@ -407,6 +388,12 @@ async fn test_export_project_archive_uses_flat_root_directories() {
         .expect("export project archive");
     let entries = archive_entry_names(&archive.bytes);
 
+    let timestamp = archive
+        .file_name
+        .strip_prefix("wparse-")
+        .and_then(|name| name.strip_suffix(".tar.gz"))
+        .expect("wparse archive should use the wparse timestamp name");
+    assert!(timestamp.parse::<i64>().is_ok());
     assert_archive_has_flat_root_dirs(&entries);
 }
 
@@ -419,6 +406,12 @@ async fn test_export_wfusion_project_archive_uses_flat_root_directories() {
         .expect("export wfusion project archive");
     let entries = archive_entry_names(&archive.bytes);
 
+    let timestamp = archive
+        .file_name
+        .strip_prefix("wfusion-")
+        .and_then(|name| name.strip_suffix(".tar.gz"))
+        .expect("wfusion archive should use the wfusion timestamp name");
+    assert!(timestamp.parse::<i64>().is_ok());
     assert_archive_has_flat_root_dirs(&entries);
     assert!(
         entries
@@ -528,7 +521,6 @@ scenario ssh_brute_force_alert_case<seed=42> {
 
     let preview = preview_project_archive_logic(
         SystemKind::Wfusion,
-        Some("tester".to_string()),
         "wfusion-models.tar.gz",
         build_archive_with_dirs(&source_dir, &["models"]),
     )

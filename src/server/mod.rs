@@ -10,7 +10,6 @@ pub mod debug;
 pub mod device;
 pub mod knowledge_query;
 pub mod meta;
-pub mod operation_log;
 pub mod overview;
 pub mod project;
 pub mod release;
@@ -51,10 +50,6 @@ pub use meta::{
     FeaturesConfigResponse, VersionResponse, get_features_config_logic, get_version_logic,
     hello_logic,
 };
-pub use operation_log::{
-    LogListQuery, OperationLogAction, OperationLogBiz, OperationLogParams, OperationLogStatus,
-    list_logs_logic, write_operation_log, write_operation_log_for_result,
-};
 pub use overview::{
     IntegrationRuleItemResponse, IntegrationRuleLogTypeResponse, IntegrationRuleOverviewResponse,
     IntegrationRuntimeItemResponse, IntegrationRuntimeOverviewResponse,
@@ -67,9 +62,10 @@ pub use project::{
 };
 pub use release::runner::spawn_release_task_runner;
 pub use release::{
-    CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseTargetActionRequest,
-    create_release_logic, get_release_detail_logic, get_release_diff_logic, list_releases_logic,
-    publish_release_logic, refresh_draft_release_logic, retry_release_logic,
+    CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseRestoreRequest,
+    ReleaseTargetActionRequest, create_release_logic, get_release_detail_logic,
+    get_release_diff_logic, list_releases_logic, publish_release_logic,
+    refresh_draft_release_logic, restore_release_logic, retry_release_logic,
     rollback_release_logic, validate_release_logic,
 };
 pub use rules::{
@@ -90,7 +86,7 @@ pub use setting::{
     AssistConf, DatabaseConf, DatabaseKind, FeaturesConf, LogConf, RepoLayout, RepoStartupStrategy,
     Setting, WebConf,
 };
-pub use sync::push_and_tag_release;
+pub use sync::{push_and_tag_release, restore_release_to_gitea};
 pub use user::{
     ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, ResetPasswordRequest,
     ResetPasswordResponse, UpdateUserRequest, UpdateUserStatusRequest, UserCreated, UserListQuery,

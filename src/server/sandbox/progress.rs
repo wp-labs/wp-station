@@ -274,7 +274,7 @@ pub(super) async fn apply_conclusion(task: &Arc<SandboxTaskHandle>, resources: &
         updated.suspected_files = updated
             .output_file_checks
             .iter()
-            .filter(|item| !item.is_empty)
+            .filter(|item| item.affects_pass && !item.is_empty)
             .map(|item| item.relative_path.clone())
             .collect();
         run.conclusion = Some(updated);

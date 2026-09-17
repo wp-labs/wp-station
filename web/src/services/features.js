@@ -40,6 +40,7 @@ export async function fetchIntegrationRuleOverview(system) {
     (Array.isArray(items) ? items : []).map((item) => ({
       key: item?.key || '',
       name: item?.name || '',
+      ruleNames: Array.isArray(item?.rule_names) ? item.rule_names : [],
     }));
 
   return {

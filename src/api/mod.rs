@@ -8,7 +8,6 @@ pub mod debug;
 pub mod device;
 pub mod knowledge_query;
 pub mod meta;
-pub mod operation_log;
 pub mod overview;
 pub mod project;
 pub mod release;
@@ -32,7 +31,6 @@ pub use device::{
 };
 pub use knowledge_query::{get_db_list, query};
 pub use meta::{get_features_config, get_version, hello};
-pub use operation_log::list_operation_logs;
 pub use overview::{get_integration_rule_overview, get_integration_runtime_overview};
 pub use project::{
     confirm_project_archive_import, export_project_archive, import_project_archive,
@@ -40,7 +38,7 @@ pub use project::{
 };
 pub use release::{
     create_release, get_release_detail, get_release_diff, list_releases, publish_release,
-    retry_release, rollback_release, validate_release,
+    restore_release, retry_release, rollback_release, validate_release,
 };
 pub use rules::{
     create_rule_file, delete_rule_file, get_knowdb_config, get_rule_content, get_rule_files,

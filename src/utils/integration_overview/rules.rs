@@ -287,34 +287,36 @@ fn visit_named_rule_files(
             .map_err(AppError::internal)?
             .to_path_buf();
         let key = relative.to_string_lossy().replace('\\', "/");
-        let name = format_named_rule_name(&relative, extension);
-        files.push(IntegrationRuleFlatItem { key, name });
+        let name = format_named_rule_name(&relative);
+        let content = fs::read_to_string(&path).map_err(AppError::internal)?;
+        let rule_names = extract_rule_names(&content);
+        files.push(IntegrationRuleFlatItem {
+            key,
+            name,
+            rule_names,
+        });
     }
 
     Ok(())
 }
 
-fn format_named_rule_name(relative: &Path, extension: &str) -> String {
-    let normalized = relative.to_string_lossy().replace('\\', "/");
-    let trimmed = normalized
-        .strip_suffix(extension)
-        .unwrap_or(normalized.as_str());
-    let parts = trimmed
-        .split('/')
-        .filter(|part| !part.trim().is_empty())
-        .collect::<Vec<_>>();
+fn format_named_rule_name(relative: &Path) -> String {
+    relative
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
 
-    match parts.as_slice() {
-        [] => trimmed.to_string(),
-        [single] => (*single).to_string(),
-        _ => {
-            let file_name = parts.last().copied().unwrap_or(trimmed);
-            let parents = &parts[..parts.len() - 1];
-            if parents.last().copied() == Some(file_name) {
-                parents.join("/")
-            } else {
-                trimmed.to_string()
-            }
-        }
-    }
+/// 提取 WFL/WFS 文件中声明的 rule 名称，避免把字段名如 `rule_id` 当成规则。
+fn extract_rule_names(content: &str) -> Vec<String> {
+    let pattern =
+        Regex::new(r"(?m)^\s*rule\s+([A-Za-z0-9_]+)\b").expect("valid rule declaration regex");
+    pattern
+        .captures_iter(content)
+        .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }

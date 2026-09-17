@@ -15,15 +15,13 @@ impl ReleaseTaskRunner {
         let device = match device {
             Some(dev) => dev,
             None => {
-                self.mark_target_fail(target, None, "目标设备不存在")
-                    .await?;
+                self.mark_target_fail(target, "目标设备不存在").await?;
                 return Ok(true);
             }
         };
 
         if device.token.is_empty() {
-            self.mark_target_fail(target, Some(device), "设备 Token 未配置")
-                .await?;
+            self.mark_target_fail(target, "设备 Token 未配置").await?;
             return Ok(true);
         }
 
@@ -38,7 +36,7 @@ impl ReleaseTaskRunner {
         let resp = match result {
             Ok(resp) => resp,
             Err(err) => {
-                self.mark_target_fail(target, Some(device), &format!("部署请求失败: {}", err))
+                self.mark_target_fail(target, &format!("部署请求失败: {}", err))
                     .await?;
                 return Ok(true);
             }
@@ -46,7 +44,7 @@ impl ReleaseTaskRunner {
 
         if !resp.accepted {
             let msg = resp.message.as_deref().unwrap_or("客户端拒绝本次发布");
-            self.mark_target_fail(target, Some(device), msg).await?;
+            self.mark_target_fail(target, msg).await?;
             return Ok(true);
         }
 
@@ -145,15 +143,13 @@ impl ReleaseTaskRunner {
         let device = match device {
             Some(dev) => dev,
             None => {
-                self.mark_target_fail(target, None, "目标设备不存在")
-                    .await?;
+                self.mark_target_fail(target, "目标设备不存在").await?;
                 return Ok(true);
             }
         };
 
         if device.token.is_empty() {
-            self.mark_target_fail(target, Some(device), "设备 Token 未配置")
-                .await?;
+            self.mark_target_fail(target, "设备 Token 未配置").await?;
             return Ok(true);
         }
 
@@ -190,7 +186,7 @@ impl ReleaseTaskRunner {
                     self.schedule_next_poll(target, Some(&detail)).await
                 }
             }
-            Err(err) => self.handle_poll_error(target, Some(device), err).await,
+            Err(err) => self.handle_poll_error(target, err).await,
         }
     }
 
@@ -203,7 +199,7 @@ impl ReleaseTaskRunner {
         let now = Utc::now();
 
         if self.should_timeout(target, next_attempts, now) {
-            self.mark_target_fail(target, None, detail.unwrap_or("超出轮询上限，标记失败"))
+            self.mark_target_fail(target, detail.unwrap_or("超出轮询上限，标记失败"))
                 .await?;
             return Ok(true);
         }
@@ -226,16 +222,11 @@ impl ReleaseTaskRunner {
         Ok(false)
     }
 
-    async fn handle_poll_error(
-        &self,
-        target: &ReleaseTarget,
-        device: Option<&Device>,
-        error: ServiceError,
-    ) -> Result<bool> {
+    async fn handle_poll_error(&self, target: &ReleaseTarget, error: ServiceError) -> Result<bool> {
         let next_attempts = target.poll_attempts + 1;
         let now = Utc::now();
         if self.should_timeout(target, next_attempts, now) {
-            self.mark_target_fail(target, device, &format!("拉取运行状态失败: {}", error))
+            self.mark_target_fail(target, &format!("拉取运行状态失败: {}", error))
                 .await?;
             return Ok(true);
         }
@@ -298,27 +289,10 @@ impl ReleaseTaskRunner {
         )
         .await;
 
-        self.log_device_event(
-            target,
-            Some(device),
-            if is_rollback {
-                "ROLLED_BACK"
-            } else {
-                "SUCCESS"
-            },
-            "配置重载成功",
-        )
-        .await;
-
         Ok(())
     }
 
-    async fn mark_target_fail(
-        &self,
-        target: &ReleaseTarget,
-        device: Option<&Device>,
-        message: &str,
-    ) -> Result<()> {
+    async fn mark_target_fail(&self, target: &ReleaseTarget, message: &str) -> Result<()> {
         let update = ReleaseTargetUpdate {
             status: Some(ReleaseTargetStatus::FAIL),
             stage_trace: Some(Some(apply_stage_updates(
@@ -336,7 +310,6 @@ impl ReleaseTaskRunner {
         };
 
         update_release_target(target.id, update).await?;
-        self.log_device_event(target, device, "FAIL", message).await;
         Ok(())
     }
 

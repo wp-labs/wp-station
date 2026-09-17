@@ -2,9 +2,6 @@
 
 use crate::db;
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
-};
 
 use super::{
     CreateUserRequest, ResetPasswordResponse, UpdateUserRequest, UpdateUserStatusRequest,
@@ -41,12 +38,7 @@ pub async fn list_users_logic(query: UserListQuery) -> Result<UserListResponse, 
 pub async fn create_user_logic(req: CreateUserRequest) -> Result<UserCreated, AppError> {
     info!("创建用户: username={}", req.username);
 
-    let username = req.username.clone();
-    let role = req.role.clone();
-    let email = req.email.clone();
-    let display_name = req.display_name.clone();
-
-    let result = async move {
+    async move {
         if let Some(_existing) = db::find_user_by_username(&req.username).await? {
             return Err(AppError::validation(format!(
                 "用户名 {} 已存在",
@@ -70,36 +62,14 @@ pub async fn create_user_logic(req: CreateUserRequest) -> Result<UserCreated, Ap
 
         Ok::<_, AppError>(UserCreated { id })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::Create,
-        OperationLogParams::new()
-            .with_target_name(username)
-            .with_field("role", role)
-            .with_field("email", email.unwrap_or_else(|| "-".to_string()))
-            .with_field(
-                "display_name",
-                display_name.unwrap_or_else(|| "-".to_string()),
-            ),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 编辑用户基本信息。
 pub async fn update_user_logic(id: i32, req: UpdateUserRequest) -> Result<(), AppError> {
     info!("更新用户: id={}", id);
 
-    let display_name = req.display_name.clone();
-    let email = req.email.clone();
-    let role = req.role.clone();
-    let remark = req.remark.clone();
-
-    let result = async move {
+    async move {
         let update_data = db::UpdateUser {
             display_name: req.display_name,
             email: req.email,
@@ -112,30 +82,7 @@ pub async fn update_user_logic(id: i32, req: UpdateUserRequest) -> Result<(), Ap
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::Update,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field(
-                "display_name",
-                display_name.unwrap_or_else(|| "-".to_string()),
-            )
-            .with_field("email", email.unwrap_or_else(|| "-".to_string()))
-            .with_field("role", role.unwrap_or_else(|| "-".to_string()))
-            .with_field(
-                "remark",
-                remark
-                    .and_then(|item| item)
-                    .unwrap_or_else(|| "-".to_string()),
-            ),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 更新用户状态（启用 / 禁用）。
@@ -145,8 +92,7 @@ pub async fn update_user_status_logic(
 ) -> Result<(), AppError> {
     info!("更新用户状态: id={}, status={}", id, req.status);
 
-    let status = req.status.clone();
-    let result = async {
+    async {
         if req.status != "active" && req.status != "inactive" {
             return Err(AppError::validation("状态值必须是 active 或 inactive"));
         }
@@ -156,19 +102,7 @@ pub async fn update_user_status_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::Update,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("status", status),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 重置用户密码（生成随机强密码）。
@@ -178,7 +112,7 @@ pub async fn reset_password_logic(
 ) -> Result<ResetPasswordResponse, AppError> {
     info!("重置用户密码: id={}", id);
 
-    let result = async {
+    async {
         let new_password = generate_strong_password();
         let password_hash = hash_password(&new_password)?;
 
@@ -187,41 +121,17 @@ pub async fn reset_password_logic(
 
         Ok::<_, AppError>(ResetPasswordResponse { new_password })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::ResetPassword,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("mode", "admin-reset"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 删除用户（软删除）。
 pub async fn delete_user_logic(id: i32) -> Result<(), AppError> {
     info!("删除用户: id={}", id);
 
-    let result = async {
+    async {
         db::delete_user(id).await?;
         info!("删除用户成功: id={}", id);
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::Delete,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("delete_mode", "soft"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

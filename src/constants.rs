@@ -167,12 +167,17 @@ pub mod sandbox {
     /// 沙盒项目目录仅保留最近 3 次；所有任务的阶段日志长期保留。
     pub const RUNTIME_ARTIFACT_RETENTION_RUNS: usize = 3;
 
-    /// WParse 沙盒运行产物中重点关注的异常输出文件及其对应的人类可读说明。
-    pub const OUTPUT_PATHS: [(&str, &str); 4] = [
-        ("data/out_dat/default.dat", "数据命中兜底路由"),
-        ("data/out_dat/miss.dat", "样本未命中任何规则"),
-        ("data/out_dat/residue.dat", "存在残余未处理数据"),
-        ("data/out_dat/error.dat", "处理过程中出现错误"),
+    /// WParse 沙盒运行产物及其检查说明。
+    ///
+    /// 第三个字段表示文件是否参与沙盒通过判定。ignore/raw_log 是辅助输出，
+    /// 需要展示统计结果但不能因为有内容而判定本次预发布失败。
+    pub const OUTPUT_PATHS: [(&str, &str, bool); 6] = [
+        ("data/out_dat/default.dat", "数据命中兜底路由", true),
+        ("data/out_dat/miss.dat", "样本未命中任何规则", true),
+        ("data/out_dat/residue.dat", "存在残余未处理数据", true),
+        ("data/out_dat/error.dat", "处理过程中出现错误", true),
+        ("data/out_dat/ignore.json", "忽略输出数据", false),
+        ("data/out_dat/raw_log.json", "原始日志输出", false),
     ];
 
     /// 沙盒里强制覆盖的业务 sink，统一把消息写到本地产物目录，避免影响真实下游。

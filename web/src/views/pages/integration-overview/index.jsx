@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Table, Tag, message } from 'antd';
+import { Button, Table, Tag, message } from 'antd';
 import {
   ApartmentOutlined,
   ApiOutlined,
@@ -713,6 +713,7 @@ function IntegrationOverviewPage() {
   const [rows, setRows] = useState([]);
   const [windowStructureItems, setWindowStructureItems] = useState([]);
   const [associationRuleItems, setAssociationRuleItems] = useState([]);
+  const [wfusionView, setWfusionView] = useState('rules');
   const [sourceItems, setSourceItems] = useState([]);
   const [sinkItems, setSinkItems] = useState([]);
 
@@ -751,6 +752,12 @@ function IntegrationOverviewPage() {
     loadOverview();
   }, [loadOverview]);
 
+  useEffect(() => {
+    if (isWfusionSystem) {
+      setWfusionView('rules');
+    }
+  }, [currentSystem, isWfusionSystem]);
+
   const summary = useMemo(
     () => ({
       deviceTypeCount: isWfusionSystem ? windowStructureItems.length : rows.length,
@@ -764,19 +771,28 @@ function IntegrationOverviewPage() {
   );
 
   const wfusionRows = useMemo(() => {
-    return [
-      {
-        key: 'window-structures',
-        category: t('integrationOverview.windowStructure'),
-        count: windowStructureItems.length,
-      },
-      {
-        key: 'association-rules',
-        category: t('integrationOverview.associationRule'),
-        count: associationRuleItems.length,
-      },
-    ];
-  }, [associationRuleItems.length, t, windowStructureItems.length]);
+    const buildRows = (items, category, prefix) =>
+      items.map((item) => ({
+        key: `${prefix}:${item.key}`,
+        category,
+        fileName: item.name,
+        ruleNames: Array.isArray(item.ruleNames) ? item.ruleNames : [],
+      }));
+
+    if (wfusionView === 'windows') {
+      return buildRows(
+        windowStructureItems,
+        t('integrationOverview.windowStructure'),
+        'wfs',
+      );
+    }
+
+    return buildRows(
+      associationRuleItems,
+      t('integrationOverview.associationRule'),
+      'wfl',
+    );
+  }, [associationRuleItems, t, wfusionView, windowStructureItems]);
 
   const columns = isWfusionSystem
     ? [
@@ -790,6 +806,7 @@ function IntegrationOverviewPage() {
           title: t('integrationOverview.category'),
           dataIndex: 'category',
           key: 'category',
+          width: 160,
           render: (category) => (
             <Tag className="integration-overview-device-tag" bordered={false}>
               {category}
@@ -797,11 +814,38 @@ function IntegrationOverviewPage() {
           ),
         },
         {
-          title: t('integrationOverview.count'),
-          dataIndex: 'count',
-          key: 'count',
-          width: 120,
-          render: (count) => count,
+          title: t('integrationOverview.fileName'),
+          dataIndex: 'fileName',
+          key: 'fileName',
+          width: 280,
+          render: (fileName) => (
+            <span className="integration-overview-file-name" title={fileName}>
+              {fileName}
+            </span>
+          ),
+        },
+        {
+          title: t('integrationOverview.ruleNames'),
+          dataIndex: 'ruleNames',
+          key: 'ruleNames',
+          render: (ruleNames) => (
+            <div className="integration-overview-rule-list">
+              {ruleNames.length > 0 ? (
+                ruleNames.map((ruleName) => (
+                  <Tag
+                    key={ruleName}
+                    className="integration-overview-rule-tag"
+                    bordered={false}
+                    title={ruleName}
+                  >
+                    {ruleName}
+                  </Tag>
+                ))
+              ) : (
+                <span className="integration-overview-rule-empty">-</span>
+              )}
+            </div>
+          ),
         },
       ]
     : [
@@ -978,15 +1022,44 @@ function IntegrationOverviewPage() {
             )}
           </div>
 
+          {isWfusionSystem ? (
+            <div className="integration-overview-wfusion-toolbar">
+              <span className="integration-overview-wfusion-toolbar-label">
+                {t('integrationOverview.wfusionContentType')}
+              </span>
+              <div
+                className="integration-overview-wfusion-switch"
+                role="group"
+                aria-label={t('integrationOverview.wfusionContentType')}
+              >
+                <Button
+                  type={wfusionView === 'rules' ? 'primary' : 'default'}
+                  aria-pressed={wfusionView === 'rules'}
+                  onClick={() => setWfusionView('rules')}
+                >
+                  {t('integrationOverview.ruleView')}
+                </Button>
+                <Button
+                  type={wfusionView === 'windows' ? 'primary' : 'default'}
+                  aria-pressed={wfusionView === 'windows'}
+                  onClick={() => setWfusionView('windows')}
+                >
+                  {t('integrationOverview.windowView')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           <Table
             className="release-table integration-overview-table"
+            key={`${currentSystem}-${isWfusionSystem ? wfusionView : 'wparse'}`}
             rowKey="key"
             loading={loading}
             columns={columns}
             dataSource={isWfusionSystem ? wfusionRows : rows}
             scroll={{ x: 1080 }}
             pagination={{
-              pageSize: 10,
+              pageSize: isWfusionSystem ? 20 : 10,
               showSizeChanger: false,
               hideOnSinglePage: true,
             }}

@@ -12,10 +12,7 @@ use crate::db::{
     update_assist_task_status,
 };
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
-    write_operation_log_for_result,
-};
+use crate::server::Setting;
 use crate::utils::pagination::{PageQuery, PageResponse};
 use chrono::Utc;
 use rand::{RngExt, distr::Alphanumeric};
@@ -174,7 +171,7 @@ pub async fn assist_submit_logic(
         extra_note: req.extra_note.clone(),
     };
 
-    let result = async {
+    async {
         if let Some(active_task) = dispatch::resolve_active_task_before_submit(task_type).await? {
             return Err(dispatch::build_active_task_conflict_error(
                 task_type,
@@ -227,20 +224,7 @@ pub async fn assist_submit_logic(
             status: AssistTaskStatus::Pending.as_ref().to_string(),
         })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::AssistTask,
-        OperationLogAction::Submit,
-        OperationLogParams::new()
-            .with_target_name(format!("{} [{}]", task_id, task_type.as_ref()))
-            .with_field("task_id", &task_id)
-            .with_field("task_type", task_type.as_ref())
-            .with_field("target_rule", target_rule.as_ref()),
-        &result,
-    )
-    .await;
-    result
+    .await
 }
 
 /// 查询辅助任务详情及当前状态
@@ -286,10 +270,7 @@ pub async fn assist_cancel_logic(task_id: String) -> Result<(), AppError> {
         .ok_or_else(|| AppError::NotFound(format!("辅助任务 {} 不存在", task_id)))?;
 
     let task_status = parse_task_status(&task.status)?;
-    let task_type = task.task_type.clone();
-    let target_rule = task.target_rule.clone();
-
-    let result = async {
+    async {
         if !matches!(
             task_status,
             AssistTaskStatus::Pending | AssistTaskStatus::Processing
@@ -303,34 +284,19 @@ pub async fn assist_cancel_logic(task_id: String) -> Result<(), AppError> {
         update_assist_task_status(&task_id, AssistTaskStatus::Cancelled, None).await?;
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::AssistTask,
-        OperationLogAction::Cancel,
-        OperationLogParams::new()
-            .with_target_name(format!("{} [{}]", task_id, task_type))
-            .with_field("task_id", &task_id)
-            .with_field("task_type", &task_type)
-            .with_field("target_rule", &target_rule),
-        &result,
-    )
-    .await;
-    result
+    .await
 }
 
 /// 写回辅助任务结果（AI 服务回调或人工平台回调均调用此接口）
 /// task_id 通过请求体传递，不在 URL 路径中
 pub async fn assist_reply_logic(req: AssistReplyRequest) -> Result<(), AppError> {
-    let task = find_assist_task_by_id(&req.task_id)
+    find_assist_task_by_id(&req.task_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("辅助任务 {} 不存在", req.task_id)))?;
 
-    let task_type = task.task_type.clone();
-    let target_rule = task.target_rule.clone();
     let task_id = req.task_id.clone();
 
-    let result = async {
+    async {
         update_assist_task_reply(
             &task_id,
             req.wpl_suggestion,
@@ -342,18 +308,5 @@ pub async fn assist_reply_logic(req: AssistReplyRequest) -> Result<(), AppError>
         info!("辅助任务结果写回成功: task_id={}", task_id);
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::AssistTask,
-        OperationLogAction::Reply,
-        OperationLogParams::new()
-            .with_target_name(format!("{} [{}]", task_id, task_type))
-            .with_field("task_id", &task_id)
-            .with_field("task_type", &task_type)
-            .with_field("target_rule", &target_rule),
-        &result,
-    )
-    .await;
-    result
+    .await
 }

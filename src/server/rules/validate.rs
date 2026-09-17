@@ -3,10 +3,7 @@
 use crate::constants::project::FILE_WPL_PARSE;
 use crate::db::RuleType;
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
-    write_operation_log_for_result,
-};
+use crate::server::Setting;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
 use crate::utils::{SystemKind, compose_repo_layout_into, write_rule_content_in_project_dir};
 
@@ -39,43 +36,25 @@ pub async fn validate_rule_logic(
     info!("规则配置校验请求: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
 
-    let result =
-        match validate_rule_with_current_content(system, rule_type, &file, content.as_deref()) {
-            Ok(_) => {
-                info!("规则配置校验通过: rule_type={:?}", rule_type);
-                Ok(ValidateRuleResponse {
-                    valid: true,
-                    message: None,
-                    details: vec![],
-                })
-            }
-            Err(e) => {
-                warn!("规则配置校验失败: rule_type={:?}, error={}", rule_type, e);
-                let err_msg = e.to_string();
-                Ok(ValidateRuleResponse {
-                    valid: false,
-                    message: Some(err_msg.clone()),
-                    details: vec![err_msg],
-                })
-            }
-        };
-
-    write_operation_log_for_result(
-        if matches!(rule_type, RuleType::Knowledge) {
-            OperationLogBiz::KnowledgeConfig
-        } else {
-            OperationLogBiz::RuleFile
-        },
-        OperationLogAction::Validate,
-        OperationLogParams::new()
-            .with_target_name(format!("{}/{}", rule_type.as_ref(), file))
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", file),
-        &result,
-    )
-    .await;
-
-    result
+    match validate_rule_with_current_content(system, rule_type, &file, content.as_deref()) {
+        Ok(_) => {
+            info!("规则配置校验通过: rule_type={:?}", rule_type);
+            Ok(ValidateRuleResponse {
+                valid: true,
+                message: None,
+                details: vec![],
+            })
+        }
+        Err(e) => {
+            warn!("规则配置校验失败: rule_type={:?}, error={}", rule_type, e);
+            let err_msg = e.to_string();
+            Ok(ValidateRuleResponse {
+                valid: false,
+                message: Some(err_msg.clone()),
+                details: vec![err_msg],
+            })
+        }
+    }
 }
 
 /// 用当前项目内容加待校验内容构造临时目录，再走现有校验器。

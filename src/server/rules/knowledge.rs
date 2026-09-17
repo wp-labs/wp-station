@@ -4,15 +4,12 @@
 
 use crate::constants::project::FILE_KNOWDB;
 use crate::error::AppError;
+use crate::server::refresh_draft_release_logic;
 use crate::server::sync::sync_to_gitea;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, refresh_draft_release_logic,
-    write_operation_log_for_result,
-};
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::{
-    SystemKind, read_knowdb_config, read_knowledge_files, wfusion_not_implemented,
-    write_knowdb_config, write_knowledge_files,
+    SystemKind, read_knowdb_config, wfusion_not_implemented, write_knowdb_config,
+    write_knowledge_files,
 };
 
 use super::{KnowdbConfigResponse, repo_layout, system_time_to_rfc3339};
@@ -25,7 +22,6 @@ pub async fn save_knowledge_rule_logic(
     create_sql: Option<String>,
     insert_sql: Option<String>,
     data: Option<String>,
-    _operator: Option<String>,
 ) -> Result<(), AppError> {
     info!("保存知识库规则配置: file={}", file);
     if matches!(system, SystemKind::Wfusion) {
@@ -33,15 +29,7 @@ pub async fn save_knowledge_rule_logic(
     }
 
     let layout = repo_layout(system);
-    let is_update = read_knowledge_files(&layout, &file)?.is_some();
-    let file_clone = file.clone();
-    let config_clone = config.clone();
-    let create_sql_clone = create_sql.clone();
-    let insert_sql_clone = insert_sql.clone();
-    let data_clone = data.clone();
-
-    let file_for_log = file_clone.clone();
-    let result = async move {
+    async move {
         let table_path = write_knowledge_files(&layout, &file, create_sql, insert_sql, data)?;
         if let Some(config_content) = config {
             let knowdb_path = write_knowdb_config(&layout, &config_content)?;
@@ -58,42 +46,7 @@ pub async fn save_knowledge_rule_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::KnowledgeConfig,
-        if is_update {
-            OperationLogAction::Update
-        } else {
-            OperationLogAction::Create
-        },
-        OperationLogParams::new()
-            .with_target_name(file_for_log)
-            .with_field("config", if config_clone.is_some() { "yes" } else { "no" })
-            .with_field(
-                "create_sql",
-                if create_sql_clone.is_some() {
-                    "yes"
-                } else {
-                    "no"
-                },
-            )
-            .with_field(
-                "insert_sql",
-                if insert_sql_clone.is_some() {
-                    "yes"
-                } else {
-                    "no"
-                },
-            )
-            .with_field("data", if data_clone.is_some() { "yes" } else { "no" })
-            .with_field("sync", "project+gitea")
-            .with_field("knowledge_reload", "yes"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 获取 `knowdb.toml` 内容。
@@ -117,7 +70,6 @@ pub async fn get_knowdb_config_logic(system: SystemKind) -> Result<KnowdbConfigR
 pub async fn save_knowdb_config_logic(
     system: SystemKind,
     content: Option<String>,
-    _operator: Option<String>,
 ) -> Result<(), AppError> {
     info!("保存 knowdb 配置");
     if matches!(system, SystemKind::Wfusion) {
@@ -125,7 +77,7 @@ pub async fn save_knowdb_config_logic(
     }
     let layout = repo_layout(system);
 
-    let result = async move {
+    async move {
         let content = content.unwrap_or_default();
         let written_path = write_knowdb_config(&layout, &content)?;
         info!("knowdb 配置保存成功: path={}", written_path);
@@ -138,19 +90,5 @@ pub async fn save_knowdb_config_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::KnowledgeConfig,
-        OperationLogAction::Update,
-        OperationLogParams::new()
-            .with_target_name(FILE_KNOWDB)
-            .with_field("config_only", "yes")
-            .with_field("sync", "project+gitea")
-            .with_field("knowledge_reload", "yes"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

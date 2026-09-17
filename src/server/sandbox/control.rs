@@ -9,12 +9,8 @@ use crate::db::{
     insert_sandbox_run_record, update_sandbox_run_record,
 };
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
-};
 use crate::utils::SystemKind;
 
-use super::result::fetch_release_version;
 use super::runner as sandbox_runner;
 use super::{
     Conclusion, CreateSandboxRunRequest, CreateSandboxRunResponse, QueuePlacement, SandboxRun,
@@ -33,15 +29,12 @@ pub async fn create_sandbox_run_logic(
         .system
         .parse::<SystemKind>()
         .map_err(|_| AppError::validation(format!("未知系统类型: {}", release.system)))?;
-    let release_version = release.version.clone();
     let release_id = release.id;
 
     let sanitized_options = request.options.clone().sanitized();
-    let options_for_log = sanitized_options.clone();
     let overrides = request.overrides.clone();
-    let overrides_len = overrides.len();
 
-    let result = async {
+    async {
         let run = SandboxRun::new(release_id, release_system, overrides, sanitized_options);
         insert_sandbox_run_record(&run)
             .await
@@ -72,30 +65,7 @@ pub async fn create_sandbox_run_logic(
             queue_position: placement.position(),
         })
     }
-    .await;
-
-    let mut log_params = OperationLogParams::new()
-        .with_target_id(release_id.to_string())
-        .with_target_name(release_version)
-        .with_field("sample_count", options_for_log.sample_count.to_string())
-        .with_field("overrides", overrides_len.to_string())
-        .with_field("keep_workspace", options_for_log.keep_workspace.to_string());
-
-    if let Ok(resp) = &result {
-        log_params = log_params
-            .with_field("task_id", resp.task_id.clone())
-            .with_field("queue_position", resp.queue_position.to_string());
-    }
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Validate,
-        log_params,
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 停止正在执行或等待中的沙盒任务。
@@ -103,7 +73,7 @@ pub async fn stop_sandbox_run_logic(
     state: SandboxState,
     task_id: &str,
 ) -> Result<SandboxRun, AppError> {
-    let result = if let Some(task) = state.find_current_task(task_id).await {
+    if let Some(task) = state.find_current_task(task_id).await {
         task.cancel_token().cancel();
         task.with_run_mut(|run| {
             run.status = TaskStatus::Stopped;
@@ -173,25 +143,5 @@ pub async fn stop_sandbox_run_logic(
         ))
     } else {
         Err(AppError::not_found("沙盒任务不存在或已完成"))
-    };
-
-    let mut log_params = OperationLogParams::new().with_field("task_id", task_id.to_string());
-    if let Ok(run) = &result {
-        log_params = log_params
-            .with_target_id(run.release_id.to_string())
-            .with_field("final_status", run.status.as_str().to_string());
-        if let Some(version) = fetch_release_version(run.release_id).await {
-            log_params = log_params.with_target_name(version);
-        }
     }
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Cancel,
-        log_params,
-        &result,
-    )
-    .await;
-
-    result
 }

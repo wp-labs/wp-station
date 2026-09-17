@@ -3,28 +3,96 @@
 use chrono::Utc;
 use tracing::{info, warn};
 
-use crate::constants::release::{GROUP_ALL, GROUP_INFRA, GROUP_MODELS};
+use crate::constants::release::{GROUP_ALL, GROUP_DRAFT, GROUP_INFRA, GROUP_MODELS};
 use crate::db::{
     NewReleaseTarget, ReleaseGroup, ReleaseStatus, ReleaseTargetStatus, ReleaseTargetUpdate,
     create_release_targets, find_device_previous_success_version, find_devices_by_ids,
-    find_latest_sandbox_run, find_release_by_id, find_release_targets_by_release,
-    update_release_group, update_release_pipeline, update_release_status, update_release_target,
+    find_latest_draft_release, find_latest_sandbox_run, find_release_by_id,
+    find_release_targets_by_release, update_release_group, update_release_pipeline,
+    update_release_status, update_release_target,
 };
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
-    write_operation_log_for_result,
-};
+use crate::server::{Setting, refresh_draft_release_logic, restore_release_to_gitea};
+use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
 use crate::utils::{compose_repo_layout_into, layout_for_system};
 
 use super::{
-    ReleasePublishResponse, ReleaseTargetActionRequest, ReleaseValidateResponse,
-    can_publish_release, default_target_stage_trace, latest_target_per_device_group,
-    normalize_note, release_group_title, release_system, rollback_target_stage_trace,
-    sandbox_run_passed, serialize_stage_summary, serialize_stage_trace, stage_summary_for_release,
-    stage_summary_for_status, summarize_published_groups, target_group_publish_succeeded,
+    ReleasePublishResponse, ReleaseRestoreResponse, ReleaseTargetActionRequest,
+    ReleaseValidateResponse, can_publish_release, default_target_stage_trace,
+    latest_target_per_device_group, normalize_note, release_group_title, release_system,
+    rollback_target_stage_trace, sandbox_run_passed, serialize_stage_summary,
+    serialize_stage_trace, stage_summary_for_release, stage_summary_for_status,
+    summarize_published_groups, target_group_publish_succeeded,
 };
+
+/// 还原发布成功版本的配置到对应 Gitea 仓库，并准备一个可继续编辑的草稿。
+pub async fn restore_release_logic(
+    id: i32,
+    requested_system: Option<crate::utils::SystemKind>,
+) -> Result<ReleaseRestoreResponse, AppError> {
+    async {
+        let release = find_release_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("发布记录不存在".to_string()))?;
+        let system = release_system(&release)?;
+
+        if let Some(requested_system) = requested_system
+            && requested_system != system
+        {
+            return Err(AppError::validation("发布记录所属系统与当前系统不一致"));
+        }
+
+        let status = super::stage::parse_release_status(&release)?;
+        if status != ReleaseStatus::PASS {
+            return Err(AppError::validation("只有发布成功的记录可以还原"));
+        }
+
+        let groups = restore_groups(&release.release_group)?;
+        let existing_draft = find_latest_draft_release(system).await?;
+        // 先确保草稿存在。这样还原完成后用户可以直接在当前草稿中检查和继续发布。
+        let draft = refresh_draft_release_logic(system, Some("还原发布配置")).await?;
+
+        restore_release_to_gitea(system, &release.version, &groups).await?;
+
+        let layout = crate::utils::layout_for_system(system).as_repo_layout();
+        if let Err(err) = reload_knowledge(&layout) {
+            warn!(
+                "还原后知识库重载失败（忽略）: system={}, error={}",
+                system.as_ref(),
+                err
+            );
+        }
+
+        Ok::<_, AppError>(ReleaseRestoreResponse {
+            success: true,
+            message: format!("已将版本 {} 还原到草稿并同步到 Gitea", release.version),
+            release_id: release.id,
+            draft_id: draft.id,
+            draft_created: existing_draft.is_none(),
+            source_version: release.version,
+            restored_groups: groups
+                .iter()
+                .map(|group| group.as_ref().to_string())
+                .collect(),
+        })
+    }
+    .await
+}
+
+/// 将发布记录的聚合范围转换为实际需要还原的仓库分组。
+fn restore_groups(release_group: &str) -> Result<Vec<ReleaseGroup>, AppError> {
+    match release_group {
+        GROUP_MODELS => Ok(vec![ReleaseGroup::Models]),
+        GROUP_INFRA => Ok(vec![ReleaseGroup::Infra]),
+        GROUP_ALL => Ok(vec![ReleaseGroup::Models, ReleaseGroup::Infra]),
+        GROUP_DRAFT => Err(AppError::validation("草稿记录不能执行还原")),
+        _ => Err(AppError::validation(format!(
+            "不支持还原的发布范围: {}",
+            release_group
+        ))),
+    }
+}
 
 /// 校验发布版本。
 ///
@@ -33,7 +101,7 @@ pub async fn validate_release_logic(id: i32) -> Result<ReleaseValidateResponse, 
     info!("发布版本校验请求: release_id={}", id);
     let filename = format!("版本 {}", id);
 
-    let result = async {
+    async {
         let release = find_release_by_id(id)
             .await?
             .ok_or_else(|| AppError::NotFound("发布记录不存在".to_string()))?;
@@ -78,19 +146,7 @@ pub async fn validate_release_logic(id: i32) -> Result<ReleaseValidateResponse, 
             }
         }
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Validate,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("check", "package"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 读取环境变量，决定是否跳过发布前的沙盒通过校验。
@@ -150,7 +206,6 @@ pub async fn publish_release_logic(
     }
 
     let normalized_note = normalize_note(note);
-    let note_snapshot = normalized_note.clone().unwrap_or_else(|| "-".to_string());
     info!(
         "触发发布: release_id={}, release_group={}, version={}",
         id,
@@ -211,30 +266,12 @@ pub async fn publish_release_logic(
     update_release_pipeline(id, normalized_note.as_deref()).await?;
     update_release_status(id, ReleaseStatus::RUNNING, None, Some(&stage_summary)).await?;
 
-    let result = Ok(ReleasePublishResponse {
+    Ok(ReleasePublishResponse {
         success: true,
         message: format!("已触发发布，共 {} 台设备", device_ids.len()),
         release_status: ReleaseStatus::RUNNING.as_ref().to_string(),
         enqueued: device_ids.len(),
-    });
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Publish,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("system", release_system.as_ref())
-            .with_field("release_id", id.to_string())
-            .with_field("release_group", release_group.as_ref())
-            .with_field("version", &release.version)
-            .with_field("device_count", device_ids.len().to_string())
-            .with_field("device_ids", format!("{:?}", device_ids))
-            .with_field("note", note_snapshot),
-        &result,
-    )
-    .await;
-
-    result
+    })
 }
 
 /// 根据设备 ID 或目标 ID 筛选本次重试/回滚要处理的发布目标。
@@ -291,26 +328,12 @@ pub async fn retry_release_logic(
     let stage_summary = serialize_stage_summary(&stage_summary_for_status(&ReleaseStatus::RUNNING));
     update_release_status(id, ReleaseStatus::RUNNING, None, Some(&stage_summary)).await?;
 
-    let result = Ok(ReleasePublishResponse {
+    Ok(ReleasePublishResponse {
         success: true,
         message: format!("已重新排队 {} 台设备", affected),
         release_status: ReleaseStatus::RUNNING.as_ref().to_string(),
         enqueued: affected,
-    });
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Retry,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("device_count", affected.to_string())
-            .with_field("selected_device_ids", format!("{:?}", req.device_ids))
-            .with_field("selected_target_ids", format!("{:?}", req.target_ids)),
-        &result,
-    )
-    .await;
-
-    result
+    })
 }
 
 /// 回滚指定设备到上一个成功版本（如果没有则回滚到 `v1.0.0`）。
@@ -356,24 +379,10 @@ pub async fn rollback_release_logic(
     let stage_summary = serialize_stage_summary(&stage_summary_for_status(&ReleaseStatus::RUNNING));
     update_release_status(id, ReleaseStatus::RUNNING, None, Some(&stage_summary)).await?;
 
-    let result = Ok(ReleasePublishResponse {
+    Ok(ReleasePublishResponse {
         success: true,
         message: format!("已触发 {} 台设备回滚到上一个成功版本", affected),
         release_status: ReleaseStatus::RUNNING.as_ref().to_string(),
         enqueued: affected,
-    });
-
-    write_operation_log_for_result(
-        OperationLogBiz::Release,
-        OperationLogAction::Rollback,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("device_count", affected.to_string())
-            .with_field("selected_device_ids", format!("{:?}", req.device_ids))
-            .with_field("selected_target_ids", format!("{:?}", req.target_ids)),
-        &result,
-    )
-    .await;
-
-    result
+    })
 }

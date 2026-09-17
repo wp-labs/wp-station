@@ -113,51 +113,6 @@ impl ReleaseTaskRunner {
         .await?;
         Ok(())
     }
-
-    pub(super) async fn log_device_event(
-        &self,
-        target: &ReleaseTarget,
-        device: Option<&Device>,
-        status: &str,
-        message: &str,
-    ) {
-        let label = device
-            .and_then(|d| d.name.clone())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| format!("设备{}", target.device_id));
-
-        let (action, log_status, description) = match status {
-            "SUCCESS" => (
-                OperationLogAction::Publish,
-                OperationLogStatus::Success,
-                "发布成功",
-            ),
-            "ROLLED_BACK" => (
-                OperationLogAction::Rollback,
-                OperationLogStatus::Success,
-                "回滚成功",
-            ),
-            _ => (
-                OperationLogAction::Publish,
-                OperationLogStatus::Error,
-                "发布失败",
-            ),
-        };
-
-        write_operation_log(
-            OperationLogBiz::ReleaseTarget,
-            action,
-            OperationLogParams::new()
-                .with_target_name(format!("发布{} -> {}", target.release_id, label))
-                .with_target_id(target.device_id.to_string())
-                .with_field("target_id", target.id.to_string())
-                .with_field("release_id", target.release_id.to_string())
-                .with_field("version", &target.target_config_version)
-                .with_field("detail", format!("{}: {}", description, message)),
-            log_status,
-        )
-        .await;
-    }
 }
 
 pub(super) struct StageUpdate<'a> {

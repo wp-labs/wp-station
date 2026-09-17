@@ -47,6 +47,7 @@ pub struct IntegrationRuleLogType {
 pub struct IntegrationRuleFlatItem {
     pub key: String,
     pub name: String,
+    pub rule_names: Vec<String>,
 }
 
 /// 规则侧单个设备类型摘要。

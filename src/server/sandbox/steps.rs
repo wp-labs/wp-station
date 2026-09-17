@@ -557,7 +557,7 @@ pub(super) async fn stage_analyse_runtime_output(
         let mut details: Vec<String> = analysis
             .output_checks
             .iter()
-            .filter(|check| !check.is_empty)
+            .filter(|check| check.affects_pass && !check.is_empty)
             .map(|check| format!("{} 非空（{}行）", check.relative_path, check.line_count))
             .collect();
         if analysis.metrics.miss_count > 0 {

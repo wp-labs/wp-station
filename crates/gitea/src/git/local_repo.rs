@@ -48,6 +48,11 @@ impl LocalRepository {
         self.repo.pull()
     }
 
+    /// 拉取远端标签，供按历史发布版本恢复工作区使用。
+    pub fn fetch_tags(&self) -> Result<(), GitError> {
+        self.repo.fetch_tags()
+    }
+
     pub fn force_push(&self) -> Result<(), GitError> {
         self.repo.force_push()
     }

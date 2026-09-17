@@ -44,6 +44,7 @@ pub struct IntegrationRuleLogTypeResponse {
 pub struct IntegrationRuleFlatItemResponse {
     pub key: String,
     pub name: String,
+    pub rule_names: Vec<String>,
 }
 
 /// 规则侧单个设备类型响应体。
@@ -136,6 +137,7 @@ pub fn get_integration_rule_overview_logic(
             .map(|item| IntegrationRuleFlatItemResponse {
                 key: item.key,
                 name: item.name,
+                rule_names: item.rule_names,
             })
             .collect(),
         association_rules: overview
@@ -144,6 +146,7 @@ pub fn get_integration_rule_overview_logic(
             .map(|item| IntegrationRuleFlatItemResponse {
                 key: item.key,
                 name: item.name,
+                rule_names: item.rule_names,
             })
             .collect(),
         window_structure_count: overview.window_structure_count,

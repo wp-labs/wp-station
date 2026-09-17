@@ -187,7 +187,7 @@ fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
     );
     write_file(
         &layout.models_root.join("models/schemas/auth/auth.wfs"),
-        "window auth {}",
+        "window auth {}\nrule auth_rule {}",
     );
     write_file(
         &layout
@@ -208,7 +208,7 @@ fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
             .iter()
             .map(|item| item.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["auth", "network"]
+        vec!["auth.wfs", "network.wfs"]
     );
     assert_eq!(
         overview
@@ -216,6 +216,14 @@ fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
             .iter()
             .map(|item| item.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["ssh/ssh_brute_force"]
+        vec!["ssh_brute_force.wfl"]
+    );
+    assert_eq!(
+        overview.window_structures[0].rule_names,
+        vec!["auth_rule".to_string()]
+    );
+    assert_eq!(
+        overview.association_rules[0].rule_names,
+        vec!["ssh_brute_force".to_string()]
     );
 }

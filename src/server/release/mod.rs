@@ -32,7 +32,8 @@ pub use self::stage::{
     stage_summary_for_status,
 };
 pub use self::write::{
-    publish_release_logic, retry_release_logic, rollback_release_logic, validate_release_logic,
+    publish_release_logic, restore_release_logic, retry_release_logic, rollback_release_logic,
+    validate_release_logic,
 };
 
 /// 发布列表查询参数。
@@ -77,6 +78,13 @@ pub struct ReleaseTargetActionRequest {
     pub device_ids: Vec<i32>,
     #[serde(default)]
     pub target_ids: Vec<i32>,
+}
+
+/// 还原发布配置请求。
+#[derive(Deserialize)]
+pub struct ReleaseRestoreRequest {
+    /// 前端当前系统，用于防止跨系统操作；最终仍以发布记录自身的 system 为准。
+    pub system: Option<SystemKind>,
 }
 
 /// 发布阶段快照。
@@ -175,6 +183,18 @@ pub struct ReleasePublishResponse {
     pub enqueued: usize,
 }
 
+/// 还原发布配置响应。
+#[derive(Serialize)]
+pub struct ReleaseRestoreResponse {
+    pub success: bool,
+    pub message: String,
+    pub release_id: i32,
+    pub draft_id: i32,
+    pub draft_created: bool,
+    pub source_version: String,
+    pub restored_groups: Vec<String>,
+}
+
 /// 发布差异响应。
 #[derive(Serialize)]
 pub struct ReleaseDiffResponse {
@@ -224,6 +244,18 @@ pub(super) fn sandbox_run_passed(run: &SandboxRun) -> bool {
             .as_ref()
             .map(|conclusion| conclusion.passed)
             .unwrap_or(false)
+}
+
+/// 草稿配置发生变化后，旧的沙盒通过结果不能继续解锁发布。
+pub(super) fn sandbox_run_ready_for_release(release: &Release, run: &SandboxRun) -> bool {
+    if !sandbox_run_passed(run) {
+        return false;
+    }
+
+    match stage::parse_release_status(release) {
+        Ok(ReleaseStatus::WAIT) => run.created_at >= release.updated_at,
+        _ => true,
+    }
 }
 
 /// 归一化可选备注，去掉空白字符串。

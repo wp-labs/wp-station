@@ -3,7 +3,6 @@ pub mod config_test;
 pub mod debug_test;
 pub mod device_test;
 pub mod meta_test;
-pub mod operation_log_test;
 pub mod overview_test;
 pub mod release_test;
 pub mod rules_test;

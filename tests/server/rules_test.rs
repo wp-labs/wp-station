@@ -47,7 +47,6 @@ async fn test_wfusion_scenarios_rule_round_trip_via_logic() {
         RuleType::Scenarios,
         file.clone(),
         Some("scenario sandbox {}".to_string()),
-        None,
     )
     .await
     .expect("save scenario rule");
@@ -90,7 +89,6 @@ async fn test_wfusion_scenarios_supports_legacy_nested_virtual_name() {
         RuleType::Scenarios,
         file.clone(),
         Some("scenario legacy {}".to_string()),
-        None,
     )
     .await
     .expect("save scenario rule");
@@ -208,7 +206,7 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
             .is_some()
     );
 
-    delete_rule_file_logic(SystemKind::Wparse, RuleType::Knowledge, file.clone(), None)
+    delete_rule_file_logic(SystemKind::Wparse, RuleType::Knowledge, file.clone())
         .await
         .expect("delete knowledge rule");
 
@@ -229,7 +227,6 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
         RuleType::Wpl,
         file.clone(),
         Some("package demo { rule a { digit:id } }".to_string()),
-        None,
     )
     .await
     .expect("save new rule");
@@ -239,7 +236,6 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
         RuleType::Wpl,
         file.clone(),
         Some("package demo { rule a { chars:name } }".to_string()),
-        None,
     )
     .await
     .expect("update existing rule");
@@ -294,7 +290,7 @@ async fn test_delete_rule_file_logic_for_standard_rule() {
     write_rule_content(&test_project_layout(), RuleType::Sink, &file, "content")
         .expect("insert sink rule");
 
-    delete_rule_file_logic(SystemKind::Wparse, RuleType::Sink, file.clone(), None)
+    delete_rule_file_logic(SystemKind::Wparse, RuleType::Sink, file.clone())
         .await
         .expect("delete sink rule");
     let record =
@@ -309,7 +305,6 @@ async fn test_wfusion_global_rule_cannot_be_deleted() {
         SystemKind::Wfusion,
         RuleType::Rule,
         "_global.wfl".to_string(),
-        None,
     )
     .await
     .expect_err("global rule must be protected");

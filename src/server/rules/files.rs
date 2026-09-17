@@ -11,11 +11,8 @@ use crate::constants::project::{
 };
 use crate::db::RuleType;
 use crate::error::AppError;
+use crate::server::refresh_draft_release_logic;
 use crate::server::sync::{sync_delete_to_gitea, sync_to_gitea};
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, refresh_draft_release_logic,
-    write_operation_log_for_result,
-};
 use crate::utils::display::fallback_sink_display;
 use crate::utils::pagination::MemoryPaginate;
 use crate::utils::{
@@ -197,8 +194,7 @@ pub async fn create_rule_file_logic(
         file.clone()
     };
 
-    let file_for_log = normalized_file.clone();
-    let result = async move {
+    async move {
         let layout = repo_layout(system);
 
         if matches!(rule_type, RuleType::Knowledge) {
@@ -222,29 +218,7 @@ pub async fn create_rule_file_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        if matches!(rule_type, RuleType::Knowledge) {
-            OperationLogBiz::KnowledgeConfig
-        } else {
-            OperationLogBiz::RuleFile
-        },
-        OperationLogAction::Create,
-        OperationLogParams::new()
-            .with_target_name(if matches!(rule_type, RuleType::Knowledge) {
-                file_for_log.clone()
-            } else {
-                format!("{}/{}", rule_type.as_ref(), file_for_log)
-            })
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field("content", "empty"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 删除规则文件。
@@ -252,7 +226,6 @@ pub async fn delete_rule_file_logic(
     system: SystemKind,
     rule_type: RuleType,
     file: String,
-    _operator: Option<String>,
 ) -> Result<(), AppError> {
     info!("删除规则文件: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
@@ -280,8 +253,7 @@ pub async fn delete_rule_file_logic(
         file.clone()
     };
 
-    let file_for_log = normalized_file.clone();
-    let result = async move {
+    async move {
         let layout = repo_layout(system);
 
         if matches!(rule_type, RuleType::Knowledge) {
@@ -310,29 +282,7 @@ pub async fn delete_rule_file_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        if matches!(rule_type, RuleType::Knowledge) {
-            OperationLogBiz::KnowledgeConfig
-        } else {
-            OperationLogBiz::RuleFile
-        },
-        OperationLogAction::Delete,
-        OperationLogParams::new()
-            .with_target_name(if matches!(rule_type, RuleType::Knowledge) {
-                file_for_log.clone()
-            } else {
-                format!("{}/{}", rule_type.as_ref(), file_for_log)
-            })
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field("sync", "gitea"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 保存普通规则内容。
@@ -341,7 +291,6 @@ pub async fn save_rule_logic(
     rule_type: RuleType,
     file: String,
     content: Option<String>,
-    _operator: Option<String>,
 ) -> Result<(), AppError> {
     info!("保存规则配置: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
@@ -357,23 +306,11 @@ pub async fn save_rule_logic(
         (file.clone(), None)
     };
 
-    let file_for_log = if let Some(sub) = wpl_sub_file {
-        format_wpl_virtual_file(&target_file, sub)
-    } else {
-        target_file.clone()
-    };
-
     let content = content.ok_or_else(|| AppError::validation("content 不能为空"))?;
-    let size = content.len() as i32;
     let layout = repo_layout(system);
-    let is_update = if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
-        read_wpl_sample_content(&layout, &target_file)?.is_some()
-    } else {
-        read_rule_content(&layout, rule_type, &target_file)?.is_some()
-    };
 
     let target_file_cloned = target_file.clone();
-    let result = async move {
+    async move {
         let written_path = if matches!(wpl_sub_file, Some(WplSubFile::Sample)) {
             write_wpl_sample_content(&layout, &target_file_cloned, &content)?
         } else {
@@ -396,24 +333,5 @@ pub async fn save_rule_logic(
 
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::RuleFile,
-        if is_update {
-            OperationLogAction::Update
-        } else {
-            OperationLogAction::Create
-        },
-        OperationLogParams::new()
-            .with_target_name(format!("{}/{}", rule_type.as_ref(), file_for_log.clone()))
-            .with_field("rule_type", rule_type.as_ref())
-            .with_field("file", &file_for_log)
-            .with_field("size", size.to_string())
-            .with_field("sync", "project+gitea"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

@@ -3,8 +3,7 @@
 //! 负责 `wparse` / `wfusion` 两套系统下的配置读写入口。
 //! 当前前端仍复用一套页面，因此接口层统一要求显式传入 `system`。
 
-use actix_web::{HttpRequest, HttpResponse, delete, get, post, web};
-use urlencoding::decode;
+use actix_web::{HttpResponse, delete, get, post, web};
 
 use crate::error::AppError;
 use crate::server::{
@@ -56,34 +55,14 @@ pub async fn render_config_template(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 从请求头中提取操作人，用于后续操作日志记录。
-fn operator_from_request(req: &HttpRequest) -> Option<String> {
-    req.headers().get("x-operator").and_then(|value| {
-        let raw = value.to_str().ok()?.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        decode(raw)
-            .ok()
-            .map(|cow| cow.trim().to_string())
-            .filter(|decoded| !decoded.is_empty())
-    })
-}
-
 #[post("/api/config")]
 /// 配置管理：保存配置内容。
-pub async fn save_config(
-    http_req: HttpRequest,
-    req: web::Json<SaveConfigRequest>,
-) -> Result<HttpResponse, AppError> {
-    // 保存成功后由 server 层继续负责操作日志、Gitea 同步和草稿发布刷新。
-    let operator = operator_from_request(&http_req);
+pub async fn save_config(req: web::Json<SaveConfigRequest>) -> Result<HttpResponse, AppError> {
     let resp = save_config_logic(
         req.system,
         req.rule_type,
         req.file.clone(),
         req.content.clone(),
-        operator,
     )
     .await?;
 
@@ -93,17 +72,14 @@ pub async fn save_config(
 #[post("/api/config/files")]
 /// 配置管理：创建配置文件。
 pub async fn create_config_file(
-    http_req: HttpRequest,
     req: web::Json<CreateConfigFileRequest>,
 ) -> Result<HttpResponse, AppError> {
     // 创建空文件只是入口动作，真正的目录定位由 server 层按 system 分发。
-    let operator = operator_from_request(&http_req);
     let resp = create_config_file_logic(
         req.system,
         req.rule_type,
         req.file.clone(),
         req.display_name.clone(),
-        operator,
     )
     .await?;
 
@@ -113,14 +89,10 @@ pub async fn create_config_file(
 #[delete("/api/config/files")]
 /// 配置管理：删除配置文件。
 pub async fn delete_config_file(
-    http_req: HttpRequest,
     query: web::Query<DeleteConfigFileQuery>,
 ) -> Result<HttpResponse, AppError> {
     // 删除成功后仍需由 server 层统一处理同步和草稿刷新。
-    let operator = operator_from_request(&http_req);
-    let resp =
-        delete_config_file_logic(query.system, query.rule_type, query.file.clone(), operator)
-            .await?;
+    let resp = delete_config_file_logic(query.system, query.rule_type, query.file.clone()).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

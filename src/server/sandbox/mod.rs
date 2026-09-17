@@ -5,7 +5,6 @@ mod control;
 pub mod diagnostics;
 mod progress;
 mod query;
-mod result;
 pub mod runner;
 mod steps;
 
@@ -28,7 +27,6 @@ pub use self::query::{
     get_latest_sandbox_run_logic, get_sandbox_run_logic, get_stage_logs_logic,
     list_sandbox_history_logic,
 };
-use self::result::log_sandbox_execution_result;
 use self::runner as sandbox_runner;
 
 /// 沙盒任务的内存调度器，负责串行执行与排队。
@@ -106,7 +104,6 @@ impl SandboxState {
                 snapshot.status.as_str()
             );
         }
-        log_sandbox_execution_result(&snapshot).await;
         {
             let mut current = self.current.write().await;
             if current
@@ -454,6 +451,13 @@ pub struct OutputFileStatus {
     pub is_empty: bool,
     pub line_count: usize,
     pub meaning: String,
+    /// 是否因文件非空而影响本次沙盒通过判定。
+    #[serde(default = "default_output_check_affects_pass")]
+    pub affects_pass: bool,
+}
+
+fn default_output_check_affects_pass() -> bool {
+    true
 }
 
 /// 前端传入的临时文件覆盖内容。

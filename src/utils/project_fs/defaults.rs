@@ -113,7 +113,7 @@ pub fn init_default_configs_to_infra_for_system(
     system: SystemKind,
     infra_root: &str,
 ) -> Result<(), AppError> {
-    match system {
+    let result = match system {
         SystemKind::Wparse => init_default_configs_with_mappings(
             infra_root,
             "wparse/infra",
@@ -150,7 +150,23 @@ pub fn init_default_configs_to_infra_for_system(
                 },
             ],
         ),
+    };
+    result?;
+
+    // infra 目录已有其他配置时，主初始化会保护用户内容并跳过默认补齐；
+    // business.d 新增模板仍需逐文件补齐，不能因为 sink.toml 已存在而遗漏新文件。
+    if matches!(system, SystemKind::Wparse) {
+        ensure_default_configs_with_mappings(
+            infra_root,
+            "wparse/topology/sinks/business.d",
+            &[DefaultCopyMapping {
+                source_prefix: "wparse/topology/sinks/business.d",
+                target_prefix: "topology/sinks/business.d",
+            }],
+        )?;
     }
+
+    Ok(())
 }
 
 /// 按映射规则补齐默认配置。
@@ -174,6 +190,24 @@ fn init_default_configs_with_mappings(
         );
         return Ok(());
     }
+
+    if let Some(runtime_default_dir) = runtime_default_configs_dir() {
+        return init_from_runtime_defaults(&project_dir, &runtime_default_dir, scope, mappings);
+    }
+
+    init_from_embedded_defaults(&project_dir, scope, mappings)
+}
+
+/// 补齐一组默认文件，但不因目标目录已有其他文件而整体跳过。
+///
+/// 用于运行中新增的受控模板：只写入缺失文件，绝不覆盖用户已经修改的内容。
+fn ensure_default_configs_with_mappings(
+    project_root: &str,
+    scope: &str,
+    mappings: &[DefaultCopyMapping],
+) -> Result<(), AppError> {
+    let project_dir = resolve_project_root(project_root);
+    fs::create_dir_all(&project_dir).map_err(AppError::internal)?;
 
     if let Some(runtime_default_dir) = runtime_default_configs_dir() {
         return init_from_runtime_defaults(&project_dir, &runtime_default_dir, scope, mappings);

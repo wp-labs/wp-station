@@ -229,6 +229,7 @@ function formatRuleTypeLabel(ruleType, system) {
 
   if (normalizedSystem === 'wfusion') {
     const labels = {
+      parse: 'conf',
       windows: 'windows',
       schema: 'schema',
       rule: 'rule',

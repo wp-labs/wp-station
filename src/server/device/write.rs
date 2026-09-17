@@ -6,9 +6,6 @@ use crate::db::{
     update_device as db_update_device,
 };
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
-};
 use crate::utils::check_device_health;
 
 use super::{CreateDeviceRequest, DeviceCreated, DeviceUpdateResult, UpdateDeviceRequest};
@@ -17,12 +14,7 @@ use super::{CreateDeviceRequest, DeviceCreated, DeviceUpdateResult, UpdateDevice
 pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreated, AppError> {
     info!("创建设备: ip={}, port={}", req.ip, req.port);
 
-    let device_name = req.name.clone().unwrap_or_else(|| req.ip.clone());
-    let ip = req.ip.clone();
-    let port = req.port;
-    let remark = req.remark.clone();
-
-    let result = async move {
+    async move {
         let new_device = NewDevice {
             system: req.system,
             name: req.name.clone(),
@@ -43,21 +35,7 @@ pub async fn create_device_logic(req: CreateDeviceRequest) -> Result<DeviceCreat
         info!("创建设备完成: id={}", id);
         Ok::<_, AppError>(DeviceCreated { id })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::Device,
-        OperationLogAction::Create,
-        OperationLogParams::new()
-            .with_target_name(device_name)
-            .with_field("ip", ip)
-            .with_field("port", port.to_string())
-            .with_field("remark", remark.unwrap_or_else(|| "-".to_string())),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 更新已有设备配置。
@@ -65,10 +43,6 @@ pub async fn update_device_logic(req: UpdateDeviceRequest) -> Result<DeviceUpdat
     info!("更新设备: id={}, ip={}, port={}", req.id, req.ip, req.port);
 
     let device_id = req.id;
-    let device_name = req.name.clone().unwrap_or_else(|| req.ip.clone());
-    let ip = req.ip.clone();
-    let port = req.port;
-    let remark = req.remark.clone();
     let token = req.token.clone();
 
     let result = async move {
@@ -86,19 +60,6 @@ pub async fn update_device_logic(req: UpdateDeviceRequest) -> Result<DeviceUpdat
         info!("更新设备成功: id={}", req.id);
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::Device,
-        OperationLogAction::Update,
-        OperationLogParams::new()
-            .with_target_name(device_name)
-            .with_target_id(device_id.to_string())
-            .with_field("ip", ip)
-            .with_field("port", port.to_string())
-            .with_field("remark", remark.unwrap_or_else(|| "-".to_string())),
-        &result,
-    )
     .await;
 
     if result.is_ok() {
@@ -127,22 +88,10 @@ pub async fn update_device_logic(req: UpdateDeviceRequest) -> Result<DeviceUpdat
 pub async fn delete_device_logic(id: i32) -> Result<(), AppError> {
     info!("删除设备: id={}", id);
 
-    let result = async {
+    async {
         db_delete_device(id).await?;
         info!("删除设备成功: id={}", id);
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::Device,
-        OperationLogAction::Delete,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("delete_mode", "soft"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

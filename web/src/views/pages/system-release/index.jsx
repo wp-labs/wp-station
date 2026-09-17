@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
+import { DatePicker, Dropdown, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
+import { fetchReleases, publishRelease, restoreRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
 import { useSystem } from '@/contexts/SystemContext';
 import {
   confirmProjectArchiveImport,
+  buildProjectFolderArchive,
   downloadBlob,
   exportProjectArchive,
   importProjectArchive,
 } from '@/services/project';
 import ValidateResultModal from '@/components/ValidateResultModal';
 import ProjectImportResult from '@/views/components/ProjectImportResult';
+
+const IMPORTABLE_FOLDER_NAMES = ['conf', 'connectors', 'models', 'topology'];
 
 /**
  * 系统发布列表页面
@@ -53,6 +56,7 @@ function SystemReleasePage() {
   const [publishReleaseGroup, setPublishReleaseGroup] = useState('models');
   const [importingArchive, setImportingArchive] = useState(false);
   const [exportingArchive, setExportingArchive] = useState(false);
+  const [restoringReleaseId, setRestoringReleaseId] = useState(null);
 
   const getAvailablePublishGroups = (releaseRecord) => {
     const status = String(releaseRecord?.status || '').toUpperCase();
@@ -319,9 +323,7 @@ function SystemReleasePage() {
     return lower.endsWith('.tar') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.zip');
   };
 
-  const handleImportArchive = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  const handleImportArchiveFile = async (file, sourceLabel = file?.name) => {
     if (!file) return;
 
     if (!isSupportedArchive(file.name)) {
@@ -339,7 +341,7 @@ function SystemReleasePage() {
         title: t('systemRelease.importArchiveConfirmTitle'),
         content: (
           <div style={{ lineHeight: 1.7, marginTop: 8 }}>
-            <p>{t('systemRelease.importArchivePreviewMessage', { file: file.name })}</p>
+            <p>{t('systemRelease.importArchivePreviewMessage', { file: sourceLabel })}</p>
             <ProjectImportResult result={preview} showPaths={false} system={currentSystem} />
           </div>
         ),
@@ -357,7 +359,7 @@ function SystemReleasePage() {
               t('systemRelease.importArchiveFailedTitle'),
               buildArchiveImportFailureResult(
                 error?.message || t('systemRelease.importArchiveFailedMessage'),
-                file.name,
+                sourceLabel,
               ),
               false,
             );
@@ -371,7 +373,7 @@ function SystemReleasePage() {
         t('systemRelease.importArchiveFailedTitle'),
         buildArchiveImportFailureResult(
           error?.message || t('systemRelease.importArchiveFailedMessage'),
-          file.name,
+          sourceLabel,
         ),
         false,
       );
@@ -379,6 +381,143 @@ function SystemReleasePage() {
       setImportingArchive(false);
     }
   };
+
+  const handleImportArchive = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    await handleImportArchiveFile(file, file?.name);
+  };
+
+  const handleImportFolder = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const folderLabel = files[0]?.webkitRelativePath?.split('/')[0] || '所选文件夹';
+    await handleImportFolderEntries(files, folderLabel);
+  };
+
+  const collectDirectoryFiles = async (directoryHandle) => {
+    const entries = [];
+    const selectedFolderIsImportable = IMPORTABLE_FOLDER_NAMES.includes(directoryHandle.name);
+    const walk = async (handle, pathParts, insideImportableFolder) => {
+      for await (const [name, entry] of handle.entries()) {
+        const nextPathParts = [...pathParts, name];
+
+        if (entry.kind === 'file') {
+          if (insideImportableFolder) {
+            entries.push({
+              file: await entry.getFile(),
+              relativePath: nextPathParts.join('/'),
+            });
+          }
+          continue;
+        }
+
+        if (entry.kind === 'directory') {
+          const isDirectImportableFolder =
+            pathParts.length === 1 && IMPORTABLE_FOLDER_NAMES.includes(name);
+          if (insideImportableFolder || isDirectImportableFolder) {
+            await walk(entry, nextPathParts, insideImportableFolder || isDirectImportableFolder);
+          }
+        }
+      }
+    };
+
+    await walk(directoryHandle, [directoryHandle.name], selectedFolderIsImportable);
+    return entries;
+  };
+
+  const handleImportFolderEntries = async (entries, folderLabel) => {
+    try {
+      const archive = buildProjectFolderArchive(entries);
+      await handleImportArchiveFile(archive, `文件夹：${folderLabel}`);
+    } catch (error) {
+      showArchiveImportResultModal(
+        t('systemRelease.importArchiveFailedTitle'),
+        buildArchiveImportFailureResult(
+          error?.message || t('systemRelease.importArchiveFailedMessage'),
+          `文件夹：${folderLabel}`,
+        ),
+        false,
+      );
+    }
+  };
+
+  const handleSelectImportFolder = async () => {
+    // File System Access API 不会触发“上传整个文件夹”的浏览器确认，
+    // 前端只读取核心目录下的文件并生成归档。
+    if (typeof window.showDirectoryPicker === 'function') {
+      try {
+        const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+        const entries = await collectDirectoryFiles(directoryHandle);
+        await handleImportFolderEntries(entries, directoryHandle.name || '所选文件夹');
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        showArchiveImportResultModal(
+          t('systemRelease.importArchiveFailedTitle'),
+          buildArchiveImportFailureResult(
+            error?.message || t('systemRelease.importArchiveFailedMessage'),
+            '所选文件夹',
+          ),
+          false,
+        );
+      }
+      return;
+    }
+
+    // 兼容不支持 File System Access API 的浏览器。
+    document.getElementById('project-folder-import')?.click();
+  };
+
+  const handleRestore = (releaseRecord) => {
+    Modal.confirm({
+      title: t('systemRelease.restoreConfirmTitle'),
+      content: (
+        <div style={{ lineHeight: 1.7 }}>
+          <p>{t('systemRelease.restoreConfirmMessage', { version: releaseRecord.version })}</p>
+          <p style={{ color: '#b42318', marginBottom: 0 }}>
+            {t('systemRelease.restoreConfirmWarning')}
+          </p>
+        </div>
+      ),
+      width: 560,
+      okType: 'danger',
+      okText: t('systemRelease.restore'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setRestoringReleaseId(releaseRecord.id);
+        try {
+          const result = await restoreRelease(releaseRecord.id, currentSystem);
+          Modal.success({
+            title: t('systemRelease.restoreSuccessTitle'),
+            content: result?.message || t('systemRelease.restoreSuccessMessage'),
+          });
+          await loadReleases();
+        } catch (error) {
+          Modal.error({
+            title: t('systemRelease.restoreFailedTitle'),
+            content: error?.message || t('systemRelease.restoreFailedMessage'),
+          });
+        } finally {
+          setRestoringReleaseId(null);
+        }
+      },
+    });
+  };
+
+  const importConfigMenuItems = [
+    {
+      key: 'archive',
+      label: t('systemRelease.importArchive'),
+      onClick: () => document.getElementById('project-archive-import')?.click(),
+    },
+    {
+      key: 'folder',
+      label: t('systemRelease.importFolder'),
+      onClick: handleSelectImportFolder,
+    },
+  ];
 
   const handleExportArchive = async () => {
     setExportingArchive(true);
@@ -541,6 +680,7 @@ function SystemReleasePage() {
         const publishHidden = statusUpper === 'PASS' && availableGroups.length === 0;
         const publishDisabled =
           !(releaseRecord.sandboxReady ?? false) || statusUpper === 'RUNNING';
+        const restoreDisabled = restoringReleaseId === releaseRecord.id;
         return (
           <>
             <button
@@ -587,6 +727,17 @@ function SystemReleasePage() {
                   </button>
                 )}
               </>
+            )}
+            {statusUpper === 'PASS' && (
+              <button
+                type="button"
+                className="link-btn release-restore-btn"
+                onClick={() => handleRestore(releaseRecord)}
+                disabled={restoreDisabled}
+                title={t('systemRelease.restoreButtonHint')}
+              >
+                {restoreDisabled ? t('systemRelease.restoring') : t('systemRelease.restore')}
+              </button>
             )}
           </>
         );
@@ -679,14 +830,29 @@ function SystemReleasePage() {
                 style={{ display: 'none' }}
                 onChange={handleImportArchive}
               />
-              <button
-                type="button"
-                className="btn ghost"
+              <input
+                id="project-folder-import"
+                type="file"
+                webkitdirectory="true"
+                directory="true"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleImportFolder}
+              />
+              <Dropdown
+                menu={{ items: importConfigMenuItems }}
+                trigger={['click']}
                 disabled={importingArchive}
-                onClick={() => document.getElementById('project-archive-import')?.click()}
               >
-                {importingArchive ? t('systemRelease.importingArchive') : t('systemRelease.importArchive')}
-              </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={importingArchive}
+                  aria-haspopup="menu"
+                >
+                  {importingArchive ? t('systemRelease.importingConfig') : t('systemRelease.importConfig')}
+                </button>
+              </Dropdown>
               <button
                 type="button"
                 className="btn ghost"

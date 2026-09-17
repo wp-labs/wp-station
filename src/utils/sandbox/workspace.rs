@@ -124,7 +124,7 @@ impl SandboxWorkspace {
 /// 收集 wparse 输出目录中的关键文件状态，供分析阶段判断是否有数据产出。
 pub fn collect_output_checks(project_dir: &Path) -> Result<Vec<OutputFileStatus>, AppError> {
     let mut results = Vec::new();
-    for (relative, meaning) in OUTPUT_PATHS {
+    for (relative, meaning, affects_pass) in OUTPUT_PATHS {
         let path = project_dir.join(relative);
         let line_count = if path.exists() {
             count_lines(&path)?
@@ -136,6 +136,7 @@ pub fn collect_output_checks(project_dir: &Path) -> Result<Vec<OutputFileStatus>
             is_empty: line_count == 0,
             line_count,
             meaning: meaning.to_string(),
+            affects_pass,
         });
     }
     Ok(results)

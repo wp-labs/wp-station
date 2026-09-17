@@ -143,18 +143,28 @@ pub fn analyse_runtime_output(
     let mut log_lines = Vec::new();
     log_lines.push("运行输出文件检查：".to_string());
     for check in &output_checks {
+        let observation_suffix = if check.affects_pass {
+            ""
+        } else {
+            "，仅观察，不参与通过判定"
+        };
         log_lines.push(format!("$ cat {} | wc -l", check.relative_path));
         if check.line_count == 0 {
-            log_lines.push(format!("结果: 0 行（{}）", check.meaning));
+            log_lines.push(format!(
+                "结果: 0 行（{}{}）",
+                check.meaning, observation_suffix
+            ));
         } else {
             log_lines.push(format!(
-                "结果: {} 行（{}）",
-                check.line_count, check.meaning
+                "结果: {} 行（{}{}）",
+                check.line_count, check.meaning, observation_suffix
             ));
-            log_lines.push(format!(
-                "[DIAG] {} 非空: {}",
-                check.relative_path, check.meaning
-            ));
+            if check.affects_pass {
+                log_lines.push(format!(
+                    "[DIAG] {} 非空: {}",
+                    check.relative_path, check.meaning
+                ));
+            }
         }
         log_lines.push(String::new());
     }
@@ -182,11 +192,18 @@ pub fn analyse_runtime_output(
     }
     let passed = match system {
         SystemKind::Wparse => {
-            output_checks.iter().all(|item| item.is_empty)
+            output_checks
+                .iter()
+                .filter(|item| item.affects_pass)
+                .all(|item| item.is_empty)
                 && metrics.output_count >= expected_success
         }
         SystemKind::Wfusion => {
-            output_checks.iter().all(|item| item.is_empty) && metrics.output_count > 0
+            output_checks
+                .iter()
+                .filter(|item| item.affects_pass)
+                .all(|item| item.is_empty)
+                && metrics.output_count > 0
         }
     };
     metrics.passed = passed;
@@ -245,7 +262,7 @@ pub fn finalize_conclusion(
         output_file_checks: output_checks.to_vec(),
         suspected_files: output_checks
             .iter()
-            .filter(|item| !item.is_empty)
+            .filter(|item| item.affects_pass && !item.is_empty)
             .map(|item| item.relative_path.clone())
             .collect(),
         input_count: metrics.input_count,
@@ -276,6 +293,7 @@ fn collect_wfusion_output_checks(project_dir: &Path) -> Result<Vec<OutputFileSta
             is_empty: line_count == 0,
             line_count,
             meaning: meaning.to_string(),
+            affects_pass: true,
         });
     }
     Ok(results)

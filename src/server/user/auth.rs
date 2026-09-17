@@ -2,9 +2,6 @@
 
 use crate::db;
 use crate::error::AppError;
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
-};
 use rand::RngExt;
 
 use super::{ChangePasswordRequest, LoginRequest, LoginResponse, hash_password, verify_password};
@@ -13,7 +10,7 @@ use super::{ChangePasswordRequest, LoginRequest, LoginResponse, hash_password, v
 pub async fn change_password_logic(id: i32, req: ChangePasswordRequest) -> Result<(), AppError> {
     info!("修改用户密码: id={}", id);
 
-    let result = async {
+    async {
         if req.new_password != req.confirm_password {
             return Err(AppError::validation("新密码和确认密码不一致"));
         }
@@ -33,27 +30,14 @@ pub async fn change_password_logic(id: i32, req: ChangePasswordRequest) -> Resul
         info!("修改用户密码成功: id={}", id);
         Ok::<_, AppError>(())
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::ChangePassword,
-        OperationLogParams::new()
-            .with_target_id(id.to_string())
-            .with_field("mode", "self-change"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }
 
 /// 用户登录。
 pub async fn login_logic(req: LoginRequest) -> Result<LoginResponse, AppError> {
     info!("用户登录: username={}", req.username);
 
-    let username = req.username.clone();
-    let result = async {
+    async {
         let user = db::find_user_by_username(&req.username)
             .await?
             .ok_or_else(|| AppError::Unauthorized("用户名或密码错误".to_string()))?;
@@ -80,18 +64,5 @@ pub async fn login_logic(req: LoginRequest) -> Result<LoginResponse, AppError> {
             role: user.role,
         })
     }
-    .await;
-
-    write_operation_log_for_result(
-        OperationLogBiz::User,
-        OperationLogAction::Login,
-        OperationLogParams::new()
-            .with_operator(username.clone())
-            .with_target_name(username)
-            .with_field("auth", "password"),
-        &result,
-    )
-    .await;
-
-    result
+    .await
 }

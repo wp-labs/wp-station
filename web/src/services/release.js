@@ -154,3 +154,19 @@ export async function rollbackRelease(releaseId, deviceIds = [], targetIds = [],
   });
   return typeof response?.success === 'boolean' ? response : response?.data || response;
 }
+
+/**
+ * 将发布成功版本的配置还原到当前草稿并同步到 Gitea。
+ * @param {number|string} releaseId - 发布记录 ID
+ * @param {string} system - 当前系统
+ * @returns {Promise<Object>} 还原结果
+ */
+export async function restoreRelease(releaseId, system) {
+  const username = sessionStorage.getItem('username');
+  const response = await httpRequest.post(
+    `/releases/${releaseId}/restore`,
+    { system: resolveSystem(system) },
+    username ? { headers: { 'X-Operator': encodeURIComponent(username) } } : undefined,
+  );
+  return typeof response?.success === 'boolean' ? response : response?.data || response;
+}

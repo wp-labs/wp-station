@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from 'antd';
@@ -7,10 +7,8 @@ import {
   SlackOutlined,
   GithubOutlined,
   WechatOutlined,
-  QuestionCircleOutlined,
 } from '@ant-design/icons';
 import { useSystem } from '@/contexts/SystemContext';
-import { getSessionUser, logout } from '@/services/auth';
 import {
   fetchDataCollectConfig,
 } from '@/services/features';
@@ -22,18 +20,15 @@ import WechatModal from '@/views/components/WechatModal';
 /**
  * 顶部导航组件
  * 功能：
- * 1. 显示品牌 Logo 和导航菜单
- * 2. 显示连接状态和用户信息
- * 3. 提供用户登出功能
- * 4. 登录页不显示导航
+ * 1. 显示品牌 Logo、系统切换和导航菜单
+ * 2. 显示运行版本与外部社区入口
+ * 3. 提供语言切换
  * 对应原型：pages/views/*.html 中的 main-header
  */
 function Navigation({ children, onLocaleChange }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef(null);
   const [versionInfo, setVersionInfo] = useState({
     warpStation: '',
     wparse: '',
@@ -44,10 +39,6 @@ function Navigation({ children, onLocaleChange }) {
   const [githubModalOpen, setGithubModalOpen] = useState(false);
   const { currentSystem, isSwitchingSystem, switchSystem, availableSystems, decoratePath } =
     useSystem();
-
-  // 获取当前登录用户名
-  const sessionUser = getSessionUser();
-  const usernameLabel = sessionUser?.username || '';
 
   // 获取 Station 及两个运行系统的版本信息
   useEffect(() => {
@@ -109,7 +100,7 @@ function Navigation({ children, onLocaleChange }) {
       name: t('navigation.integrationOverview'),
       page: 'integration-overview',
     },
-    { path: '/system-manage', name: t('navigation.systemManage'), page: 'system-manage' },
+    { path: '/system-manage', name: t('connectionManage.title'), page: 'system-manage' },
   ];
 
   /**
@@ -119,15 +110,6 @@ function Navigation({ children, onLocaleChange }) {
    */
   const isActive = (path) => {
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
-  };
-
-  /**
-   * 处理用户登出
-   * 清除会话信息并跳转到登录页
-   */
-  const handleLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
   };
 
   const handleMenuNavigate = (menuItem) => {
@@ -140,36 +122,6 @@ function Navigation({ children, onLocaleChange }) {
 
     navigate(decoratePath(menuItem.path));
   };
-
-  /**
-   * 处理用户菜单切换
-   */
-  const handleUserMenuToggle = (e) => {
-    e.stopPropagation();
-    setUserMenuOpen(!userMenuOpen);
-  };
-
-  // 点击外部关闭用户菜单
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
-        setUserMenuOpen(false);
-      }
-    };
-
-    if (userMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, [userMenuOpen]);
-
-  // 登录页不显示导航
-  if (location.pathname === '/login') {
-    return <>{children}</>;
-  }
 
   const hasVersionInfo = Boolean(
     versionInfo.warpStation || versionInfo.wparse || versionInfo.wfusion,
@@ -276,15 +228,6 @@ function Navigation({ children, onLocaleChange }) {
             </Button>
             <Button
               type="primary"
-              icon={<QuestionCircleOutlined style={{ fontSize: '18px' }} />}
-              size="large"
-              style={{ fontWeight: 600, fontSize: '15px' }}
-              onClick={() => window.open('https://wp-labs.github.io/wp-docs/', '_blank')}
-            >
-              {t('header.helpCenter')}
-            </Button>
-            <Button
-              type="primary"
               icon={<WechatOutlined style={{ fontSize: '20px' }} />}
               size="large"
               shape="circle"
@@ -292,29 +235,6 @@ function Navigation({ children, onLocaleChange }) {
               onClick={() => setWechatModalOpen(true)}
             />
             <LanguageSwitcher onLocaleChange={onLocaleChange} />
-            <div className={`user-menu ${userMenuOpen ? 'active' : ''}`} id="user-menu" ref={userMenuRef}>
-              <button
-                type="button"
-                className="user-trigger"
-                id="user-trigger"
-                onClick={handleUserMenuToggle}
-              >
-                <span className="user-icon">👤</span>
-                <span className="user-name" id="user-name">
-                  {usernameLabel}
-                </span>
-              </button>
-              <div className="user-dropdown">
-                <button
-                  type="button"
-                  className="user-dropdown-item"
-                  id="logout-btn"
-                  onClick={handleLogout}
-                >
-                  {t('navigation.logout')}
-                </button>
-              </div>
-            </div>
           </div>
         </div>
         <div className="header-nav-row">
@@ -346,7 +266,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/system-release', '/integration-overview'].some((path) =>
+            ['/system-release', '/integration-overview', '/system-manage'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

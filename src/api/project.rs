@@ -14,20 +14,6 @@ use crate::server::project::{
     export_project_archive_logic, import_project_from_files_logic, preview_project_archive_logic,
 };
 
-/// 从请求头中提取操作人，用于记录导入导出操作日志。
-fn operator_from_request(req: &HttpRequest) -> Option<String> {
-    req.headers().get("x-operator").and_then(|value| {
-        let raw = value.to_str().ok()?.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        decode(raw)
-            .ok()
-            .map(|cow| cow.trim().to_string())
-            .filter(|decoded| !decoded.is_empty())
-    })
-}
-
 /// 从上传请求头中提取归档文件名。
 fn archive_file_name(req: &HttpRequest) -> Option<String> {
     req.headers()
@@ -53,11 +39,9 @@ fn system_from_request_query(req: &HttpRequest) -> Result<crate::utils::SystemKi
 #[post("/api/project/import")]
 /// 项目管理：按目录导入项目。
 pub async fn import_project_from_files(
-    http_req: HttpRequest,
     req: web::Json<ProjectImportRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let operator = operator_from_request(&http_req);
-    let resp = import_project_from_files_logic(operator, req.into_inner()).await?;
+    let resp = import_project_from_files_logic(req.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
@@ -67,7 +51,6 @@ pub async fn import_project_archive(
     http_req: HttpRequest,
     mut payload: web::Payload,
 ) -> Result<HttpResponse, AppError> {
-    let operator = operator_from_request(&http_req);
     let system = system_from_request_query(&http_req)?;
     let file_name = archive_file_name(&http_req)
         .ok_or_else(|| AppError::validation("缺少上传文件名，请设置 X-File-Name"))?;
@@ -81,20 +64,17 @@ pub async fn import_project_archive(
         bytes.extend_from_slice(&chunk);
     }
 
-    let resp = preview_project_archive_logic(system, operator, &file_name, bytes.freeze().to_vec())
-        .await?;
+    let resp = preview_project_archive_logic(system, &file_name, bytes.freeze().to_vec()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
 #[post("/api/project/import/archive/confirm")]
 /// 项目管理：确认归档导入。
 pub async fn confirm_project_archive_import(
-    http_req: HttpRequest,
     req: web::Json<ProjectArchiveConfirmRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let operator = operator_from_request(&http_req);
     let req = req.into_inner();
-    let resp = confirm_project_archive_import_logic(operator, req.system, &req.import_id).await?;
+    let resp = confirm_project_archive_import_logic(req.system, &req.import_id).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 

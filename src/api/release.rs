@@ -7,9 +7,10 @@ use actix_web::{HttpResponse, get, post, web};
 
 use crate::error::AppError;
 use crate::server::{
-    CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseTargetActionRequest,
-    create_release_logic, get_release_detail_logic, get_release_diff_logic, list_releases_logic,
-    publish_release_logic, retry_release_logic, rollback_release_logic, validate_release_logic,
+    CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseRestoreRequest,
+    ReleaseTargetActionRequest, create_release_logic, get_release_detail_logic,
+    get_release_diff_logic, list_releases_logic, publish_release_logic, restore_release_logic,
+    retry_release_logic, rollback_release_logic, validate_release_logic,
 };
 
 /// 发布详情路径参数。
@@ -121,6 +122,17 @@ pub async fn rollback_release(
     req: web::Json<ReleaseTargetActionRequest>,
 ) -> Result<HttpResponse, AppError> {
     let resp = rollback_release_logic(path.id, req.into_inner()).await?;
+
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+#[post("/api/releases/{id}/restore")]
+/// 发布管理：将发布成功版本的配置还原到草稿并同步到 Gitea。
+pub async fn restore_release(
+    path: web::Path<ReleaseActionPath>,
+    req: web::Json<ReleaseRestoreRequest>,
+) -> Result<HttpResponse, AppError> {
+    let resp = restore_release_logic(path.id, req.system).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

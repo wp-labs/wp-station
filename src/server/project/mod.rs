@@ -40,10 +40,7 @@ use crate::constants::project::{
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::{sync_shared_connectors_to_infra_gitea, sync_to_gitea};
-use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, RepoLayout,
-    refresh_draft_release_logic, write_operation_log_for_result,
-};
+use crate::server::{RepoLayout, refresh_draft_release_logic};
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
 use crate::utils::{
@@ -200,53 +197,21 @@ pub(super) fn build_rule_breakdown_from_snapshot(
 ///
 /// 旧目录结构会按当前系统拆分到固定的 models / infra 仓库。
 pub async fn import_project_from_files_logic(
-    operator: Option<String>,
     req: ProjectImportRequest,
 ) -> Result<ProjectImportResponse, AppError> {
-    let operator_for_log = operator.clone();
     let layout = layout_for_system(req.system).as_repo_layout();
     let source_dir = normalize_source_dir(&req.source_dir)?;
 
-    let result =
-        import_project_dir(req.system, &source_dir, &layout, "目录拆分覆盖并校验通过").await;
-
-    let mut log_params = OperationLogParams::new();
-    if let Some(op) = operator_for_log {
-        log_params = log_params.with_operator(op);
-    }
-    log_params = log_params.with_field("source_dir", source_dir.to_string_lossy().to_string());
-    if let Ok(ref resp) = result {
-        log_params = log_params
-            .with_field("rules_deleted", resp.summary.rules_deleted.to_string())
-            .with_field("rules_imported", resp.summary.rules_imported.to_string())
-            .with_field(
-                "knowledge_imported",
-                resp.summary.knowledge_imported.to_string(),
-            )
-            .with_field("models_root", resp.summary.models_root.clone())
-            .with_field("infra_root", resp.summary.infra_root.clone());
-    }
-
-    write_operation_log_for_result(
-        OperationLogBiz::RuleFile,
-        OperationLogAction::Update,
-        log_params,
-        &result,
-    )
-    .await;
-
-    result
+    import_project_dir(req.system, &source_dir, &layout, "目录拆分覆盖并校验通过").await
 }
 
 /// 归档预检入口。
 pub async fn preview_project_archive_logic(
     system: SystemKind,
-    operator: Option<String>,
     file_name: &str,
     bytes: Vec<u8>,
 ) -> Result<ProjectArchivePreviewResponse, AppError> {
     // 归档导入先预检，不直接覆盖真实目录，避免错误归档污染仓库。
-    let _ = operator;
     let import_id = new_archive_import_id();
     let staging_root = archive_import_staging_root();
     fs::create_dir_all(&staging_root).map_err(AppError::internal)?;
@@ -275,7 +240,6 @@ pub async fn preview_project_archive_logic(
 
 /// 归档确认导入入口。
 pub async fn confirm_project_archive_import_logic(
-    operator: Option<String>,
     system: SystemKind,
     import_id: &str,
 ) -> Result<ProjectImportResponse, AppError> {
@@ -303,37 +267,9 @@ pub async fn confirm_project_archive_import_logic(
         "归档覆盖导入并校验通过",
         file_name.as_deref(),
     )
-    .await;
+    .await?;
 
-    let mut log_params = OperationLogParams::new()
-        .with_target_name(import_id)
-        .with_field("import_id", import_id)
-        .with_field("source", project_dir.to_string_lossy().to_string());
-    if let Some(operator) = operator {
-        log_params = log_params.with_operator(operator);
-    }
-    if let Ok(ref resp) = result {
-        log_params = log_params
-            .with_field("rules_imported", resp.summary.rules_imported.to_string())
-            .with_field(
-                "knowledge_imported",
-                resp.summary.knowledge_imported.to_string(),
-            )
-            .with_field("models_root", resp.summary.models_root.clone())
-            .with_field("infra_root", resp.summary.infra_root.clone());
-    }
-
-    write_operation_log_for_result(
-        OperationLogBiz::RuleFile,
-        OperationLogAction::Update,
-        log_params,
-        &result,
-    )
-    .await;
-
-    if result.is_ok()
-        && let Err(err) = fs::remove_dir_all(&import_dir)
-    {
+    if let Err(err) = fs::remove_dir_all(&import_dir) {
         warn!(
             "清理导入暂存目录失败: import_id={}, path={}, error={}",
             import_id,
@@ -342,7 +278,7 @@ pub async fn confirm_project_archive_import_logic(
         );
     }
 
-    result
+    Ok(result)
 }
 
 /// 导出当前系统的项目归档。
@@ -374,10 +310,7 @@ pub async fn export_project_archive_logic(
         .map_err(AppError::internal)?
         .read_to_end(&mut bytes)
         .map_err(AppError::internal)?;
-    let file_name = format!(
-        "wp-station-project-{}.tar.gz",
-        Utc::now().format("%Y%m%d%H%M%S")
-    );
+    let file_name = format!("{}-{}.tar.gz", system.as_ref(), Utc::now().timestamp());
 
     Ok(ProjectArchiveExport { file_name, bytes })
 }

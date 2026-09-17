@@ -416,19 +416,17 @@ function ConnectionManage() {
   return (
     <>
       {/* 顶部操作栏 */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' }}>
+      <div className="connection-manage-toolbar">
         <Input
           placeholder={t('connectionManage.searchPlaceholder')}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          style={{ width: 320 }}
           allowClear
           size="large"
         />
         <button
           type="button"
           className="btn primary"
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
           onClick={handleAdd}
         >
           <PlusOutlined />

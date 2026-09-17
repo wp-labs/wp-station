@@ -24,6 +24,21 @@ fn test_database_conf_prefers_sqlite_url_when_present() {
 }
 
 #[test]
+fn test_database_conf_resolves_relative_sqlite_url_to_workspace() {
+    let conf = DatabaseConf {
+        url: "sqlite://db/station.db".to_string(),
+        ..DatabaseConf::default()
+    };
+
+    let expected = format!(
+        "sqlite://{}/db/station.db",
+        Setting::workspace_root().display()
+    );
+    assert_eq!(conf.connection_string(), expected);
+    assert_eq!(conf.connection_string_with_options(), expected);
+}
+
+#[test]
 fn test_database_conf_deserializes_with_sqlite_url_only() {
     let conf: DatabaseConf = toml::from_str(
         r#"
