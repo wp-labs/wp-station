@@ -61,11 +61,12 @@ pub use project::{
     import_project_from_files_logic, preview_project_archive_logic,
 };
 pub use release::runner::spawn_release_task_runner;
+pub use release::restore_runner::spawn_restore_task_runner;
 pub use release::{
     CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseRestoreRequest,
-    ReleaseTargetActionRequest, create_release_logic, get_release_detail_logic,
-    get_release_diff_logic, list_releases_logic, publish_release_logic,
-    refresh_draft_release_logic, restore_release_logic, retry_release_logic,
+    ReleaseTargetActionRequest, create_release_logic, create_restore_job_logic,
+    get_release_detail_logic, get_release_diff_logic, get_restore_job_logic, list_releases_logic,
+    publish_release_logic, refresh_draft_release_logic, retry_release_logic,
     rollback_release_logic, validate_release_logic,
 };
 pub use rules::{
@@ -86,7 +87,7 @@ pub use setting::{
     AssistConf, DatabaseConf, DatabaseKind, FeaturesConf, LogConf, RepoLayout, RepoStartupStrategy,
     Setting, WebConf,
 };
-pub use sync::{push_and_tag_release, restore_release_to_gitea};
+pub use sync::push_and_tag_release;
 pub use user::{
     ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, ResetPasswordRequest,
     ResetPasswordResponse, UpdateUserRequest, UpdateUserStatusRequest, UserCreated, UserListQuery,

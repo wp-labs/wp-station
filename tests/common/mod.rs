@@ -7,8 +7,7 @@ use wp_station::db::get_pool;
 use wp_station::server::RepoLayout;
 use wp_station::utils::{
     SystemKind, init_default_configs_to_infra_for_system,
-    init_default_configs_to_models_for_system, init_default_connectors_to_shared,
-    layout_for_system, shared_connectors_root,
+    init_default_configs_to_models_for_system, layout_for_system,
 };
 use wp_station::{Setting, init_pool};
 
@@ -87,8 +86,7 @@ pub fn test_infra_root() -> PathBuf {
 }
 
 pub fn test_connectors_root() -> PathBuf {
-    init_test_environment();
-    shared_connectors_root()
+    test_infra_root()
 }
 
 pub fn test_project_layout() -> RepoLayout {
@@ -102,7 +100,6 @@ pub fn test_project_layout() -> RepoLayout {
 pub fn init_default_configs_to_test_layout() {
     let wparse_layout = layout_for_system(SystemKind::Wparse);
     let wfusion_layout = layout_for_system(SystemKind::Wfusion);
-    let connectors_root = test_connectors_root();
     for layout in [wparse_layout, wfusion_layout] {
         init_default_configs_to_models_for_system(
             layout.system,
@@ -115,12 +112,6 @@ pub fn init_default_configs_to_test_layout() {
         )
         .expect("initialize default configs to test infra root");
     }
-    init_default_connectors_to_shared(
-        connectors_root
-            .to_str()
-            .expect("utf-8 test connectors root"),
-    )
-    .expect("initialize default connectors to test connectors root");
 }
 
 pub fn resolve_project_path(relative: impl AsRef<Path>) -> PathBuf {
@@ -163,14 +154,11 @@ pub fn unique_name(prefix: &str) -> String {
 async fn cleanup_test_artifacts() {
     let wparse_layout = layout_for_system(SystemKind::Wparse);
     let wfusion_layout = layout_for_system(SystemKind::Wfusion);
-    let connectors_root = test_connectors_root();
     for layout in [&wparse_layout, &wfusion_layout] {
         let _ = fs::remove_dir_all(&layout.models_root);
         let _ = fs::remove_dir_all(&layout.infra_root);
         fs::create_dir_all(&layout.models_root).expect("recreate test models root");
         fs::create_dir_all(&layout.infra_root).expect("recreate test infra root");
     }
-    let _ = fs::remove_dir_all(&connectors_root);
-    fs::create_dir_all(&connectors_root).expect("recreate test connectors root");
     init_default_configs_to_test_layout();
 }

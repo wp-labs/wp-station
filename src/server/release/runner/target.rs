@@ -15,13 +15,15 @@ impl ReleaseTaskRunner {
         let device = match device {
             Some(dev) => dev,
             None => {
-                self.mark_target_fail(target, "目标设备不存在").await?;
+                self.mark_target_fail(target, "目标设备不存在", "VALIDATION_ERROR", None)
+                    .await?;
                 return Ok(true);
             }
         };
 
         if device.token.is_empty() {
-            self.mark_target_fail(target, "设备 Token 未配置").await?;
+            self.mark_target_fail(target, "设备 Token 未配置", "VALIDATION_ERROR", None)
+                .await?;
             return Ok(true);
         }
 
@@ -31,20 +33,44 @@ impl ReleaseTaskRunner {
             .unwrap_or(&target.target_config_version);
         let release_group = ReleaseGroup::parse(&target.release_group)
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let request_summary = serde_json::json!({
+            "operation": if is_rollback { "compensate" } else { "publish" },
+            "version": version,
+            "group": release_group.as_ref(),
+            "wait": true,
+            "update": true,
+        })
+        .to_string();
+        update_release_target(
+            target.id,
+            ReleaseTargetUpdate {
+                request_summary: Some(Some(request_summary)),
+                response_status: Some(None),
+                response_summary: Some(None),
+                ..Default::default()
+            },
+        )
+        .await?;
         let result = self.deploy_to_device(device, version, release_group).await;
 
         let resp = match result {
             Ok(resp) => resp,
             Err(err) => {
-                self.mark_target_fail(target, &format!("部署请求失败: {}", err))
-                    .await?;
+                self.mark_target_fail(
+                    target,
+                    &format!("部署请求失败: {}", err),
+                    "ERROR",
+                    Some(err.to_string()),
+                )
+                .await?;
                 return Ok(true);
             }
         };
 
         if !resp.accepted {
             let msg = resp.message.as_deref().unwrap_or("客户端拒绝本次发布");
-            self.mark_target_fail(target, msg).await?;
+            self.mark_target_fail(target, msg, "REJECTED", resp.message.clone())
+                .await?;
             return Ok(true);
         }
 
@@ -70,6 +96,8 @@ impl ReleaseTaskRunner {
                 } else {
                     None
                 }),
+                response_status: Some(Some("ACCEPTED".to_string())),
+                response_summary: Some(resp.message.clone()),
                 ..Default::default()
             };
             update_release_target(target.id, update).await?;
@@ -121,6 +149,8 @@ impl ReleaseTaskRunner {
                 request_id.clone()
             }),
             rollback_job_id: Some(if is_rollback { request_id } else { None }),
+            response_status: Some(Some("ACCEPTED".to_string())),
+            response_summary: Some(resp.message.clone()),
             error_message: Some(None),
             next_poll_at: Some(Some(
                 Utc::now() + ChronoDuration::seconds(FIRST_POLL_DELAY_SECONDS),
@@ -143,13 +173,15 @@ impl ReleaseTaskRunner {
         let device = match device {
             Some(dev) => dev,
             None => {
-                self.mark_target_fail(target, "目标设备不存在").await?;
+                self.mark_target_fail(target, "目标设备不存在", "VALIDATION_ERROR", None)
+                    .await?;
                 return Ok(true);
             }
         };
 
         if device.token.is_empty() {
-            self.mark_target_fail(target, "设备 Token 未配置").await?;
+            self.mark_target_fail(target, "设备 Token 未配置", "VALIDATION_ERROR", None)
+                .await?;
             return Ok(true);
         }
 
@@ -199,8 +231,13 @@ impl ReleaseTaskRunner {
         let now = Utc::now();
 
         if self.should_timeout(target, next_attempts, now) {
-            self.mark_target_fail(target, detail.unwrap_or("超出轮询上限，标记失败"))
-                .await?;
+            self.mark_target_fail(
+                target,
+                detail.unwrap_or("超出轮询上限，标记失败"),
+                "STATUS_TIMEOUT",
+                detail.map(str::to_string),
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -226,8 +263,13 @@ impl ReleaseTaskRunner {
         let next_attempts = target.poll_attempts + 1;
         let now = Utc::now();
         if self.should_timeout(target, next_attempts, now) {
-            self.mark_target_fail(target, &format!("拉取运行状态失败: {}", error))
-                .await?;
+            self.mark_target_fail(
+                target,
+                &format!("拉取运行状态失败: {}", error),
+                "STATUS_ERROR",
+                Some(error.to_string()),
+            )
+            .await?;
             return Ok(true);
         }
 
@@ -271,6 +313,15 @@ impl ReleaseTaskRunner {
                 )],
             ))),
             client_version: Some(result.current_version.clone()),
+            response_status: Some(Some(if is_rollback {
+                "ROLLBACK_SUCCESS".to_string()
+            } else {
+                "SUCCESS".to_string()
+            })),
+            response_summary: Some(Some(format!(
+                "目标分组版本已切换为 {}",
+                result.current_version.as_deref().unwrap_or("未知")
+            ))),
             error_message: Some(None),
             next_poll_at: Some(None),
             poll_attempts: Some(target.poll_attempts + 1),
@@ -292,7 +343,13 @@ impl ReleaseTaskRunner {
         Ok(())
     }
 
-    async fn mark_target_fail(&self, target: &ReleaseTarget, message: &str) -> Result<()> {
+    async fn mark_target_fail(
+        &self,
+        target: &ReleaseTarget,
+        message: &str,
+        response_status: &str,
+        response_summary: Option<String>,
+    ) -> Result<()> {
         let update = ReleaseTargetUpdate {
             status: Some(ReleaseTargetStatus::FAIL),
             stage_trace: Some(Some(apply_stage_updates(
@@ -304,6 +361,8 @@ impl ReleaseTaskRunner {
                 )],
             ))),
             error_message: Some(Some(message.to_string())),
+            response_status: Some(Some(response_status.to_string())),
+            response_summary: Some(response_summary),
             next_poll_at: Some(None),
             completed_at: Some(Some(Utc::now())),
             ..Default::default()

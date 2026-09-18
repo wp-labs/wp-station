@@ -27,7 +27,7 @@ use crate::server::{RepoLayout, Setting};
 pub use self::defaults::{
     init_default_configs_to_infra, init_default_configs_to_infra_for_system,
     init_default_configs_to_models, init_default_configs_to_models_for_system,
-    init_default_connectors_to_shared, runtime_default_configs_dir,
+    runtime_default_configs_dir,
 };
 pub use self::files::{
     delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs, list_rule_files,

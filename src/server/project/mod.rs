@@ -39,7 +39,7 @@ use crate::constants::project::{
 };
 use crate::db::RuleType;
 use crate::error::AppError;
-use crate::server::sync::{sync_shared_connectors_to_infra_gitea, sync_to_gitea};
+use crate::server::sync::sync_to_gitea;
 use crate::server::{RepoLayout, refresh_draft_release_logic};
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
@@ -385,12 +385,7 @@ async fn finalize_import_side_effects(
 
     let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
     sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Models).await?;
-    sync_shared_connectors_to_infra_gitea(&commit_message).await?;
+    sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Infra).await?;
     refresh_draft_release_logic(system, Some(&commit_message)).await?;
-    let impacted_peer = match system {
-        SystemKind::Wparse => SystemKind::Wfusion,
-        SystemKind::Wfusion => SystemKind::Wparse,
-    };
-    let _ = refresh_draft_release_logic(impacted_peer, Some(&commit_message)).await;
     Ok(())
 }

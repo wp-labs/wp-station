@@ -8,6 +8,8 @@
 pub mod diff;
 mod draft;
 mod read;
+mod restore;
+pub mod restore_runner;
 pub mod runner;
 pub mod stage;
 mod write;
@@ -26,14 +28,16 @@ use std::collections::HashMap;
 pub use self::diff::get_release_diff_logic;
 pub use self::draft::{create_release_logic, refresh_draft_release_logic};
 pub use self::read::{get_release_detail_logic, list_releases_logic};
+pub use self::restore::{
+    create_restore_job_logic, get_restore_job_logic, restore_attempts_for_release,
+};
 pub use self::stage::{
     default_target_stage_trace, parse_stage_trace, rollback_target_stage_trace,
     serialize_stage_summary, serialize_stage_trace, stage_summary_for_release,
     stage_summary_for_status,
 };
 pub use self::write::{
-    publish_release_logic, restore_release_logic, retry_release_logic, rollback_release_logic,
-    validate_release_logic,
+    publish_release_logic, retry_release_logic, rollback_release_logic, validate_release_logic,
 };
 
 /// 发布列表查询参数。
@@ -67,6 +71,7 @@ pub struct ReleaseActionRequest {
     pub release_group: Option<ReleaseGroup>,
     pub rule_type: Option<RuleType>,
     pub device_ids: Option<Vec<i32>>,
+    pub full_publish: Option<bool>,
     pub note: Option<String>,
 }
 
@@ -83,8 +88,12 @@ pub struct ReleaseTargetActionRequest {
 /// 还原发布配置请求。
 #[derive(Deserialize)]
 pub struct ReleaseRestoreRequest {
-    /// 前端当前系统，用于防止跨系统操作；最终仍以发布记录自身的 system 为准。
-    pub system: Option<SystemKind>,
+    pub system: SystemKind,
+    #[serde(default)]
+    pub device_ids: Vec<i32>,
+    /// 还原范围：models、infra 或 all；不传时兼容旧客户端按全量处理。
+    pub release_group: Option<String>,
+    pub note: Option<String>,
 }
 
 /// 发布阶段快照。
@@ -111,6 +120,10 @@ pub struct ReleaseItemDto {
     pub published_at: Option<String>,
     pub stages: Vec<StageSnapshot>,
     pub sandbox_ready: bool,
+    pub can_restore: bool,
+    pub restore_disabled_reason: Option<String>,
+    pub restore_groups: Vec<String>,
+    pub latest_restore: Option<RestoreAttemptDto>,
 }
 
 /// 发布列表分页响应。
@@ -121,15 +134,21 @@ pub type ReleaseListResponse = PageResponse<ReleaseItemDto>;
 pub struct ReleaseDeviceDetail {
     pub id: i32,
     pub device_id: i32,
+    pub release_group: String,
     pub device_name: Option<String>,
     pub ip: String,
     pub port: i32,
     pub status: String,
+    pub operation: String,
+    pub attempt_no: i32,
     pub client_version: Option<String>,
     pub config_version: Option<String>,
     pub target_config_version: String,
     pub stage_trace: Vec<StageSnapshot>,
     pub error_message: Option<String>,
+    pub request_summary: Option<String>,
+    pub response_status: Option<String>,
+    pub response_summary: Option<String>,
     pub last_seen_at: Option<String>,
 }
 
@@ -154,6 +173,8 @@ pub struct ReleaseDetailResponse {
     pub latest_sandbox_task_id: Option<String>,
     pub previous_version: Option<String>,
     pub baseline_version: Option<String>,
+    pub restore_attempts: Vec<RestoreAttemptDto>,
+    pub restore_info: Option<RestoreAttemptDto>,
 }
 
 /// 创建发布响应。
@@ -188,11 +209,106 @@ pub struct ReleasePublishResponse {
 pub struct ReleaseRestoreResponse {
     pub success: bool,
     pub message: String,
-    pub release_id: i32,
-    pub draft_id: i32,
-    pub draft_created: bool,
+    pub job_id: i32,
+    pub target_release_id: i32,
     pub source_version: String,
-    pub restored_groups: Vec<String>,
+    pub target_version: String,
+    pub release_group: String,
+    pub status: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct RestoreAttemptDto {
+    pub job_id: i32,
+    pub source_release_id: i32,
+    pub source_version: String,
+    pub target_release_id: i32,
+    pub target_version: String,
+    pub release_group: String,
+    pub status: String,
+    pub phase: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RestoreTargetDto {
+    pub id: i32,
+    pub device_id: i32,
+    pub release_group: String,
+    pub operation: String,
+    pub attempt_no: i32,
+    pub status: String,
+    pub previous_group_version: Option<String>,
+    pub target_config_version: String,
+    pub error_message: Option<String>,
+    pub request_summary: Option<String>,
+    pub response_status: Option<String>,
+    pub response_summary: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RestoreJobDetailResponse {
+    pub id: i32,
+    pub system: String,
+    pub source_release_id: i32,
+    pub target_release_id: i32,
+    pub source_version: String,
+    pub target_version: String,
+    pub release_group: String,
+    pub status: String,
+    pub phase: String,
+    pub models_promoted: bool,
+    pub infra_promoted: bool,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub targets: Vec<RestoreTargetDto>,
+}
+
+impl RestoreJobDetailResponse {
+    fn from_models(
+        job: crate::db::ReleaseRestoreJob,
+        targets: Vec<crate::db::ReleaseTarget>,
+        release_group: String,
+    ) -> Self {
+        Self {
+            id: job.id,
+            system: job.system,
+            source_release_id: job.source_release_id,
+            target_release_id: job.target_release_id,
+            source_version: job.source_version.clone(),
+            target_version: job.source_version,
+            release_group,
+            status: job.status,
+            phase: job.phase,
+            models_promoted: job.models_promoted,
+            infra_promoted: job.infra_promoted,
+            error_code: job.error_code,
+            error_message: job.error_message,
+            created_at: crate::utils::format_beijing_time(job.created_at),
+            completed_at: job.completed_at.map(crate::utils::format_beijing_time),
+            targets: targets
+                .into_iter()
+                .map(|target| RestoreTargetDto {
+                    id: target.id,
+                    device_id: target.device_id,
+                    release_group: target.release_group,
+                    operation: target.operation,
+                    attempt_no: target.attempt_no,
+                    status: target.status,
+                    previous_group_version: target.previous_group_version,
+                    target_config_version: target.target_config_version,
+                    error_message: target.error_message,
+                    request_summary: target.request_summary,
+                    response_status: target.response_status,
+                    response_summary: target.response_summary,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// 发布差异响应。

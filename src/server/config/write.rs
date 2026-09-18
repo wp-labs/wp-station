@@ -3,34 +3,24 @@
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::refresh_draft_release_logic;
-use crate::server::sync::{
-    sync_delete_to_gitea, sync_shared_connectors_to_infra_gitea, sync_to_gitea,
-};
+use crate::server::sync::{sync_delete_to_gitea, sync_to_gitea};
 use crate::utils::{
     SystemKind, delete_rule_from_project, touch_rule_in_project, write_rule_content,
 };
 
 use super::{SimpleResult, repo_layout};
 
-fn is_shared_connector_rule(rule_type: RuleType) -> bool {
-    matches!(rule_type, RuleType::SourceConnect | RuleType::SinkConnect)
-}
-
 async fn sync_config_change(
     system: SystemKind,
     rule_type: RuleType,
     commit_message: &str,
 ) -> Result<(), AppError> {
-    if is_shared_connector_rule(rule_type) {
-        sync_shared_connectors_to_infra_gitea(commit_message).await
-    } else {
-        sync_to_gitea(
-            commit_message,
-            system,
-            crate::db::ReleaseGroup::from_rule_type(rule_type),
-        )
-        .await
-    }
+    sync_to_gitea(
+        commit_message,
+        system,
+        crate::db::ReleaseGroup::from_rule_type(rule_type),
+    )
+    .await
 }
 
 async fn refresh_impacted_drafts(
@@ -38,14 +28,9 @@ async fn refresh_impacted_drafts(
     rule_type: RuleType,
     note: &str,
 ) -> Result<(), AppError> {
-    if is_shared_connector_rule(rule_type) {
-        let _ = refresh_draft_release_logic(SystemKind::Wparse, Some(note)).await;
-        let _ = refresh_draft_release_logic(SystemKind::Wfusion, Some(note)).await;
-        Ok(())
-    } else {
-        let _ = refresh_draft_release_logic(system, Some(note)).await;
-        Ok(())
-    }
+    let _ = rule_type;
+    let _ = refresh_draft_release_logic(system, Some(note)).await;
+    Ok(())
 }
 
 /// 保存配置文件内容。

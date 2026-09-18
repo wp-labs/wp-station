@@ -7,8 +7,8 @@
 //! 不尝试做动态系统注册，而是直接返回约定好的仓库路径。
 
 use crate::constants::project::{
-    DIR_GITEA_ROOT, REPO_SHARED_CONNECTORS, REPO_WFUSION_INFRA, REPO_WFUSION_MODELS,
-    REPO_WPARSE_INFRA, REPO_WPARSE_MODELS,
+    DIR_GITEA_ROOT, REPO_WFUSION_INFRA, REPO_WFUSION_MODELS, REPO_WPARSE_INFRA,
+    REPO_WPARSE_MODELS,
 };
 use crate::server::{RepoLayout, Setting};
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,8 @@ impl SystemProjectLayout {
         RepoLayout {
             models_root: self.models_root.clone(),
             infra_root: self.infra_root.clone(),
-            connectors_root: shared_connectors_root(),
+            // connectors 是 infra 仓库的一部分，不再使用跨系统共享工作区。
+            connectors_root: self.infra_root.clone(),
         }
     }
 }
@@ -99,13 +100,6 @@ pub fn layout_for_system(system: SystemKind) -> SystemProjectLayout {
         models_root: root.join(repo_name(system, ProjectArea::Models)),
         infra_root: root.join(repo_name(system, ProjectArea::Infra)),
     }
-}
-
-/// 返回共享 connectors 仓库根目录。
-pub fn shared_connectors_root() -> PathBuf {
-    project_workspace_root()
-        .join(DIR_GITEA_ROOT)
-        .join(REPO_SHARED_CONNECTORS)
 }
 
 /// 枚举当前支持的全部系统布局。

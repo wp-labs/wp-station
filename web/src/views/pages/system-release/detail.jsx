@@ -2,9 +2,9 @@ import React, { startTransition, useDeferredValue, useEffect, useLayoutEffect, u
 import { UpOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FloatButton, Modal } from 'antd';
+import { FloatButton } from 'antd';
 import { useSystem } from '@/contexts/SystemContext';
-import { fetchReleaseDetail, fetchReleaseDiff, rollbackRelease } from '@/services/release';
+import { fetchReleaseDetail, fetchReleaseDiff } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
 import { parseDiffText } from '@/components/diff/diffUtils';
 
@@ -210,34 +210,6 @@ function ReleaseDetailPage() {
     return () => window.cancelAnimationFrame(frameId);
   }, [diffState.files.length, diffState.loadingMore]);
 
-  const handleDeviceRollback = async (deviceId, targetId) => {
-    if (!window.confirm(t('systemRelease.rollbackConfirmMessage'))) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const result = await rollbackRelease(
-        releaseId,
-        [deviceId],
-        targetId ? [targetId] : [],
-        currentSystem,
-      );
-      Modal.success({
-        title: t('systemRelease.rollbackSuccess'),
-        content: result.message || t('systemRelease.rollbackSuccessMessage'),
-      });
-      await loadDetail();
-    } catch (rollbackError) {
-      Modal.error({
-        title: t('systemRelease.rollbackFailed'),
-        content: rollbackError.message || t('systemRelease.rollbackFailedMessage'),
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     loadDetail();
   }, [currentSystem, releaseId]);
@@ -343,11 +315,56 @@ function ReleaseDetailPage() {
       发布规则: t('systemRelease.stagePublishModels'),
       发布设施: t('systemRelease.stagePublishInfra'),
       发布全量: t('systemRelease.stagePublishAll'),
+      拉取历史副本: t('systemRelease.stageRestoreFetchHistory'),
+      '发布还原 Git': t('systemRelease.stageRestoreGit'),
+      发布还原规则配置: t('systemRelease.stageRestoreModels'),
+      发布还原设施配置: t('systemRelease.stageRestoreInfra'),
       准备: t('systemRelease.stagePrepare'),
       调用客户端: t('systemRelease.stageCallClient'),
       运行状态: t('systemRelease.stageRuntime'),
     };
     return stageMap[label] || label;
+  };
+
+  /** 将设备和还原任务返回的英文状态转换为页面展示文案。 */
+  const getDisplayStatus = (status) => {
+    const normalizedStatus = String(status || '').toUpperCase();
+    const statusMap = {
+      SUCCESS: t('systemRelease.statusSuccess'),
+      PASS: t('systemRelease.statusPass'),
+      FAIL: t('systemRelease.statusFail'),
+      PARTIAL_FAIL: t('systemRelease.statusPartialFail'),
+      RUNNING: t('systemRelease.statusRunning'),
+      QUEUED: t('systemRelease.statusQueued'),
+      WAIT: t('systemRelease.statusWait'),
+      INIT: t('systemRelease.statusInit'),
+      ROLLED_BACK: t('systemRelease.statusRolledBack'),
+      COMPLETED: t('systemRelease.statusCompleted'),
+    };
+    return statusMap[normalizedStatus] || status || '—';
+  };
+
+  /** 将还原任务阶段转换为用户可读的中文或英文文案。 */
+  const getRestorePhaseLabel = (phase) => {
+    const normalizedPhase = String(phase || '').toUpperCase();
+    const phaseMap = {
+      QUEUED: 'restorePhaseQueued',
+      PREPARING: 'restorePhasePreparing',
+      TAG_READY: 'restorePhaseTagReady',
+      MODELS_RUNNING: 'restorePhaseModelsRunning',
+      MODELS_SUCCESS: 'restorePhaseModelsSuccess',
+      INFRA_RUNNING: 'restorePhaseInfraRunning',
+      INFRA_SUCCESS: 'restorePhaseInfraSuccess',
+      PROMOTING: 'restorePhasePromoting',
+      PROMOTE_PENDING: 'restorePhasePromotePending',
+      ROLLBACK_RUNNING: 'restorePhaseRollbackRunning',
+      ROLLBACK_FAILED: 'restorePhaseRollbackFailed',
+      PREPARE_FAILED: 'restorePhasePrepareFailed',
+      COMPLETED: 'restorePhaseCompleted',
+    };
+    return phaseMap[normalizedPhase]
+      ? t(`systemRelease.${phaseMap[normalizedPhase]}`)
+      : phase || '—';
   };
 
   const renderStageChip = (stage, index) => {
@@ -390,6 +407,27 @@ function ReleaseDetailPage() {
     window.history.replaceState(null, '', nextUrl);
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+
+  // 必须在条件渲染之前固定调用，避免详情数据加载前后改变 Hook 顺序。
+  const machineGroups = useMemo(() => {
+    const grouped = new Map();
+    (detail?.devices || []).forEach((device) => {
+      const key = String(device.device_id ?? `${device.ip}:${device.port}`);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          deviceName: device.device_name,
+          ip: device.ip,
+          port: device.port,
+          targets: {},
+        });
+      }
+      const machine = grouped.get(key);
+      const group = device.release_group || 'draft';
+      machine.targets[group] = device;
+    });
+    return Array.from(grouped.values());
+  }, [detail?.devices]);
 
   if (loading) {
     return (
@@ -439,6 +477,143 @@ function ReleaseDetailPage() {
   const totalDiffFileCount = diffState.totalFiles || 0;
   const hasDiffFiles = totalDiffFileCount > 0;
 
+  const getDeviceStatusClass = (deviceStatus) => {
+    if (deviceStatus === 'SUCCESS' || deviceStatus === 'ROLLED_BACK') {
+      return 'is-pass';
+    }
+    if (deviceStatus === 'FAIL') {
+      return 'is-fail';
+    }
+    if (['RUNNING', 'QUEUED', 'ROLLBACKING'].includes(deviceStatus)) {
+      return 'is-running';
+    }
+    return 'is-wait';
+  };
+
+  const getMachineStatus = (targets, releaseGroup, restoreStatus) => {
+    const requiredGroups = releaseGroup === 'all'
+      ? ['models', 'infra']
+      : releaseGroup && releaseGroup !== 'draft'
+        ? [releaseGroup]
+        : [];
+    const statuses = Object.values(targets)
+      .filter(Boolean)
+      .map((target) => String(target.status || '').toUpperCase());
+    const failedRestore = ['FAIL', 'PARTIAL_FAIL', 'ROLLBACK_FAILED'].includes(
+      String(restoreStatus || '').toUpperCase(),
+    );
+    if (failedRestore || requiredGroups.some((group) => !targets[group])) {
+      return 'FAIL';
+    }
+    if (statuses.some((status) => status === 'FAIL')) {
+      return 'FAIL';
+    }
+    if (statuses.some((status) => ['RUNNING', 'QUEUED', 'ROLLBACKING'].includes(status))) {
+      return 'RUNNING';
+    }
+    if (statuses.length > 0 && statuses.every((status) => ['SUCCESS', 'ROLLED_BACK'].includes(status))) {
+      return 'SUCCESS';
+    }
+    return '—';
+  };
+
+  const renderDeviceTargetPanel = (target, group) => {
+    if (!target) {
+      const releaseGroup = detail.restore_info?.release_group || detail.release_group;
+      const groupExpected = releaseGroup === 'all' || releaseGroup === group;
+      const restoreFailed = detail.restore_info
+        && ['FAIL', 'PARTIAL_FAIL', 'ROLLBACK_FAILED'].includes(
+          String(detail.restore_info.status || '').toUpperCase(),
+        );
+      return (
+        <section
+          key={group}
+          style={{
+            minHeight: '150px',
+            padding: '14px 16px',
+            border: '1px solid #eef0f4',
+            borderRadius: '10px',
+            background: '#fafbfc',
+          }}
+        >
+          <h5 style={{ margin: '0 0 12px', fontSize: '14px', color: '#344054' }}>
+            {t('systemRelease.deviceReleaseGroup', {
+              group: getReleaseGroupTitle(group),
+            })}
+          </h5>
+          <div style={{ fontSize: '13px', color: '#98a2b3' }}>
+            {groupExpected && restoreFailed
+              ? t('systemRelease.restoreGroupNotStarted')
+              : t('systemRelease.notIncludedInRelease')}
+          </div>
+        </section>
+      );
+    }
+
+    const deviceStatus = String(target.status || '').toUpperCase();
+    const deviceClass = getDeviceStatusClass(deviceStatus);
+
+    return (
+      <section
+        key={group}
+        style={{
+          minWidth: 0,
+          padding: '14px 16px',
+          border: '1px solid #eef0f4',
+          borderRadius: '10px',
+          background: '#fafbfc',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+          <h5 style={{ margin: 0, fontSize: '14px', color: '#344054' }}>
+            {t('systemRelease.deviceReleaseGroup', {
+              group: getReleaseGroupTitle(group),
+            })}
+          </h5>
+          <span className={`release-status ${deviceClass}`}>{getDisplayStatus(deviceStatus)}</span>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            gap: '6px 12px',
+            marginBottom: '10px',
+            fontSize: '12px',
+            color: '#667085',
+          }}
+        >
+          <span>{t('systemRelease.currentConfigVersion')}: {target.config_version || '—'}</span>
+          <span>{t('systemRelease.targetConfigVersion')}: {target.target_config_version || '—'}</span>
+        </div>
+        {Array.isArray(target.stage_trace) && target.stage_trace.length > 0 ? (
+          <div className="summary-stages">{target.stage_trace.map(renderStageChip)}</div>
+        ) : null}
+        {(target.operation || target.attempt_no) && (
+          <div style={{ marginTop: '8px', fontSize: '12px', color: '#667085' }}>
+            {t('systemRelease.releaseOperation')}: {target.operation || 'publish'} ·{' '}
+            {t('systemRelease.releaseAttempt', { count: target.attempt_no || 1 })}
+          </div>
+        )}
+        {target.request_summary ? (
+          <div style={{ marginTop: '6px', fontSize: '12px', color: '#667085', whiteSpace: 'pre-wrap' }}>
+            {t('systemRelease.releaseRequest')}: {target.request_summary}
+          </div>
+        ) : null}
+        {target.response_status || target.response_summary ? (
+          <div style={{ marginTop: '6px', fontSize: '12px', color: '#667085', whiteSpace: 'pre-wrap' }}>
+            {t('systemRelease.releaseResponse')}: {target.response_status || '—'}{' '}
+            {target.response_summary || ''}
+          </div>
+        ) : null}
+        {target.error_message ? (
+          <div style={{ marginTop: '8px', fontSize: '13px', color: '#f1554c' }}>
+            {target.error_message}
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
   return (
     <div className="panel is-visible">
       <div className="release-detail">
@@ -459,7 +634,11 @@ function ReleaseDetailPage() {
               {t(isPublished ? 'sandbox.prepublishDetail' : 'sandbox.startSandbox')}
             </button>
           </div>
-          <h3 id="detail-title">{t('systemRelease.versionDetail', { version: detail.version })}</h3>
+          <h3 id="detail-title">
+            {detail.restore_info
+              ? `${t('systemRelease.restoreTaskTitle')} · ${t('systemRelease.versionDetail', { version: detail.version })}`
+              : t('systemRelease.versionDetail', { version: detail.version })}
+          </h3>
         </header>
 
         <div className="release-summary">
@@ -468,7 +647,11 @@ function ReleaseDetailPage() {
             <span className={`summary-value ${statusMeta.className}`}>{statusMeta.text}</span>
           </div>
           <div className="summary-item">
-            <span className="summary-label">{t('systemRelease.version')}</span>
+            <span className="summary-label">
+              {detail.restore_info
+                ? t('systemRelease.restoreCurrentVersion')
+                : t('systemRelease.version')}
+            </span>
             <span className="summary-value">{detail.version || '—'}</span>
           </div>
           <div className="summary-item">
@@ -493,29 +676,112 @@ function ReleaseDetailPage() {
           </div>
         </div>
 
+        {detail.restore_info ? (
+          <div
+            className="release-devices"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              alignItems: 'center',
+              gap: '10px 16px',
+              margin: '20px 0',
+              padding: '16px 18px',
+              border: '1px solid #b8d1ff',
+              borderRadius: '10px',
+              background: '#eef5ff',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', whiteSpace: 'nowrap' }}>
+                <strong style={{ color: '#1d4ed8', fontSize: '15px' }}>
+                  {t('systemRelease.restoreTaskTitle')}
+                </strong>
+                <span
+                  className={`release-status ${['FAIL', 'PARTIAL_FAIL', 'ROLLBACK_FAILED'].includes(String(detail.restore_info.status || '').toUpperCase())
+                    ? 'is-fail'
+                    : String(detail.restore_info.status || '').toUpperCase() === 'PASS'
+                      ? 'is-pass'
+                      : 'is-running'}`}
+                >
+                  {getDisplayStatus(detail.restore_info.status)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: '#475467' }}>
+                <span>{t('systemRelease.restoreSourceRelease')}: {detail.restore_info.source_version}</span>
+                <span>{t('systemRelease.restoreCurrentVersion')}: {detail.version}</span>
+                <span>{t('systemRelease.restoreTaskScope')}: {releaseGroupLabel}</span>
+                <span>{t('systemRelease.restoreTaskPhase')}: {getRestorePhaseLabel(detail.restore_info.phase)}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn ghost"
+              style={{ gridColumn: '2', justifySelf: 'end', fontSize: '12px', padding: '4px 12px' }}
+              onClick={() => navigate(decoratePath(`/system-release/${detail.restore_info.source_release_id}`))}
+            >
+              {t('systemRelease.viewSourceRelease')}
+            </button>
+          </div>
+        ) : null}
+
+        {Array.isArray(detail.restore_attempts) && detail.restore_attempts.length > 0 ? (
+          <div className="release-devices" style={{ margin: '20px 0' }}>
+            <header className="release-diff-header">
+              <h4>{t('systemRelease.restoreHistory')}</h4>
+            </header>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+              {detail.restore_attempts.map((attempt) => {
+                const status = String(attempt.status || '').toUpperCase();
+                const statusClass = status === 'PASS'
+                  ? 'is-pass'
+                  : ['FAIL', 'PARTIAL_FAIL', 'ROLLBACK_FAILED'].includes(status)
+                    ? 'is-fail'
+                    : 'is-running';
+                return (
+                  <button
+                    key={attempt.job_id}
+                    type="button"
+                    className="btn ghost"
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    onClick={() => navigate(decoratePath(`/system-release/${attempt.target_release_id}`))}
+                  >
+                    <span>{t('systemRelease.restoreReleaseType')}</span>
+                    <span>{attempt.target_version}</span>
+                    <span>
+                      {attempt.release_group === 'models'
+                        ? t('systemRelease.groupModels')
+                        : attempt.release_group === 'infra'
+                          ? t('systemRelease.groupInfraAlt')
+                          : t('systemRelease.groupAll')}
+                    </span>
+                    <span>{getRestorePhaseLabel(attempt.phase)}</span>
+                    <span className={`release-status ${statusClass}`}>{getDisplayStatus(status)}</span>
+                    <span>{attempt.completed_at || attempt.created_at}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         {Array.isArray(detail.devices) && detail.devices.length > 0 ? (
           <div className="release-devices" style={{ margin: '20px 0' }}>
             <header className="release-diff-header">
               <h4>{t('systemRelease.devicesTitle')}</h4>
             </header>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '12px' }}>
-              {detail.devices.map((device) => {
-                const deviceStatus = String(device.status || '').toUpperCase();
-                const deviceClass =
-                  deviceStatus === 'SUCCESS' || deviceStatus === 'ROLLED_BACK'
-                    ? 'is-pass'
-                    : deviceStatus === 'FAIL'
-                      ? 'is-fail'
-                      : deviceStatus === 'RUNNING' || deviceStatus === 'QUEUED' || deviceStatus === 'ROLLBACKING'
-                        ? 'is-running'
-                        : 'is-wait';
-                const machineLabel = device.device_name
-                  ? `${device.device_name} (${device.ip}:${device.port})`
-                  : `${device.ip}:${device.port}`;
-
+              {machineGroups.map((machine) => {
+                const machineLabel = machine.deviceName
+                  ? `${machine.deviceName} (${machine.ip}:${machine.port})`
+                  : `${machine.ip}:${machine.port}`;
+                const machineStatus = getMachineStatus(
+                  machine.targets,
+                  detail.restore_info?.release_group || detail.release_group,
+                  detail.restore_info?.status,
+                );
                 return (
                   <div
-                    key={device.id}
+                    key={machine.key}
                     style={{
                       border: '1px solid #f0f0f0',
                       borderRadius: '10px',
@@ -523,28 +789,25 @@ function ReleaseDetailPage() {
                       background: '#fafafa',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
                       <span style={{ fontWeight: 600, fontSize: '14px' }}>{machineLabel}</span>
-                      <span className={`release-status ${deviceClass}`}>{deviceStatus || '—'}</span>
-                      {(deviceStatus === 'FAIL' || deviceStatus === 'SUCCESS') && (
-                        <button
-                          type="button"
-                          className="btn ghost"
-                          style={{ marginLeft: 'auto', fontSize: '12px', padding: '4px 12px' }}
-                          onClick={() => handleDeviceRollback(device.device_id, device.id)}
-                        >
-                          {t('systemRelease.rollback')}
-                        </button>
-                      )}
+                      <span className={`release-status ${getDeviceStatusClass(machineStatus)}`}>
+                        {getDisplayStatus(machineStatus)}
+                      </span>
                     </div>
-                    {Array.isArray(device.stage_trace) && device.stage_trace.length > 0 ? (
-                      <div className="summary-stages">{device.stage_trace.map(renderStageChip)}</div>
-                    ) : null}
-                    {device.error_message ? (
-                      <div style={{ marginTop: '8px', fontSize: '13px', color: '#f1554c' }}>
-                        {device.error_message}
-                      </div>
-                    ) : null}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                        gap: '12px',
+                      }}
+                    >
+                      {['models', 'infra'].map((group) => (
+                        <div key={group}>
+                          {renderDeviceTargetPanel(machine.targets[group], group)}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}

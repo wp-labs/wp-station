@@ -49,6 +49,12 @@ export async function fetchReleases(options = {}) {
     updatedAt: item.updated_at,
     publishedAt: item.published_at,
     sandboxReady: item.sandbox_ready ?? false,
+    // 还原资格由后端计算；只接受真正的布尔值，避免旧接口或异常数据
+    // 返回字符串 "false" 时被 React 当成 truthy，错误显示还原按钮。
+    canRestore: item.can_restore === true,
+    restoreDisabledReason: item.restore_disabled_reason || '',
+    restoreGroups: Array.isArray(item.restore_groups) ? item.restore_groups : [],
+    latestRestore: item.latest_restore || null,
   }));
 
   return {
@@ -113,7 +119,8 @@ export async function publishRelease(releaseId, releaseGroup, deviceIds = [], no
     typeof note === 'string' && note.trim().length > 0 ? note.trim() : undefined;
   const response = await httpRequest.post(`/releases/${releaseId}/publish`, {
     system: resolveSystem(system),
-    release_group: releaseGroup,
+    release_group: releaseGroup === 'all' ? 'models' : releaseGroup,
+    full_publish: releaseGroup === 'all',
     device_ids: deviceIds,
     note: formattedNote,
   });
@@ -156,17 +163,30 @@ export async function rollbackRelease(releaseId, deviceIds = [], targetIds = [],
 }
 
 /**
- * 将发布成功版本的配置还原到当前草稿并同步到 Gitea。
+ * 以历史成功版本创建指定范围的还原发布任务。
  * @param {number|string} releaseId - 发布记录 ID
+ * @param {"models"|"infra"|"all"} releaseGroup - 还原范围
+ * @param {number[]} deviceIds - 目标设备 ID 列表
+ * @param {string} [note] - 还原备注
  * @param {string} system - 当前系统
  * @returns {Promise<Object>} 还原结果
  */
-export async function restoreRelease(releaseId, system) {
+export async function restoreRelease(releaseId, releaseGroup, deviceIds, note, system) {
   const username = sessionStorage.getItem('username');
   const response = await httpRequest.post(
     `/releases/${releaseId}/restore`,
-    { system: resolveSystem(system) },
+    {
+      system: resolveSystem(system),
+      release_group: releaseGroup,
+      device_ids: deviceIds,
+      note: typeof note === 'string' && note.trim() ? note.trim() : undefined,
+    },
     username ? { headers: { 'X-Operator': encodeURIComponent(username) } } : undefined,
   );
   return typeof response?.success === 'boolean' ? response : response?.data || response;
+}
+
+export async function fetchRestoreJob(jobId) {
+  const response = await httpRequest.get(`/release-restores/${jobId}`);
+  return response?.id ? response : response?.data || response;
 }

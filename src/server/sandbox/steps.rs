@@ -50,7 +50,7 @@ pub(super) async fn stage_prepare_workspace(
             workspace.display_relative(&workspace.project_dir)
         ),
         format!("system: {}", system.as_ref()),
-        "已按 models + infra(conf/topology) + shared connectors 合成沙盒目录".to_string(),
+        "已按当前系统的 models + infra(conf/connectors/topology) 合成沙盒目录".to_string(),
         "目录结构（截断预览）:".to_string(),
         format!(
             "$ tree -L 4 {}",

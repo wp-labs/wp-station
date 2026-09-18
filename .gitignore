@@ -48,7 +48,6 @@ project_infra/
 project_models/
 gitea/
 tmp/
-clean.py
-*.tls
 docs/
+*.tls
 /db/

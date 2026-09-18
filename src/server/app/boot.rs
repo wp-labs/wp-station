@@ -9,7 +9,7 @@
 
 use crate::db::{DeviceStatus, find_all_devices, get_pool, init_pool};
 use crate::server::sync::ensure_project_repositories;
-use crate::server::{Setting, spawn_release_task_runner};
+use crate::server::{Setting, spawn_release_task_runner, spawn_restore_task_runner};
 use crate::utils::{
     WarpParseService, WfusionService, all_system_layouts, check_device_health,
     init_default_configs_to_infra_for_system, init_default_configs_to_models_for_system,
@@ -61,6 +61,7 @@ pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<()>
     preload_admin_api_tls(setting)?;
 
     spawn_release_task_runner(setting.admin_api.clone());
+    spawn_restore_task_runner();
 
     match ensure_project_repositories().await {
         Ok(_) => info!("项目 Git 仓库检查完成"),

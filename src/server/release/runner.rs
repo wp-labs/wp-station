@@ -13,8 +13,9 @@ use crate::constants::release::{
 use crate::db::{
     Device, ReleaseStatus, ReleaseTarget, ReleaseTargetStatus, ReleaseTargetUpdate,
     find_devices_by_ids, find_due_release_targets, find_release_by_id,
-    find_release_targets_by_release, update_device_runtime_state, update_release_group,
-    update_release_status, update_release_target,
+    find_release_targets_by_release, find_restore_job_by_target_release,
+    update_device_runtime_state, update_release_group, update_release_status,
+    update_release_target,
 };
 use crate::server::release::{
     parse_stage_trace, serialize_stage_summary, serialize_stage_trace, stage_summary_for_release,
@@ -102,6 +103,12 @@ impl ReleaseTaskRunner {
         }
 
         for release_id in touched_releases {
+            if let Err(err) = self.advance_full_publish(release_id).await {
+                warn!(
+                    "推进全量发布下一分组失败: release_id={}, error={}",
+                    release_id, err
+                );
+            }
             if let Err(err) = self.refresh_release_status(release_id).await {
                 warn!(
                     "刷新发布单状态失败: release_id={}, error={}",
@@ -111,6 +118,76 @@ impl ReleaseTaskRunner {
         }
 
         Ok(true)
+    }
+
+    /// 全量发布固定按 models → infra 执行，只有 models 的所有设备成功后才放行 infra。
+    async fn advance_full_publish(&self, release_id: i32) -> Result<()> {
+        if find_restore_job_by_target_release(release_id)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        let targets = find_release_targets_by_release(release_id).await?;
+        let publish_targets = targets
+            .iter()
+            .filter(|target| target.operation == "publish")
+            .collect::<Vec<_>>();
+        let models = publish_targets
+            .iter()
+            .filter(|target| target.release_group == GROUP_MODELS)
+            .collect::<Vec<_>>();
+        let pending_infra = publish_targets
+            .iter()
+            .filter(|target| {
+                target.release_group == GROUP_INFRA
+                    && target.status == ReleaseTargetStatus::PENDING.as_ref()
+            })
+            .collect::<Vec<_>>();
+        if models.is_empty() || pending_infra.is_empty() {
+            return Ok(());
+        }
+
+        if models
+            .iter()
+            .any(|target| target.status == ReleaseTargetStatus::FAIL.as_ref())
+        {
+            for target in pending_infra {
+                update_release_target(
+                    target.id,
+                    ReleaseTargetUpdate {
+                        status: Some(ReleaseTargetStatus::FAIL),
+                        error_message: Some(Some("models 阶段失败，infra 未执行".to_string())),
+                        response_status: Some(Some("SKIPPED".to_string())),
+                        response_summary: Some(Some("前置分组未全部发布成功".to_string())),
+                        completed_at: Some(Some(Utc::now())),
+                        next_poll_at: Some(None),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
+            return Ok(());
+        }
+
+        if models
+            .iter()
+            .all(|target| target.status == ReleaseTargetStatus::SUCCESS.as_ref())
+        {
+            for target in pending_infra {
+                update_release_target(
+                    target.id,
+                    ReleaseTargetUpdate {
+                        status: Some(ReleaseTargetStatus::QUEUED),
+                        next_poll_at: Some(Some(Utc::now())),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
+            info!("全量发布进入 infra 阶段: release_id={}", release_id);
+        }
+        Ok(())
     }
 
     async fn process_target(
@@ -130,6 +207,7 @@ impl ReleaseTaskRunner {
         };
 
         match status {
+            ReleaseTargetStatus::PENDING => Ok(true),
             ReleaseTargetStatus::QUEUED => self.handle_deploy(target, device, false).await,
             ReleaseTargetStatus::ROLLBACK_PENDING => self.handle_deploy(target, device, true).await,
             ReleaseTargetStatus::RUNNING => self.poll_target(target, device, false).await,

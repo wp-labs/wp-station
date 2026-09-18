@@ -16,7 +16,7 @@ use zip::ZipArchive;
 
 use crate::constants::project::{
     ARCHIVE_IMPORT_STAGING_DIR, DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY,
-    IMPORTABLE_ROOT_DIRS, REPO_SHARED_CONNECTORS,
+    IMPORTABLE_ROOT_DIRS,
 };
 use crate::error::AppError;
 use crate::utils::{ProjectArea, SystemKind, repo_name};
@@ -225,10 +225,6 @@ fn has_split_import_dirs(dir: &Path, system: SystemKind) -> bool {
 
     dir.join(models_repo).join(DIR_MODELS).is_dir()
         || dir.join(infra_repo).join(DIR_CONF).is_dir()
-        || dir
-            .join(REPO_SHARED_CONNECTORS)
-            .join(DIR_CONNECTORS)
-            .is_dir()
         || dir.join(infra_repo).join(DIR_CONNECTORS).is_dir()
         || dir.join(infra_repo).join(DIR_TOPOLOGY).is_dir()
 }
@@ -246,29 +242,10 @@ fn normalize_import_root(dir: &Path, system: SystemKind) -> Result<PathBuf, AppE
     if dir.join(models_repo).join(DIR_MODELS).is_dir() {
         super::copy_named_entry(&dir.join(models_repo), &normalized, DIR_MODELS)?;
     }
-    if dir
-        .join(REPO_SHARED_CONNECTORS)
-        .join(DIR_CONNECTORS)
-        .is_dir()
-    {
-        super::copy_named_entry(
-            &dir.join(REPO_SHARED_CONNECTORS),
-            &normalized,
-            DIR_CONNECTORS,
-        )?;
-    }
-    for name in [DIR_CONF, DIR_TOPOLOGY] {
+    for name in [DIR_CONF, DIR_CONNECTORS, DIR_TOPOLOGY] {
         if dir.join(infra_repo).join(name).is_dir() {
             super::copy_named_entry(&dir.join(infra_repo), &normalized, name)?;
         }
-    }
-    if !dir
-        .join(REPO_SHARED_CONNECTORS)
-        .join(DIR_CONNECTORS)
-        .is_dir()
-        && dir.join(infra_repo).join(DIR_CONNECTORS).is_dir()
-    {
-        super::copy_named_entry(&dir.join(infra_repo), &normalized, DIR_CONNECTORS)?;
     }
     Ok(normalized)
 }

@@ -18,6 +18,7 @@ pub type ReleaseTarget = Model;
 #[strum(serialize_all = "UPPERCASE")]
 #[allow(non_camel_case_types)]
 pub enum ReleaseTargetStatus {
+    PENDING,
     QUEUED,
     RUNNING,
     SUCCESS,
@@ -43,6 +44,12 @@ pub struct NewReleaseTarget {
     pub error_message: Option<String>,
     pub next_poll_at: Option<DateTime<Utc>>,
     pub poll_attempts: i32,
+    pub attempt_no: i32,
+    pub operation: String,
+    pub previous_group_version: Option<String>,
+    pub request_summary: Option<String>,
+    pub response_status: Option<String>,
+    pub response_summary: Option<String>,
 }
 
 /// 更新发布目标时使用的可选字段集合。
@@ -59,6 +66,9 @@ pub struct ReleaseTargetUpdate {
     pub next_poll_at: Option<Option<DateTime<Utc>>>,
     pub poll_attempts: Option<i32>,
     pub completed_at: Option<Option<DateTime<Utc>>>,
+    pub request_summary: Option<Option<String>>,
+    pub response_status: Option<Option<String>>,
+    pub response_summary: Option<Option<String>>,
 }
 
 /// 批量创建 release target 记录
@@ -84,6 +94,12 @@ pub async fn create_release_targets(targets: Vec<NewReleaseTarget>) -> DbResult<
             error_message: Set(target.error_message),
             next_poll_at: Set(target.next_poll_at),
             poll_attempts: Set(target.poll_attempts),
+            attempt_no: Set(target.attempt_no),
+            operation: Set(target.operation),
+            previous_group_version: Set(target.previous_group_version),
+            request_summary: Set(target.request_summary),
+            response_status: Set(target.response_status),
+            response_summary: Set(target.response_summary),
             created_at: Set(now),
             updated_at: Set(now),
             completed_at: Set(None),
@@ -122,6 +138,7 @@ pub async fn find_due_release_targets(
     let db = pool.inner();
 
     let status_list = [
+        ReleaseTargetStatus::PENDING,
         ReleaseTargetStatus::QUEUED,
         ReleaseTargetStatus::RUNNING,
         ReleaseTargetStatus::ROLLBACK_PENDING,
@@ -196,6 +213,15 @@ pub async fn update_release_target(
     }
     if let Some(completed_at) = changes.completed_at {
         active_model.completed_at = Set(completed_at);
+    }
+    if let Some(request_summary) = changes.request_summary {
+        active_model.request_summary = Set(request_summary);
+    }
+    if let Some(response_status) = changes.response_status {
+        active_model.response_status = Set(response_status);
+    }
+    if let Some(response_summary) = changes.response_summary {
+        active_model.response_summary = Set(response_summary);
     }
 
     active_model.updated_at = Set(Utc::now());

@@ -9,20 +9,129 @@ mod setup;
 use crate::db::{ReleaseGroup, RuleType};
 use crate::error::AppError;
 use crate::server::{RepoLayout, Setting};
-use crate::utils::{
-    ProjectArea, SystemKind, all_system_layouts, init_default_connectors_to_shared,
-    layout_for_system, shared_connectors_root,
-};
+use crate::utils::{ProjectArea, SystemKind, layout_for_system};
 use gitea::{GiteaClient, GiteaConfig};
-use std::fs;
-use std::path::{Path, PathBuf};
-
-use crate::constants::project::DIR_CONNECTORS;
-
-use self::publish::sync_named_repo_with_retry;
+use std::path::PathBuf;
 
 pub use self::publish::{get_next_version, push_and_tag_release};
 pub use self::setup::{ensure_project_repositories, init_gitea_repo};
+
+#[derive(Debug, Clone)]
+pub struct RestoreCandidates {
+    pub models_previous_head: Option<String>,
+    pub infra_previous_head: Option<String>,
+    pub models_candidate_commit: Option<String>,
+    pub infra_candidate_commit: Option<String>,
+}
+
+/// 从历史仓库标签创建还原候选提交，仅推送目标标签，不移动 main。
+///
+/// 只有用户选择的仓库会参与候选提交。选择 models 时不读取、不校验、
+/// 不创建 infra 候选；选择 all 时才按 models → infra 一起准备。
+pub fn prepare_restore_candidates(
+    system: SystemKind,
+    source_version: &str,
+    target_version: &str,
+    groups: &[ReleaseGroup],
+) -> Result<RestoreCandidates, AppError> {
+    let setting = Setting::load();
+    let layout = layout_for_system(system).as_repo_layout();
+    let client = build_gitea_client(&setting)?;
+    let mut candidates = RestoreCandidates {
+        models_previous_head: None,
+        infra_previous_head: None,
+        models_candidate_commit: None,
+        infra_candidate_commit: None,
+    };
+
+    for group in groups {
+        let (path, label) = match group {
+            ReleaseGroup::Models => (&layout.models_root, "models"),
+            ReleaseGroup::Infra => (&layout.infra_root, "infra"),
+        };
+        let repo = client
+            .open(path)
+            .map_err(|error| AppError::git(format!("打开 {label} 仓库失败: {error}")))?;
+        ensure_repo_tag_with_open_repo(&repo, source_version, label)?;
+        let (previous_head, candidate_commit) = repo
+            .create_candidate_from_tag(
+                source_version,
+                target_version,
+                &format!("Restore {source_version} as {target_version}"),
+            )
+            .map_err(|error| AppError::git(format!("创建 {label} 候选版本失败: {error}")))?;
+        match group {
+            ReleaseGroup::Models => {
+                candidates.models_previous_head = Some(previous_head);
+                candidates.models_candidate_commit = Some(candidate_commit);
+            }
+            ReleaseGroup::Infra => {
+                candidates.infra_previous_head = Some(previous_head);
+                candidates.infra_candidate_commit = Some(candidate_commit);
+            }
+        }
+    }
+
+    Ok(candidates)
+}
+
+/// 将指定分组的候选提交提升为正式 main。
+pub fn promote_restore_candidate(
+    system: SystemKind,
+    group: ReleaseGroup,
+    expected_head: &str,
+    candidate_commit: &str,
+) -> Result<(), AppError> {
+    let setting = Setting::load();
+    let layout = layout_for_system(system).as_repo_layout();
+    let client = build_gitea_client(&setting)?;
+    let path = repo_path_for_group(&layout, group);
+    let repo = client
+        .open(&path)
+        .map_err(|error| AppError::git(format!("打开候选仓库失败: {error}")))?;
+    repo.promote_candidate(expected_head, candidate_commit)
+        .map_err(|error| AppError::git(format!("提升候选版本失败: {error}")))
+}
+
+/// 清理尚未提升为正式版本的还原候选标签。
+///
+/// 失败还原不能把临时版本留在 Gitea，否则后续版本选择和人工排查都会把
+/// 未发布内容误认为正式版本。候选提交本身由 Git 垃圾回收处理，不需要额外删除。
+pub fn cleanup_restore_candidates(
+    system: SystemKind,
+    target_version: &str,
+    groups: &[ReleaseGroup],
+) -> Result<(), AppError> {
+    let setting = Setting::load();
+    let layout = layout_for_system(system).as_repo_layout();
+    let client = build_gitea_client(&setting)?;
+    let mut errors = Vec::new();
+
+    for group in groups {
+        let path = match group {
+            ReleaseGroup::Models => layout.models_root.clone(),
+            ReleaseGroup::Infra => layout.infra_root.clone(),
+        };
+        let repo = client
+            .open(&path)
+            .map_err(|error| AppError::git(format!("打开 {} 仓库失败: {error}", group.as_ref())))?;
+        if let Err(error) = repo.delete_remote_tag(target_version) {
+            errors.push(format!("{} 远程标签: {error}", group.as_ref()));
+        }
+        if let Err(error) = repo.delete_tag(target_version) {
+            errors.push(format!("{} 本地标签: {error}", group.as_ref()));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::git(format!(
+            "清理还原候选标签失败: {}",
+            errors.join("; ")
+        )))
+    }
+}
 
 /// 构造 Gitea 客户端。
 fn build_gitea_client(setting: &Setting) -> Result<GiteaClient, AppError> {
@@ -94,61 +203,6 @@ pub async fn sync_to_gitea_all(commit_message: &str, system: SystemKind) -> Resu
     Ok(())
 }
 
-/// 将共享 connectors 镜像到当前系统的 infra 仓库。
-pub(crate) fn mirror_shared_connectors_to_system_infra(system: SystemKind) -> Result<(), AppError> {
-    let layout = layout_for_system(system).as_repo_layout();
-    mirror_shared_connectors_into_infra_root(&layout.infra_root)
-}
-
-/// 将共享 connectors 镜像到全部系统的 infra 仓库。
-pub(crate) fn mirror_shared_connectors_to_all_system_infra() -> Result<(), AppError> {
-    for layout in all_system_layouts() {
-        mirror_shared_connectors_into_infra_root(&layout.infra_root)?;
-    }
-    Ok(())
-}
-
-/// 准备共享 connectors 工作区，并同步镜像到各系统的本地 infra 仓库。
-pub(crate) fn prepare_shared_connectors_workspace() -> Result<(), AppError> {
-    let shared_root = shared_connectors_root();
-    let shared_connectors_dir = shared_root.join(DIR_CONNECTORS);
-
-    if !dir_has_entries(&shared_connectors_dir)? {
-        if let Some(source_dir) = first_system_connectors_dir() {
-            copy_named_entry(&source_dir, &shared_root, DIR_CONNECTORS)?;
-            info!(
-                "已从系统 infra 回填共享 connectors 目录: source={}, target={}",
-                source_dir.display(),
-                shared_root.display()
-            );
-        } else {
-            init_default_connectors_to_shared(shared_root.to_string_lossy().as_ref()).map_err(
-                |e| AppError::internal(format!("初始化共享 connectors 默认配置失败: {}", e)),
-            )?;
-            info!(
-                "已初始化共享 connectors 默认配置: path={}",
-                shared_root.display()
-            );
-        }
-    }
-
-    mirror_shared_connectors_to_all_system_infra()?;
-    Ok(())
-}
-
-/// 同步共享 connectors 到各系统的 infra 仓库并推送到 Gitea。
-pub async fn sync_shared_connectors_to_infra_gitea(commit_message: &str) -> Result<(), AppError> {
-    mirror_shared_connectors_to_all_system_infra()?;
-
-    if should_skip_gitea_sync() {
-        info!("跳过共享 connectors infra Gitea 同步: reason=WARP_STATION_SKIP_GITEA");
-        return Ok(());
-    }
-
-    sync_to_gitea(commit_message, SystemKind::Wparse, ReleaseGroup::Infra).await?;
-    sync_to_gitea(commit_message, SystemKind::Wfusion, ReleaseGroup::Infra).await
-}
-
 /// 同步删除到 Gitea
 pub async fn sync_delete_to_gitea(
     system: SystemKind,
@@ -156,110 +210,13 @@ pub async fn sync_delete_to_gitea(
     file_name: &str,
 ) -> Result<(), AppError> {
     let commit_message = format!("删除 {} 文件: {}", rule_type.as_ref(), file_name);
-    if matches!(rule_type, RuleType::SourceConnect | RuleType::SinkConnect) {
-        sync_shared_connectors_to_infra_gitea(&commit_message).await?;
-    } else {
-        sync_to_gitea(
-            &commit_message,
-            system,
-            ReleaseGroup::from_rule_type(rule_type),
-        )
-        .await?;
-    }
+    sync_to_gitea(
+        &commit_message,
+        system,
+        ReleaseGroup::from_rule_type(rule_type),
+    )
+    .await?;
     Ok(())
-}
-
-/// 将指定发布版本的仓库内容还原到本地工作区，并提交推送到 Gitea。
-///
-/// 还原只作用于发布记录包含的仓库分组：models 还原规则配置，infra 还原
-/// 设施配置。工作区会先清理 `.git` 以外的内容，避免草稿中新建的未跟踪文件
-/// 在还原后继续混入下一次发布。
-pub async fn restore_release_to_gitea(
-    system: SystemKind,
-    version: &str,
-    groups: &[ReleaseGroup],
-) -> Result<(), AppError> {
-    if groups.is_empty() {
-        return Err(AppError::validation("还原范围不能为空"));
-    }
-
-    let setting = Setting::load();
-    let layout = layout_for_system(system).as_repo_layout();
-    let gitea_client = build_gitea_client(&setting)?;
-
-    // 先检查所有目标仓库是否都能找到版本标签，避免全量还原过程中途失败而只恢复一半。
-    for group in groups {
-        let project_path = repo_path_for_group(&layout, *group);
-        let repo_label = format!(
-            "system={}, area={}, version={}",
-            system.as_ref(),
-            area_from_group(*group).as_ref(),
-            version
-        );
-        ensure_repo_tag(&gitea_client, &project_path, version, &repo_label)?;
-    }
-
-    for group in groups {
-        let project_path = repo_path_for_group(&layout, *group);
-        let repo_label = format!(
-            "system={}, area={}, version={}",
-            system.as_ref(),
-            area_from_group(*group).as_ref(),
-            version
-        );
-        restore_repo_to_tag(&gitea_client, &project_path, version, &repo_label)?;
-        sync_named_repo_with_retry(
-            &gitea_client,
-            &project_path,
-            &format!("还原发布配置 {}", version),
-            &repo_label,
-        )?;
-    }
-
-    // connectors 是双系统共享的，Infra 发布 tag 中保存的是当时的镜像；还原后
-    // 需要回写共享工作区，再同步到两个系统的 infra Gitea 仓库，避免下一次发布
-    // 又被当前共享 connectors 覆盖。
-    if groups.contains(&ReleaseGroup::Infra) {
-        let shared_root = shared_connectors_root();
-        copy_named_entry(&layout.infra_root, &shared_root, DIR_CONNECTORS)?;
-        sync_shared_connectors_to_infra_gitea(&format!("还原共享 connectors {}", version)).await?;
-    }
-
-    Ok(())
-}
-
-/// 将单个本地仓库恢复到指定 tag，保留 `.git` 目录和当前分支。
-fn restore_repo_to_tag(
-    gitea_client: &GiteaClient,
-    project_path: &Path,
-    version: &str,
-    repo_label: &str,
-) -> Result<(), AppError> {
-    let local_repo = gitea_client
-        .open(project_path)
-        .map_err(|e| AppError::internal(format!("打开还原仓库失败: {}", e)))?;
-
-    ensure_repo_tag_with_open_repo(&local_repo, version, repo_label)?;
-
-    clear_repo_worktree_preserving_git(project_path)?;
-    local_repo
-        .checkout(version)
-        .map_err(|e| AppError::internal(format!("检出发布版本失败: {}", e)))?;
-    info!("发布配置还原到本地仓库成功: repo={}", repo_label);
-    Ok(())
-}
-
-/// 确保本地仓库可解析指定发布 tag；本地缺失时先同步远端标签。
-fn ensure_repo_tag(
-    gitea_client: &GiteaClient,
-    project_path: &Path,
-    version: &str,
-    repo_label: &str,
-) -> Result<(), AppError> {
-    let local_repo = gitea_client
-        .open(project_path)
-        .map_err(|e| AppError::internal(format!("打开还原仓库失败: {}", e)))?;
-    ensure_repo_tag_with_open_repo(&local_repo, version, repo_label)
 }
 
 fn ensure_repo_tag_with_open_repo(
@@ -289,102 +246,5 @@ fn ensure_repo_tag_with_open_repo(
             repo_label, version
         )));
     }
-    Ok(())
-}
-
-/// 清空仓库工作区但保留 Git 元数据，以便 tag 检出后得到精确快照。
-fn clear_repo_worktree_preserving_git(project_path: &Path) -> Result<(), AppError> {
-    for entry in fs::read_dir(project_path).map_err(AppError::internal)? {
-        let entry = entry.map_err(AppError::internal)?;
-        if entry.file_name() == std::ffi::OsStr::new(".git") {
-            continue;
-        }
-
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(path).map_err(AppError::internal)?;
-        } else {
-            fs::remove_file(path).map_err(AppError::internal)?;
-        }
-    }
-    Ok(())
-}
-
-fn first_system_connectors_dir() -> Option<PathBuf> {
-    all_system_layouts().into_iter().find_map(|layout| {
-        let connectors_dir = layout.infra_root.join(DIR_CONNECTORS);
-        match dir_has_entries(&connectors_dir) {
-            Ok(true) => Some(layout.infra_root),
-            _ => None,
-        }
-    })
-}
-
-fn mirror_shared_connectors_into_infra_root(infra_root: &Path) -> Result<(), AppError> {
-    let shared_root = shared_connectors_root();
-    copy_named_entry(&shared_root, infra_root, DIR_CONNECTORS)
-}
-
-fn dir_has_entries(path: &Path) -> Result<bool, AppError> {
-    if !path.exists() {
-        return Ok(false);
-    }
-
-    let mut entries = fs::read_dir(path).map_err(AppError::internal)?;
-    Ok(entries
-        .next()
-        .transpose()
-        .map_err(AppError::internal)?
-        .is_some())
-}
-
-fn copy_named_entry(source_root: &Path, target_root: &Path, name: &str) -> Result<(), AppError> {
-    let source = source_root.join(name);
-    if !source.exists() {
-        return Err(AppError::validation(format!(
-            "源目录缺少必要内容: {}",
-            source.display()
-        )));
-    }
-
-    let target = target_root.join(name);
-    if target.exists() {
-        if target.is_dir() {
-            fs::remove_dir_all(&target).map_err(AppError::internal)?;
-        } else {
-            fs::remove_file(&target).map_err(AppError::internal)?;
-        }
-    }
-
-    if source.is_dir() {
-        copy_dir_recursive(&source, &target)?;
-    } else {
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(AppError::internal)?;
-        }
-        fs::copy(&source, &target).map_err(AppError::internal)?;
-    }
-
-    Ok(())
-}
-
-fn copy_dir_recursive(source_dir: &Path, target_dir: &Path) -> Result<(), AppError> {
-    fs::create_dir_all(target_dir).map_err(AppError::internal)?;
-
-    for entry in fs::read_dir(source_dir).map_err(AppError::internal)? {
-        let entry = entry.map_err(AppError::internal)?;
-        let source_path = entry.path();
-        let target_path = target_dir.join(entry.file_name());
-
-        if source_path.is_dir() {
-            copy_dir_recursive(&source_path, &target_path)?;
-        } else if source_path.is_file() {
-            if let Some(parent) = target_path.parent() {
-                fs::create_dir_all(parent).map_err(AppError::internal)?;
-            }
-            fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
-        }
-    }
-
     Ok(())
 }

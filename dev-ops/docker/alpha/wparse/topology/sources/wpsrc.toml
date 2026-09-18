@@ -1,7 +1,0 @@
-# TCP输入源
-[[sources]]
-enable =  true
-key = "tcp_web"
-connect = "tcp_src"
-params = { prefer_newline = true , port =19002, instances = 1}
-tags = ["src:tcp"]

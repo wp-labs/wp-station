@@ -12,7 +12,8 @@ use crate::error::AppError;
 use chrono::DateTime;
 use wf_engine::alert::OutputRecord;
 use wf_engine::match_engine::{
-    CepStateMachine, CloseOutput, CloseReason, Event, RuleExecutor, StepResult, Value, WindowLookup,
+    CepStateMachine, CloseOutput, CloseReason, EngineHashMap, Event, JoinRow, RuleExecutor,
+    StepResult, Value, WindowLookup,
 };
 use wf_lang::WindowSchema;
 use wf_lang::plan::RulePlan;
@@ -77,7 +78,7 @@ impl WindowLookup for NullWindowLookup {
         None
     }
 
-    fn snapshot(&self, _window: &str) -> Option<Vec<std::collections::HashMap<String, Value>>> {
+    fn snapshot(&self, _window: &str) -> Option<Vec<JoinRow>> {
         None
     }
 }
@@ -406,7 +407,10 @@ fn handle_output_record(
     match_count: &mut u64,
 ) {
     if is_internal_window_name(&record.yield_target) {
-        queue.push_back((record.yield_target.clone(), output_record_to_event(&record)));
+        queue.push_back((
+            record.yield_target.to_string(),
+            output_record_to_event(&record),
+        ));
     } else {
         alerts.push(record);
         *match_count += 1;
@@ -414,13 +418,13 @@ fn handle_output_record(
 }
 
 fn output_record_to_event(record: &OutputRecord) -> Event {
-    let mut fields = HashMap::new();
+    let mut fields: EngineHashMap<_, _> = EngineHashMap::default();
     fields.insert(
-        PIPE_EVENT_TIME_FIELD.to_string(),
+        PIPE_EVENT_TIME_FIELD.to_string().into(),
         Value::Number(record.event_time_nanos as f64),
     );
     for (name, value) in &record.yield_fields {
-        fields.insert(name.clone(), value.clone());
+        fields.insert(name.to_string().into(), value.clone());
     }
     Event { fields }
 }
@@ -429,13 +433,13 @@ fn json_to_event_with_time_fields(
     json: &serde_json::Value,
     time_fields: &HashSet<String>,
 ) -> Event {
-    let mut fields = HashMap::new();
+    let mut fields: EngineHashMap<_, _> = EngineHashMap::default();
     if let serde_json::Value::Object(map) = json {
         for (key, value) in map {
             if time_fields.contains(key)
                 && let Some(nanos) = parse_json_timestamp_nanos(value)
             {
-                fields.insert(key.clone(), Value::Number(nanos as f64));
+                fields.insert(key.clone().into(), Value::Number(nanos as f64));
                 continue;
             }
 
@@ -447,11 +451,11 @@ fn json_to_event_with_time_fields(
                         continue;
                     }
                 }
-                serde_json::Value::String(string) => Value::Str(string.clone()),
+                serde_json::Value::String(string) => Value::Str(string.clone().into()),
                 serde_json::Value::Bool(boolean) => Value::Bool(*boolean),
                 _ => continue,
             };
-            fields.insert(key.clone(), value);
+            fields.insert(key.clone().into(), value);
         }
     }
     Event { fields }

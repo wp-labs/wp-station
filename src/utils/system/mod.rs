@@ -18,5 +18,4 @@ pub use client_wparse::{
 };
 pub use layout::{
     ProjectArea, SystemKind, SystemProjectLayout, all_system_layouts, layout_for_system, repo_name,
-    shared_connectors_root,
 };

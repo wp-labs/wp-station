@@ -141,6 +141,102 @@ pub(super) fn build_release_summary_stages(
     ]
 }
 
+/// 构造还原发布专用阶段，避免把还原过程误显示成普通发布流程。
+pub(super) fn build_restore_summary_stages(
+    status: &str,
+    phase: &str,
+    release_group: &str,
+    targets: &[ReleaseDeviceDetail],
+) -> Vec<StageSnapshot> {
+    let status = status.to_ascii_uppercase();
+    let phase = phase.to_ascii_uppercase();
+    let failed = matches!(status.as_str(), "FAIL" | "PARTIAL_FAIL" | "ROLLBACK_FAILED");
+    let passed = status == "PASS";
+
+    let history_status = match phase.as_str() {
+        "QUEUED" => "pending",
+        "PREPARING" => "running",
+        "PREPARE_FAILED" => "fail",
+        _ => "pass",
+    };
+    let git_status = match phase.as_str() {
+        "QUEUED" => "pending",
+        "PREPARING" => "running",
+        "PREPARE_FAILED" => "fail",
+        "PROMOTING" | "PROMOTE_PENDING" => "running",
+        _ => "pass",
+    };
+
+    let mut stages = vec![
+        StageSnapshot {
+            label: "拉取历史副本".to_string(),
+            status: history_status.to_string(),
+            detail: None,
+        },
+        StageSnapshot {
+            label: "发布还原 Git".to_string(),
+            status: git_status.to_string(),
+            detail: None,
+        },
+    ];
+
+    for (group, label) in [
+        ("models", "发布还原规则配置"),
+        ("infra", "发布还原设施配置"),
+    ] {
+        if release_group != "all" && release_group != group {
+            continue;
+        }
+        let group_targets = targets
+            .iter()
+            .filter(|target| target.release_group == group)
+            .collect::<Vec<_>>();
+        let group_status = if group_targets
+            .iter()
+            .any(|target| target.operation == "compensate" || target.status == "FAIL")
+        {
+            "fail"
+        } else if !group_targets.is_empty()
+            && group_targets
+                .iter()
+                .all(|target| matches!(target.status.as_str(), "SUCCESS" | "ROLLED_BACK"))
+        {
+            if failed
+                && group_targets
+                    .iter()
+                    .any(|target| target.operation == "compensate")
+            {
+                "fail"
+            } else {
+                "pass"
+            }
+        } else if passed {
+            "pass"
+        } else {
+            match (group, phase.as_str()) {
+                ("models", "MODELS_RUNNING") | ("infra", "INFRA_RUNNING") => "running",
+                ("models", "MODELS_SUCCESS")
+                | ("models", "INFRA_RUNNING")
+                | ("models", "INFRA_SUCCESS")
+                | ("models", "PROMOTING")
+                | ("models", "PROMOTE_PENDING")
+                | ("infra", "INFRA_SUCCESS")
+                | ("infra", "PROMOTING")
+                | ("infra", "PROMOTE_PENDING") => "pass",
+                (_, "PREPARE_FAILED") | (_, "COMPLETED") if failed => "fail",
+                _ => "pending",
+            }
+        };
+        stages.push(StageSnapshot {
+            label: label.to_string(),
+            status: group_status.to_string(),
+            detail: None,
+        });
+    }
+
+    stages
+}
+
 /// 从数据库中的字符串状态解析为发布状态枚举。
 pub(super) fn parse_release_status(release: &Release) -> Result<ReleaseStatus, AppError> {
     release
@@ -178,15 +274,21 @@ pub(super) fn build_device_detail(
     Ok(ReleaseDeviceDetail {
         id: target.id,
         device_id: target.device_id,
+        release_group: target.release_group.clone(),
         device_name: name,
         ip,
         port,
         status: target.status.clone(),
+        operation: target.operation.clone(),
+        attempt_no: target.attempt_no,
         client_version,
         config_version: target.current_config_version.clone(),
         target_config_version: target.target_config_version.clone(),
         stage_trace: parse_stage_trace(target.stage_trace.as_deref()),
         error_message: target.error_message.clone(),
+        request_summary: target.request_summary.clone(),
+        response_status: target.response_status.clone(),
+        response_summary: target.response_summary.clone(),
         last_seen_at,
     })
 }

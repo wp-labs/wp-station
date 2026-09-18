@@ -1,6 +1,0 @@
-[defaults]
-tags = []
-
-[defaults.expect]
-basis = "total_input"
-mode = "warn"

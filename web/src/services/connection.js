@@ -80,6 +80,7 @@ export async function fetchOnlineConnections(system) {
     port: conn.port,
     remark: conn.remark || '',
     status: conn.status || 'active',
+    configVersion: conn.config_version || conn.configVersion || '',
   }));
 }
 

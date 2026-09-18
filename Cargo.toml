@@ -1,6 +1,6 @@
 [package]
 name = "wp-station"
-version = "0.3.6" #@gxl:set(version)
+version = "0.3.7" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
 
@@ -35,17 +35,17 @@ tar = "0.4"
 flate2 = "1"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
-wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.25.8" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.25.8" }
-wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.25.8" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
 wpl           = { package = "wp-lang",       version = "~0.5" }
 wp_primitives = { package = "wp-primitives", version = "~0.2" }
 wp-knowledge  = "~0.16"
 wp-model-core = "~0.9"
 wp-parse-api = "~0.11"
 wp-data-fmt = "0.9"
-wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.4.0" }
-wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.4.0" }
+wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
+wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
 
 # Tree-sitter 支持（用于代码格式化）
 # tree-sitter = "0.26.6"

@@ -45,10 +45,6 @@ pub async fn push_and_tag_release(
     system: SystemKind,
     group: ReleaseGroup,
 ) -> Result<(), AppError> {
-    if matches!(group, ReleaseGroup::Infra) {
-        super::mirror_shared_connectors_to_system_infra(system)?;
-    }
-
     let setting = Setting::load();
     let layout = layout_for_system(system).as_repo_layout();
     let gitea_client = super::build_gitea_client(&setting)?;

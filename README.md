@@ -97,6 +97,10 @@ data_collect_url = "http://localhost:18080/wp-monitor"
 
 > 默认推荐直接使用 `database.url="sqlite:///data/wp-station/station.db"`。只有当 `database.url` 为空时，才会按 `host/port/name/username/password` 连接 PostgreSQL。`project_models` 默认 `./project_models`，`project_infra` 默认 `./project_infra`。配置文件支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`、`WP_STATION__PROJECT_INFRA=/data/project_infra`。设备管理接口路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定；当前代码兼容旧配置节名 `[warparse]`，但新配置请统一使用 `[admin_api]`。
 
+## 部署
+
+部署配置、脚本和编排文件统一维护在独立项目：[cust-wp-deploy](https://cnb.cool/dy-sec/core-engine/data-parse/cust-wp-deploy)。
+
 ### 2. 启动后端
 
 ```bash

@@ -36,7 +36,7 @@ pub struct SandboxWorkspace {
     pub source_models_root: PathBuf,
     /// 源 infra 仓库目录。
     pub source_infra_root: PathBuf,
-    /// 共享 connectors 仓库目录。
+    /// 当前系统 infra 仓库中的 connectors 来源目录。
     pub source_connectors_root: PathBuf,
 }
 

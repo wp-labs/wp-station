@@ -42,20 +42,6 @@ pub fn init_default_configs_to_infra(infra_root: &str) -> Result<(), AppError> {
     init_default_configs_to_infra_for_system(SystemKind::Wparse, infra_root)
 }
 
-/// 将共享 connectors 默认配置补齐到指定仓库，仅补缺失文件。
-///
-/// 共享 connectors 的唯一默认来源为 `default_configs/shared/connectors`。
-pub fn init_default_connectors_to_shared(connectors_root: &str) -> Result<(), AppError> {
-    init_default_configs_with_mappings(
-        connectors_root,
-        "shared/connectors",
-        &[DefaultCopyMapping {
-            source_prefix: "shared/connectors",
-            target_prefix: DIR_CONNECTORS,
-        }],
-    )
-}
-
 /// 按系统将默认 models 配置补齐到指定 models 仓库，仅补缺失文件。
 pub fn init_default_configs_to_models_for_system(
     system: SystemKind,
@@ -123,6 +109,10 @@ pub fn init_default_configs_to_infra_for_system(
                     target_prefix: DIR_CONF,
                 },
                 DefaultCopyMapping {
+                    source_prefix: "wparse/connectors",
+                    target_prefix: DIR_CONNECTORS,
+                },
+                DefaultCopyMapping {
                     source_prefix: "wparse/topology",
                     target_prefix: DIR_TOPOLOGY,
                 },
@@ -141,6 +131,10 @@ pub fn init_default_configs_to_infra_for_system(
                     target_prefix: DIR_CONF,
                 },
                 DefaultCopyMapping {
+                    source_prefix: "wfusion/connectors",
+                    target_prefix: DIR_CONNECTORS,
+                },
+                DefaultCopyMapping {
                     source_prefix: "wfusion/topology",
                     target_prefix: DIR_TOPOLOGY,
                 },
@@ -152,6 +146,21 @@ pub fn init_default_configs_to_infra_for_system(
         ),
     };
     result?;
+
+    // connectors 属于各系统自己的 infra。即使仓库已有 conf/topology，也要逐文件
+    // 补齐缺失的默认 connector，但绝不覆盖用户已修改内容。
+    let connector_source = match system {
+        SystemKind::Wparse => "wparse/connectors",
+        SystemKind::Wfusion => "wfusion/connectors",
+    };
+    ensure_default_configs_with_mappings(
+        infra_root,
+        connector_source,
+        &[DefaultCopyMapping {
+            source_prefix: connector_source,
+            target_prefix: DIR_CONNECTORS,
+        }],
+    )?;
 
     // infra 目录已有其他配置时，主初始化会保护用户内容并跳过默认补齐；
     // business.d 新增模板仍需逐文件补齐，不能因为 sink.toml 已存在而遗漏新文件。

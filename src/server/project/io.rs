@@ -75,10 +75,9 @@ pub(super) fn overwrite_repo_layout_from_legacy_dir(
 
     recreate_dir_preserving_git(&layout.models_root)?;
     recreate_dir_preserving_git(&layout.infra_root)?;
-    recreate_dir_preserving_git(&layout.connectors_root)?;
 
     copy_named_entry(source_dir, &layout.infra_root, DIR_CONF)?;
-    copy_named_entry(source_dir, &layout.connectors_root, DIR_CONNECTORS)?;
+    copy_named_entry(source_dir, &layout.infra_root, DIR_CONNECTORS)?;
     copy_named_entry(source_dir, &layout.infra_root, DIR_TOPOLOGY)?;
     copy_named_entry(source_dir, &layout.models_root, DIR_MODELS)?;
 
@@ -112,9 +111,9 @@ pub(super) fn overwrite_repo_layout_from_partial_dir(
                 copy_named_entry(source_dir, &layout.models_root, name)?;
             }
             DIR_CONNECTORS => {
-                // 共享 connectors 仓库同样要求按导入内容整体覆盖。
-                recreate_dir_preserving_git(&layout.connectors_root)?;
-                copy_named_entry(source_dir, &layout.connectors_root, name)?;
+                // connectors 属于 infra，只覆盖该子目录，不能清空 conf/topology。
+                remove_named_entry(&layout.infra_root, name)?;
+                copy_named_entry(source_dir, &layout.infra_root, name)?;
             }
             DIR_CONF | DIR_TOPOLOGY => copy_named_entry(source_dir, &layout.infra_root, name)?,
             _ => {}
@@ -126,6 +125,16 @@ pub(super) fn overwrite_repo_layout_from_partial_dir(
         source_dir.display(),
         scope.imported_dirs.join(", ")
     );
+    Ok(())
+}
+
+fn remove_named_entry(target_root: &Path, name: &str) -> Result<(), AppError> {
+    let target = target_root.join(name);
+    if target.is_dir() {
+        fs::remove_dir_all(target).map_err(AppError::internal)?;
+    } else if target.exists() {
+        fs::remove_file(target).map_err(AppError::internal)?;
+    }
     Ok(())
 }
 

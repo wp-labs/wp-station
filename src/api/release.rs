@@ -8,10 +8,11 @@ use actix_web::{HttpResponse, get, post, web};
 use crate::error::AppError;
 use crate::server::{
     CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseRestoreRequest,
-    ReleaseTargetActionRequest, create_release_logic, get_release_detail_logic,
-    get_release_diff_logic, list_releases_logic, publish_release_logic, restore_release_logic,
-    retry_release_logic, rollback_release_logic, validate_release_logic,
+    ReleaseTargetActionRequest, create_release_logic, create_restore_job_logic,
+    get_release_detail_logic, get_release_diff_logic, get_restore_job_logic, list_releases_logic,
+    publish_release_logic, retry_release_logic, rollback_release_logic, validate_release_logic,
 };
+use crate::db::ReleaseGroup;
 
 /// 发布详情路径参数。
 #[derive(serde::Deserialize)]
@@ -80,14 +81,13 @@ pub async fn publish_release(
     path: web::Path<ReleaseActionPath>,
     req: web::Json<ReleaseActionRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let release_group = req
-        .release_group
-        .ok_or_else(|| AppError::Validation("发布时必须选择发布类型".to_string()))?;
+    let full_publish = req.full_publish.unwrap_or(false);
+    let release_group = req.release_group.unwrap_or(ReleaseGroup::Models);
     let device_ids = req.device_ids.clone().unwrap_or_default();
     let note = req.note.clone();
 
     // 具体发布分发由 server 层根据发布记录中的 system 决定。
-    let resp = publish_release_logic(path.id, release_group, device_ids, note).await?;
+    let resp = publish_release_logic(path.id, release_group, device_ids, note, full_publish).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }
@@ -127,12 +127,21 @@ pub async fn rollback_release(
 }
 
 #[post("/api/releases/{id}/restore")]
-/// 发布管理：将发布成功版本的配置还原到草稿并同步到 Gitea。
+/// 发布管理：基于历史成功版本创建新的还原发布任务。
 pub async fn restore_release(
     path: web::Path<ReleaseActionPath>,
     req: web::Json<ReleaseRestoreRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let resp = restore_release_logic(path.id, req.system).await?;
+    let resp = create_restore_job_logic(path.id, req.into_inner()).await?;
 
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+#[get("/api/release-restores/{id}")]
+/// 发布管理：查询还原任务及设备阶段详情。
+pub async fn get_release_restore(
+    path: web::Path<ReleaseDetailPath>,
+) -> Result<HttpResponse, AppError> {
+    let resp = get_restore_job_logic(path.id).await?;
     Ok(HttpResponse::Ok().json(resp))
 }

@@ -288,7 +288,9 @@ pub struct Setting {
     pub features: FeaturesConf,
 }
 
-/// 单个系统的 models/infra 仓库根目录，以及共享 connectors 仓库根目录。
+/// 单个系统的 models/infra 仓库根目录。
+///
+/// `connectors_root` 保留为文件读写兼容字段，值与 `infra_root` 相同。
 #[derive(Debug, Clone)]
 pub struct RepoLayout {
     pub models_root: PathBuf,

@@ -10,7 +10,6 @@ pub mod project {
     pub const REPO_WPARSE_INFRA: &str = "wparse__infra";
     pub const REPO_WFUSION_MODELS: &str = "wfusion__models";
     pub const REPO_WFUSION_INFRA: &str = "wfusion__infra";
-    pub const REPO_SHARED_CONNECTORS: &str = "shared__connectors";
 
     /// 项目核心配置目录结构：规则模型、基础设施配置、connector 模板与 topology 拓扑都从这里展开。
     pub const DIR_CONF: &str = "conf";

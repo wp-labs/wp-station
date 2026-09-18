@@ -38,7 +38,7 @@ pub use project::{
 };
 pub use release::{
     create_release, get_release_detail, get_release_diff, list_releases, publish_release,
-    restore_release, retry_release, rollback_release, validate_release,
+    get_release_restore, restore_release, retry_release, rollback_release, validate_release,
 };
 pub use rules::{
     create_rule_file, delete_rule_file, get_knowdb_config, get_rule_content, get_rule_files,

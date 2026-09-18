@@ -49,7 +49,7 @@ pub use project_fs::{
     ProjectSnapshot, compose_repo_layout_into, delete_knowledge_from_project,
     delete_rule_from_project, init_default_configs_to_infra,
     init_default_configs_to_infra_for_system, init_default_configs_to_models,
-    init_default_configs_to_models_for_system, init_default_connectors_to_shared,
+    init_default_configs_to_models_for_system,
     list_knowledge_dirs, list_rule_files, load_project_snapshot,
     load_project_snapshot_from_repo_layout, read_knowdb_config, read_knowledge_files,
     read_rule_content, read_wpl_sample_content, resolve_dir_for_rule, resolve_project_root,
@@ -60,8 +60,7 @@ pub use project_fs::{
 pub use system::{
     DeployCheckResult, DeployResult, DeviceHealthSnapshot, OnlineStatus, ProjectArea,
     PublishPayload, ServiceError, SystemKind, SystemProjectLayout, WarpParseService,
-    WfusionService, all_system_layouts, layout_for_system, repo_name, shared_connectors_root,
-    wfusion_not_implemented,
+    WfusionService, all_system_layouts, layout_for_system, repo_name, wfusion_not_implemented,
 };
 pub use tree_sitter_assets::{
     read_runtime_asset_from_public, sync_tree_sitter_assets_for_dev_start,

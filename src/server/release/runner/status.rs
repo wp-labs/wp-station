@@ -22,6 +22,14 @@ fn latest_target_per_device_group(targets: Vec<ReleaseTarget>) -> Vec<ReleaseTar
 
 impl ReleaseTaskRunner {
     pub(super) async fn refresh_release_status(&self, release_id: i32) -> Result<()> {
+        // 还原发布由独立状态机按 models → infra → promote 编排，不能在 models
+        // 单阶段成功后由普通聚合器提前把 INIT 目标版本标记为 PASS。
+        if find_restore_job_by_target_release(release_id)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
         let release = match find_release_by_id(release_id).await? {
             Some(release) => release,
             None => return Ok(()),
@@ -49,7 +57,8 @@ impl ReleaseTaskRunner {
                     let msg = target.error_message.as_deref().unwrap_or("未知错误");
                     fail_messages.push(format!("设备{}: {}", target.device_id, msg));
                 }
-                ReleaseTargetStatus::QUEUED
+                ReleaseTargetStatus::PENDING
+                | ReleaseTargetStatus::QUEUED
                 | ReleaseTargetStatus::RUNNING
                 | ReleaseTargetStatus::ROLLBACK_PENDING
                 | ReleaseTargetStatus::ROLLBACKING => running += 1,

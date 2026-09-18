@@ -1,0 +1,8 @@
+[[connectors]]
+id = "udp_out_sink"
+type = "udp"
+allow_override = ["addr", "port", "send_buffer_size"]
+
+[connectors.params]
+addr = "127.0.0.1"
+port = 31600

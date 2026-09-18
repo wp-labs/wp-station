@@ -31,20 +31,20 @@ max_body_bytes = 4096
 
 [admin_api.auth]
 mode = "bearer_token"
-token_file = "/data/.wparse/admin_api.token"
+token_file = "runtime/admin_api.token"
 
 [admin_api.tls]
 enabled = true
-cert_file = "/data/.wparse/tls/server.crt"
-key_file = "/data/.wparse/tls/server.key"
+cert_file = "tls/server.crt"
+key_file = "tls/server.key"
 
 [project_remote]
 enabled = true
 
 [project_remote.models]
-repo = "http://wp-station-gitea:3000/gitea/wparse__models.git"
+repo = "http://localhost:3000/gitea/wparse__models.git"
 init_version = "1.0.0"
 
 [project_remote.infra]
-repo = "http://wp-station-gitea:3000/gitea/wparse__infra.git"
+repo = "http://localhost:3000/gitea/wparse__infra.git"
 init_version = "1.0.0"

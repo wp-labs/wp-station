@@ -55,6 +55,7 @@ pub(super) fn configure_api_services(cfg: &mut web::ServiceConfig) {
         .service(api::retry_release)
         .service(api::rollback_release)
         .service(api::restore_release)
+        .service(api::get_release_restore)
         // 沙盒运行 API
         .service(api::create_sandbox_run)
         .service(api::get_sandbox_run)

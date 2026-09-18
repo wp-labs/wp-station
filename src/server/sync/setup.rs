@@ -27,8 +27,6 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
         .map_err(|e| AppError::internal(format!("初始化 models 默认配置失败: {}", e)))?;
     crate::utils::init_default_configs_to_infra(layout.infra_root.to_string_lossy().as_ref())
         .map_err(|e| AppError::internal(format!("初始化 infra 默认配置失败: {}", e)))?;
-    super::prepare_shared_connectors_workspace()?;
-
     init_single_repo(
         &setting,
         &gitea_client,
@@ -73,8 +71,6 @@ pub async fn ensure_project_repositories() -> Result<(), AppError> {
             .await?;
         }
     }
-    super::prepare_shared_connectors_workspace()?;
-
     Ok(())
 }
 

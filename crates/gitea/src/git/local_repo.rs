@@ -216,6 +216,66 @@ impl LocalRepository {
         self.repo.checkout(treeish)
     }
 
+    /// 创建“内容等于历史标签、父提交为当前 main”的候选提交并推送新标签。
+    ///
+    /// 该操作不移动当前分支，适合先让设备按新版本拉取，全部成功后再提升 main。
+    pub fn create_candidate_from_tag(
+        &self,
+        source_tag: &str,
+        target_tag: &str,
+        message: &str,
+    ) -> Result<(String, String), GitError> {
+        let repo = self.repo.raw_repo();
+        let head = repo.head()?.peel_to_commit()?;
+        let previous_head = head.id().to_string();
+        let source = repo
+            .revparse_single(&format!("refs/tags/{source_tag}"))?
+            .peel_to_commit()?;
+        let tree = source.tree()?;
+        let signature = head.author();
+        let candidate = repo.commit(
+            None,
+            &signature,
+            &signature,
+            message,
+            &tree,
+            &[&head],
+        )?;
+        let object = repo.find_object(candidate, None)?;
+        repo.tag(
+            target_tag,
+            &object,
+            &signature,
+            &format!("Tag {target_tag}"),
+            false,
+        )?;
+        self.push_tag(target_tag)?;
+        Ok((previous_head, candidate.to_string()))
+    }
+
+    /// 在 main 仍指向预期提交时，将其快进到候选提交并推送。
+    pub fn promote_candidate(
+        &self,
+        expected_head: &str,
+        candidate_commit: &str,
+    ) -> Result<(), GitError> {
+        let repo = self.repo.raw_repo();
+        let mut head_ref = repo.head()?;
+        let actual_head = head_ref.peel_to_commit()?.id().to_string();
+        if actual_head != expected_head {
+            return Err(GitError::InvalidOperation(format!(
+                "main 已变化，拒绝提升候选版本: expected={expected_head}, actual={actual_head}"
+            )));
+        }
+        let candidate = git2::Oid::from_str(candidate_commit)?;
+        head_ref.set_target(candidate, "promote restore candidate")?;
+        let object = repo.find_object(candidate, None)?;
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        repo.checkout_tree(&object, Some(&mut checkout))?;
+        self.push()
+    }
+
     pub fn raw_repo(&self) -> &GitRepository {
         &self.repo
     }

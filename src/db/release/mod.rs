@@ -13,7 +13,10 @@ use chrono::Utc;
 use sea_orm::{Condition, QueryOrder, QuerySelect, Set, entity::prelude::*};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
-use wp_station_migrations::entity::release::{ActiveModel, Column, Entity, Model};
+use wp_station_migrations::entity::{
+    release::{ActiveModel, Column, Entity, Model},
+    release_restore_job,
+};
 
 pub use self::group::ReleaseGroup;
 pub use self::target::{
@@ -85,6 +88,13 @@ pub async fn find_all_releases(
 
     let offset = (page - 1) * page_size;
 
+    let restore_target_ids = release_restore_job::Entity::find()
+        .select_only()
+        .column(release_restore_job::Column::TargetReleaseId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
+
     // 状态过滤：有显式 status 时按 status 等值过滤；否则默认排除 INIT
     let mut condition = if let Some(status) = status {
         if !status.is_empty() {
@@ -95,6 +105,9 @@ pub async fn find_all_releases(
     } else {
         Condition::all().add(Column::Status.ne(ReleaseStatus::INIT.as_ref()))
     };
+    if !restore_target_ids.is_empty() {
+        condition = condition.add(Column::Id.is_not_in(restore_target_ids));
+    }
 
     if let Some(pipeline) = pipeline
         && !pipeline.is_empty()
@@ -147,6 +160,23 @@ pub async fn find_release_by_id(id: i32) -> DbResult<Option<Release>> {
     let release = Entity::find_by_id(id).one(db).await?;
 
     Ok(release)
+}
+
+/// 查询指定系统的全部发布记录，包括 INIT 占位记录。
+pub async fn find_releases_by_system(system: SystemKind) -> DbResult<Vec<Release>> {
+    let pool = get_pool();
+    let db = pool.inner();
+    let restore_target_ids = release_restore_job::Entity::find()
+        .select_only()
+        .column(release_restore_job::Column::TargetReleaseId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
+    let mut query = Entity::find().filter(Column::System.eq(system.as_ref()));
+    if !restore_target_ids.is_empty() {
+        query = query.filter(Column::Id.is_not_in(restore_target_ids));
+    }
+    Ok(query.order_by_desc(Column::CreatedAt).all(db).await?)
 }
 
 /// 查找当前系统唯一草稿发布记录（WAIT 状态）。
@@ -216,7 +246,7 @@ pub async fn create_release(release: NewRelease) -> DbResult<i32> {
     Ok(id)
 }
 
-/// 更新发布记录状态，并在终态时刷新发布时间。
+/// 更新发布记录状态，仅在发布成功时写入发布时间。
 pub async fn update_release_status(
     id: i32,
     status: ReleaseStatus,
@@ -233,10 +263,9 @@ pub async fn update_release_status(
         .await?
         .ok_or(DbError::not_found("发布记录"))?;
 
-    let should_set_published_at = matches!(
-        status,
-        ReleaseStatus::PASS | ReleaseStatus::FAIL | ReleaseStatus::PARTIAL_FAIL
-    ) && model.release_group != GROUP_DRAFT;
+    let should_set_published_at = status == ReleaseStatus::PASS
+        && model.release_group != GROUP_DRAFT
+        && model.published_at.is_none();
 
     let mut active_model: ActiveModel = model.into();
     active_model.status = Set(status.as_ref().to_string());
@@ -326,8 +355,17 @@ pub async fn touch_release_as_draft(
 pub async fn find_latest_passed_release(exclude_id: Option<i32>) -> DbResult<Option<Release>> {
     let pool = get_pool();
     let db = pool.inner();
+    let restore_target_ids = release_restore_job::Entity::find()
+        .select_only()
+        .column(release_restore_job::Column::TargetReleaseId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
 
     let mut query = Entity::find().filter(Column::Status.eq(ReleaseStatus::PASS.as_ref()));
+    if !restore_target_ids.is_empty() {
+        query = query.filter(Column::Id.is_not_in(restore_target_ids));
+    }
     if let Some(id) = exclude_id {
         query = query.filter(Column::Id.ne(id));
     }
@@ -349,6 +387,12 @@ pub async fn find_latest_passed_release_by_group(
 ) -> DbResult<Option<Release>> {
     let pool = get_pool();
     let db = pool.inner();
+    let restore_target_ids = release_restore_job::Entity::find()
+        .select_only()
+        .column(release_restore_job::Column::TargetReleaseId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
 
     let group_condition = match group {
         GROUP_MODELS => Condition::any()
@@ -368,6 +412,9 @@ pub async fn find_latest_passed_release_by_group(
             ReleaseStatus::PARTIAL_FAIL.as_ref(),
             ReleaseStatus::FAIL.as_ref(),
         ]));
+    if !restore_target_ids.is_empty() {
+        query = query.filter(Column::Id.is_not_in(restore_target_ids));
+    }
     if let Some(id) = exclude_id {
         query = query.filter(Column::Id.ne(id));
     }
