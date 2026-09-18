@@ -1,0 +1,3 @@
+yield preset base_alerts (
+    alert_id = concat("alert_", @__wfu_id),
+)

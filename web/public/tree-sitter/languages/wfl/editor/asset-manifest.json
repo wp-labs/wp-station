@@ -1,0 +1,13 @@
+{
+  "language_id": "wfl",
+  "display_name": "WFL",
+  "mode": "tree-sitter",
+  "rust_crate": "tree-sitter-wfl",
+  "file_extensions": ["wfl"],
+  "theme_prefix": "cm-wf",
+  "runtime_wasm_file_name": "tree-sitter.wasm",
+  "parser_wasm_file_name": "tree-sitter-wfl.wasm",
+  "parser_wasm": "editor/wasm/tree-sitter-wfl.wasm",
+  "highlights_query": "queries/wfl/highlights.scm",
+  "completion_bundle": "completions/wfl/completion.bundle.json"
+}

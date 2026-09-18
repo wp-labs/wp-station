@@ -12,15 +12,28 @@ function SandboxResultPanel({
   formatDisplayTime,
   failureSummary,
   cardStyle,
+  system,
 }) {
+  const isWfusion = system === 'wfusion';
+
+  const stageKeyFor = (key) => {
+    if (isWfusion && (key === 'start_daemon' || key === 'run_wpgen')) {
+      return `${key}_wfusion`;
+    }
+    return key;
+  };
   const status = runData?.status || 'queued';
+  const passed = conclusion?.passed === true;
+  const displayStatus =
+    runData?.status === 'success' && !passed ? 'success_not_passed' : status;
   const statusColor = {
     queued: 'default',
     running: 'blue',
     success: 'green',
+    success_not_passed: 'orange',
     failed: 'red',
     stopped: 'default',
-  }[status];
+  }[displayStatus];
   const totalDurationMs = useMemo(() => {
     if (!runData?.started_at || !runData?.ended_at) {
       return null;
@@ -31,7 +44,7 @@ function SandboxResultPanel({
   }, [runData?.started_at, runData?.ended_at]);
 
   const failedStageLabel = conclusion?.failed_stage
-    ? t(`sandbox.stage.${conclusion.failed_stage}`, {
+    ? t(`sandbox.stage.${stageKeyFor(conclusion.failed_stage)}`, {
         defaultValue: conclusion.failed_stage,
       })
     : '-';
@@ -41,6 +54,17 @@ function SandboxResultPanel({
       return [t('sandbox.executionResultIdle')];
     }
     if (runData.status === 'success') {
+      if (!passed) {
+        const inputCount = conclusion?.input_count ?? 0;
+        const outputCount = conclusion?.runtime_output_count ?? 0;
+        return [
+          t('sandbox.executionResultSuccessButNotPassed'),
+          t('sandbox.executionResultCountMismatch', {
+            input: inputCount,
+            output: outputCount,
+          }),
+        ];
+      }
       const total =
         conclusion?.input_count ?? runData?.options?.sample_count ?? 0;
       return [t('sandbox.executionResultSuccess', { count: total })];
@@ -65,15 +89,23 @@ function SandboxResultPanel({
       return [t('sandbox.executionResultStopped')];
     }
     return [t('sandbox.executionResultFailed')];
-  }, [conclusion?.input_count, conclusion?.top_suggestions, failureSummary, runData, t]);
+  }, [
+    conclusion?.input_count,
+    conclusion?.runtime_output_count,
+    conclusion?.top_suggestions,
+    failureSummary,
+    passed,
+    runData,
+    t,
+  ]);
 
   return (
     <Card title={t('sandbox.resultOverview')} style={{ width: '100%', ...cardStyle }}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space direction="vertical" size="middle" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
         <Space align="center" size="small">
           <Text type="secondary">{t('sandbox.statusLabelTitle')}</Text>
           <Tag color={statusColor || 'default'}>
-            {t(`sandbox.statusLabel.${status}`, { defaultValue: status })}
+            {t(`sandbox.statusLabel.${displayStatus}`, { defaultValue: displayStatus })}
           </Tag>
         </Space>
         <div>
@@ -109,7 +141,7 @@ function SandboxResultPanel({
         <Divider />
         <div>
           <Text strong>{t('sandbox.executionResult')}</Text>
-          <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 8 }}>
+          <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 8, minWidth: 0, overflow: 'hidden' }}>
             {executionMessages.map((msg, index) => (
               <Paragraph key={`execution-msg-${index}`} style={{ marginBottom: 0 }}>
                 {msg}

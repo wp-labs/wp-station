@@ -1,0 +1,32 @@
+[
+  {
+    "language_id": "wpl",
+    "parser_wasm": "editor/wasm/tree-sitter-wpl.wasm",
+    "highlights_query": "queries/highlights.scm",
+    "completion_bundle": "completions/completion.bundle.json"
+  },
+  {
+    "language_id": "oml",
+    "parser_wasm": "editor/wasm/tree-sitter-oml.wasm",
+    "highlights_query": "queries/highlights.scm",
+    "completion_bundle": "completions/completion.bundle.json"
+  },
+  {
+    "language_id": "wfs",
+    "parser_wasm": "editor/wasm/tree-sitter-wfs.wasm",
+    "highlights_query": "queries/wfs/highlights.scm",
+    "completion_bundle": "completions/wfs/completion.bundle.json"
+  },
+  {
+    "language_id": "wfl",
+    "parser_wasm": "editor/wasm/tree-sitter-wfl.wasm",
+    "highlights_query": "queries/wfl/highlights.scm",
+    "completion_bundle": "completions/wfl/completion.bundle.json"
+  },
+  {
+    "language_id": "wfg",
+    "parser_wasm": "editor/wasm/tree-sitter-wfg.wasm",
+    "highlights_query": "queries/wfg/highlights.scm",
+    "completion_bundle": "completions/wfg/completion.bundle.json"
+  }
+]

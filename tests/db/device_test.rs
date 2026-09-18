@@ -1,25 +1,27 @@
 use crate::common::{rand_suffix, setup_db, unique_name};
-use rand::Rng;
+use rand::RngExt;
 use sea_orm::EntityTrait;
 use wp_station::db::{
     DeviceStatus, NewDevice, create_device, delete_device, find_all_devices, find_device_by_id,
-    find_devices_page, update_device, update_device_status,
+    find_devices_page, update_device, update_device_health_error, update_device_status,
 };
+use wp_station::utils::SystemKind;
 use wp_station_migrations::entity::device::Entity as DeviceEntity;
 
 fn make_device_payload() -> NewDevice {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let ip = format!(
         "10.{}.{}.{}",
-        rng.gen_range(0..=250),
-        rng.gen_range(0..=250),
-        rng.gen_range(1..=250)
+        rng.random_range(0..=250),
+        rng.random_range(0..=250),
+        rng.random_range(1..=250)
     );
 
     NewDevice {
+        system: SystemKind::Wparse,
         name: Some(unique_name("device")),
         ip,
-        port: rng.gen_range(1000..9999),
+        port: rng.random_range(1000..9999),
         remark: Some(format!("test-{}", rand_suffix())),
         token: format!("token-{}", rand_suffix()),
         status: Some(DeviceStatus::Unknown),
@@ -96,7 +98,7 @@ async fn test_find_devices_page_with_keyword() {
     let (first_id, first_payload) = insert_device_with_payload(payload_one).await;
     let (second_id, second_payload) = insert_device_with_payload(payload_two).await;
 
-    let (devices, total) = find_devices_page(Some(prefix.as_str()), 1, 10)
+    let (devices, total) = find_devices_page(None, Some(prefix.as_str()), 1, 10)
         .await
         .expect("page devices");
 
@@ -163,5 +165,33 @@ async fn test_update_device_status_and_find_all() {
         all_devices.iter().all(|d| d.id != device_id),
         "soft-deleted device should be filtered"
     );
+    hard_delete_device(device_id).await;
+}
+
+#[tokio::test]
+async fn test_update_device_health_error() {
+    let (device_id, _) = insert_device().await;
+
+    update_device_health_error(device_id, Some("tls failed"))
+        .await
+        .expect("update device health error");
+
+    let updated = find_device_by_id(device_id)
+        .await
+        .expect("find after health error update")
+        .expect("exists");
+    assert_eq!(updated.health_error.as_deref(), Some("tls failed"));
+
+    update_device_health_error(device_id, None)
+        .await
+        .expect("clear device health error");
+
+    let cleared = find_device_by_id(device_id)
+        .await
+        .expect("find after health error clear")
+        .expect("exists");
+    assert_eq!(cleared.health_error, None);
+
+    delete_device(device_id).await.ok();
     hard_delete_device(device_id).await;
 }

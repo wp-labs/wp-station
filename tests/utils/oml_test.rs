@@ -41,7 +41,7 @@ fn sample_record() -> DataRecord {
 fn test_oml_formatter_normalizes_spacing() {
     let formatter = OmlFormatter::new();
     let formatted = formatter
-        .format_content("name:test\nrule:/foo/*\n---\nout = read(src);")
+        .format("name:test\nrule:/foo/*\n---\nout = read(src);")
         .expect("format simple oml");
     assert!(formatted.contains("name :"));
     assert!(formatted.contains("rule :"));
@@ -80,9 +80,7 @@ async fn test_convert_record_invalid_script_returns_error() {
 fn test_oml_formatter_handles_comments_and_spacing() {
     let formatter = OmlFormatter::new();
     let messy = "name:demo\nrule:/demo/*\n// comment\n---\nvalue = read(raw) ;";
-    let output = formatter
-        .format_content(messy)
-        .expect("format with comments");
+    let output = formatter.format(messy).expect("format with comments");
     assert!(output.contains("value = read(raw);") || output.contains("value = read(raw)"));
     assert!(output.contains("name :"));
 }
@@ -91,7 +89,7 @@ fn test_oml_formatter_handles_comments_and_spacing() {
 fn test_oml_formatter_or_original_returns_input_on_error() {
     let formatter = OmlFormatter::new();
     let invalid = "name :: ???";
-    let output = formatter.format_content_or_original(invalid);
+    let output = formatter.format_or_original(invalid);
     assert!(output.contains("name"));
 }
 
@@ -104,7 +102,7 @@ fn test_oml_formatter_formats_project_samples() {
 
     for path in samples {
         let content = std::fs::read_to_string(&path).expect("read oml sample");
-        let formatted = formatter.format_content_or_original(&content);
+        let formatted = formatter.format_or_original(&content);
         assert!(!formatted.is_empty(), "empty formatted output for {path:?}");
     }
 }

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    #[sea_orm(default_value = "wparse")]
+    pub system: String,
     pub name: Option<String>,
     pub ip: String,
     pub port: i32,
@@ -14,6 +16,7 @@ pub struct Model {
     pub token: String,
     pub client_version: Option<String>,
     pub config_version: Option<String>,
+    pub health_error: Option<String>,
     pub last_release_id: Option<i32>,
     pub last_seen_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,

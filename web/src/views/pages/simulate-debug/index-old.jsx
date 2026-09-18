@@ -59,24 +59,6 @@ function SimulateDebugPage() {
   const [knowledgeViewMode, setKnowledgeViewMode] = useState('table');
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   
-  // 性能测试相关状态
-  const [performanceSample, setPerformanceSample] = useState(EXAMPLE_LOG);
-  const [performanceConfig, setPerformanceConfig] = useState(`version = "1.0"
-
-[main_conf]
-gen_ref = "sample_gen"
-gen_speed = 100000
-gen_count = 1000000
-gen_secs = 0
-gen_parallel = 1
-out_ref = "out_file"
-
-[main_conf.log_conf]
-level = "warn,ctrl=info,launch=info,klib=info"
-output = "Console"
-output_path = "./logs/"`);
-  const [performanceResult, setPerformanceResult] = useState(null);
-
   /**
    * 处理测试/解析按钮点击
    * 调用服务层解析日志
@@ -411,7 +393,6 @@ src_ip     = take(option:[src-ip,sip,source-ip] );
     { key: 'parse', label: '解析' },
     { key: 'convert', label: '转换' },
     { key: 'knowledge', label: '知识库' },
-    { key: 'performance', label: '性能测试' },
   ];
 
   const resultColumns = [
@@ -442,7 +423,6 @@ src_ip     = take(option:[src-ip,sip,source-ip] );
       parse: '解析调试',
       convert: '转换调试',
       knowledge: '知识库',
-      performance: '性能测试',
     };
     return titles[activeKey] || '模拟调试';
   };
@@ -471,13 +451,6 @@ src_ip     = take(option:[src-ip,sip,source-ip] );
           onClick={() => setActiveKey('knowledge')}
         >
           知识库
-        </button>
-        <button
-          type="button"
-          className={`side-item ${activeKey === 'performance' ? 'is-active' : ''}`}
-          onClick={() => setActiveKey('performance')}
-        >
-          性能测试
         </button>
       </aside>
 
@@ -941,91 +914,6 @@ src_ip     = take(option:[src-ip,sip,source-ip] );
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* 性能测试页面 */}
-            {activeKey === 'performance' && (
-              <div className="split-layout performance-layout">
-                <div className="split-col performance-col performance-col--left">
-                  <div className="panel-block">
-                    <div className="block-header">
-                      <h3>样本数据</h3>
-                      <div className="block-actions">
-                        <button
-                          type="button"
-                          className="btn primary"
-                          onClick={async () => {
-                            setLoading(true);
-                            try {
-                              // 模拟性能测试
-                              await new Promise((resolve) => setTimeout(resolve, 2000));
-                              setPerformanceResult(`== Sinks ==
-business   | /sink/benchmark/[0]                      | ././out/benchmark.dat                                        | 1000
-infras     | monitor/[0]                              | ././data/out_dat/monitor.dat                                 | 0
-infras     | default/[0]                              | ././data/out_dat/default.dat                                 | 0
-infras     | error/[0]                                | ././data/out_dat/error.dat                                   | 0
-infras     | intercept/[0]                            | ././data/out_dat/intercept.dat                               | 0
-infras     | miss/[0]                                 | ././data/out_dat/miss.dat                                    | 0
-infras     | residue/[0]                              | ././data/out_dat/residue.dat                                 | 0
--- total lines: 1000
-validate: PASS
-
-| Group           | Sink | Total | Actual | Ratio | Expect    | Verdict |
-|-----------------|------|-------|--------|-------|-----------|---------|
-| /sink/benchmark | [0]  |  1000 |  1000  |   1   |   1±0.01  |    OK   |
-| monitor         | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| default         | [0]  |  1000 |    0   |   0   |   0±0.02  |    OK   |
-| error           | [0]  |  1000 |    0   |   0   | 0.01±0.02 |    OK   |
-| intercept       | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| miss            | [0]  |  1000 |    0   |   0   |  [0 ~ 2]  |    OK   |
-| residue         | [0]  |  1000 |    0   |   0   |     -     |    -    |`);
-                            } finally {
-                              setLoading(false);
-                            }
-                          }}
-                          disabled={loading}
-                        >
-                          {loading ? '测试中...' : '测试'}
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      className="code-area"
-                      rows={6}
-                      value={performanceSample}
-                      onChange={(e) => setPerformanceSample(e.target.value)}
-                      spellCheck={false}
-                    />
-                  </div>
-                  <div className="panel-block panel-block--stretch">
-                    <div className="block-header">
-                      <h3>数据生成配置（TOML）</h3>
-                    </div>
-                    <textarea
-                      className="code-area code-area--large"
-                      rows={14}
-                      value={performanceConfig}
-                      onChange={(e) => setPerformanceConfig(e.target.value)}
-                      spellCheck={false}
-                    />
-                  </div>
-                </div>
-                <div className="split-col performance-col performance-col--right">
-                  <div className="panel-block panel-block--stretch">
-                    <div className="block-header">
-                      <h3>执行结果</h3>
-                      <p className="block-desc">脚本输出支持导出与分享。</p>
-                    </div>
-                    {performanceResult ? (
-                      <pre className="code-block code-block--scroll">{performanceResult}</pre>
-                    ) : (
-                      <pre className="code-block code-block--scroll" style={{ color: '#999' }}>
-                        点击"测试"按钮查看执行结果
-                      </pre>
-                    )}
                   </div>
                 </div>
               </div>

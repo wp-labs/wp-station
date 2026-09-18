@@ -17,16 +17,14 @@ import {
 // localStorage 持久化键名
 const STORAGE_KEY = 'warpstation_assist_tasks';
 
-// 轮询间隔策略（毫秒）
-const POLL_INTERVALS = {
-  AI_FAST: 3000,    // AI 任务前 60s：每 3s
-  AI_SLOW: 10000,   // AI 任务 60s~5min：每 10s
-  MANUAL_FAST: 30000, // 人工前 5min：每 30s
-  MANUAL_SLOW: 60000, // 人工 5min 后：每 60s
-};
+// 轮询检查心跳，只负责判断是否到达下一次查询窗口
+const POLL_TICK_MS = 3000;
 
-// AI 任务超过 5 分钟停止轮询
-const AI_TIMEOUT_MS = 5 * 60 * 1000;
+const MIN_POLL_INTERVAL_MS = 30 * 1000;
+const MAX_POLL_INTERVAL_MS = 5 * 60 * 1000;
+const FAST_POLL_PHASE_MS = 5 * 60 * 1000;
+const RAMP_STEP_MS = 5 * 60 * 1000;
+const RAMP_INCREMENT_MS = 30 * 1000;
 
 const AssistTaskContext = createContext(null);
 
@@ -168,23 +166,6 @@ export function AssistTaskProvider({ children }) {
             wait_seconds: latest.wait_seconds,
             updated_at: latest.updated_at,
           });
-
-          // AI 任务超时检查：使用后端返回的 wait_seconds，避免重启后用旧 created_at 误判
-          if (task.task_type === 'ai') {
-            const waitMs = (latest.wait_seconds ?? 0) * 1000;
-            if (waitMs > AI_TIMEOUT_MS) {
-              updateTask(task.task_id, {
-                status: 'error',
-                error_message: t('assistTask.aiTimeout'),
-              });
-              notification.error({
-                key: `assist-timeout-${task.task_id}`,
-                message: t('assistTask.taskFailed'),
-                description: t('assistTask.aiTimeout'),
-                duration: 8,
-              });
-            }
-          }
         }
       } catch (error) {
         const statusCode = error?.response?.status;
@@ -206,12 +187,22 @@ export function AssistTaskProvider({ children }) {
    * @returns {number} 毫秒
    */
   const getTaskPollInterval = useCallback((task) => {
-    const elapsed = Date.now() - new Date(task.created_at).getTime();
-    if (task.task_type === 'ai') {
-      return elapsed < 60000 ? POLL_INTERVALS.AI_FAST : POLL_INTERVALS.AI_SLOW;
+    const waitSeconds = Number(task.wait_seconds ?? 0);
+    const elapsedMs = Math.max(
+      waitSeconds * 1000,
+      Date.now() - new Date(task.created_at).getTime(),
+    );
+
+    if (elapsedMs <= FAST_POLL_PHASE_MS) {
+      return MIN_POLL_INTERVAL_MS;
     }
-    // 人工任务
-    return elapsed < 5 * 60 * 1000 ? POLL_INTERVALS.MANUAL_FAST : POLL_INTERVALS.MANUAL_SLOW;
+
+    const extraElapsedMs = elapsedMs - FAST_POLL_PHASE_MS;
+    const rampSteps = Math.floor(extraElapsedMs / RAMP_STEP_MS) + 1;
+    return Math.min(
+      MIN_POLL_INTERVAL_MS + rampSteps * RAMP_INCREMENT_MS,
+      MAX_POLL_INTERVAL_MS,
+    );
   }, []);
 
   /**
@@ -245,7 +236,7 @@ export function AssistTaskProvider({ children }) {
           pollSingleTask(task);
         }
       });
-    }, 3000); // 每 3s 检查一次各任务是否需要轮询
+    }, POLL_TICK_MS);
 
     return () => {
       if (pollTimerRef.current) {
@@ -265,6 +256,7 @@ export function AssistTaskProvider({ children }) {
       const result = await submitAssistTask(options);
 
       if (result.task_id) {
+        const nowIso = new Date().toISOString();
         const newTask = {
           task_id: result.task_id,
           task_type: options.taskType,
@@ -275,10 +267,12 @@ export function AssistTaskProvider({ children }) {
           oml_suggestion: null,
           explanation: null,
           error_message: null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          created_at: nowIso,
+          updated_at: nowIso,
           wait_seconds: 0,
         };
+
+        lastPollTimeRef.current[result.task_id] = Date.now();
 
         setAllTasks((prevTasks) => {
           const nextTasks = [newTask, ...prevTasks];

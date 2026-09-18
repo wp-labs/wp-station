@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { EditorState } from '@codemirror/state';
+import { Annotation, EditorState } from '@codemirror/state';
 import { json } from '@codemirror/lang-json';
 import { sql } from '@codemirror/lang-sql';
 import { StreamLanguage } from '@codemirror/language';
@@ -18,30 +18,11 @@ import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { useTranslation } from 'react-i18next';
 import styles from './CodeEditor.module.css';
 import { editorTheme } from './editorTheme';
-import {
-  buildWplCompletionOptions,
-  WPL_COMPLETION_VALID_FOR,
-} from './wpl/wplLanguage';
-import { wplHighlightExtension } from './wpl/wplTreeSitterHighlight';
-import {
-  buildOmlCompletionOptions,
-  OML_COMPLETION_VALID_FOR,
-} from './oml/omlLanguage';
-import { omlHighlightExtension } from './oml/omlTreeSitterHighlight';
+import { createBundleCompletionSource } from './treeSitter/completionSource';
+import { createTreeSitterHighlightExtension } from './treeSitter/highlightExtension';
 
-const createCompletionSource = (options, validFor) => (context) => {
-  const word = context.matchBefore(validFor);
-  const pipe = context.matchBefore(/\|/);
-  if (!word && !pipe && !context.explicit) {
-    return null;
-  }
-  const from = (pipe || word)?.from ?? context.pos;
-  return {
-    from,
-    options,
-    validFor,
-  };
-};
+const EXTERNAL_UPDATE = Annotation.define();
+const TREE_SITTER_LANGUAGES = new Set(['wpl', 'oml', 'wfs', 'wfl', 'wfg']);
 
 function CodeEditor(props, ref) {
   const editorRef = useRef(null);
@@ -51,15 +32,25 @@ function CodeEditor(props, ref) {
   const theme = props.theme; // 可选的主题属性
   const { i18n } = useTranslation();
   const uiLanguage = i18n.language;
-  const wplCompletionOptions = useMemo(() => buildWplCompletionOptions(uiLanguage), [uiLanguage]);
-  const omlCompletionOptions = useMemo(() => buildOmlCompletionOptions(uiLanguage), [uiLanguage]);
   const wplCompletionSource = useMemo(
-    () => createCompletionSource(wplCompletionOptions, WPL_COMPLETION_VALID_FOR),
-    [wplCompletionOptions],
+    () => createBundleCompletionSource('wpl', uiLanguage),
+    [uiLanguage],
   );
   const omlCompletionSource = useMemo(
-    () => createCompletionSource(omlCompletionOptions, OML_COMPLETION_VALID_FOR),
-    [omlCompletionOptions],
+    () => createBundleCompletionSource('oml', uiLanguage),
+    [uiLanguage],
+  );
+  const wfsCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfs', uiLanguage),
+    [uiLanguage],
+  );
+  const wflCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfl', uiLanguage),
+    [uiLanguage],
+  );
+  const wfgCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfg', uiLanguage),
+    [uiLanguage],
   );
   const colorTheme = useMemo(() => {
     if (!textColor) return null;
@@ -83,6 +74,7 @@ function CodeEditor(props, ref) {
       if (currentValue !== nextValue) {
         view.dispatch({
           changes: { from: 0, to: currentValue.length, insert: nextValue },
+          annotations: EXTERNAL_UPDATE.of(true),
         });
       }
     },
@@ -92,7 +84,7 @@ function CodeEditor(props, ref) {
     if (!editorRef.current) return;
 
     const updateListener = EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
+      if (update.docChanged && !update.transactions.some((tr) => tr.annotation(EXTERNAL_UPDATE))) {
         props.onChange?.(update.state.doc.toString());
       }
     });
@@ -128,7 +120,7 @@ function CodeEditor(props, ref) {
       extensions.splice(
         6,
         0,
-        wplHighlightExtension(),
+        createTreeSitterHighlightExtension('wpl'),
         autocompletion({ override: [wplCompletionSource] }),
       );
     }
@@ -136,9 +128,36 @@ function CodeEditor(props, ref) {
       extensions.splice(
         6,
         0,
-        omlHighlightExtension(),
+        createTreeSitterHighlightExtension('oml'),
         autocompletion({ override: [omlCompletionSource] }),
       );
+    }
+    if (language === 'wfs') {
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfs'),
+        autocompletion({ override: [wfsCompletionSource] }),
+      );
+    }
+    if (language === 'wfl') {
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfl'),
+        autocompletion({ override: [wflCompletionSource] }),
+      );
+    }
+    if (language === 'wfg') {
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfg'),
+        autocompletion({ override: [wfgCompletionSource] }),
+      );
+    }
+    if (TREE_SITTER_LANGUAGES.has(language) && language !== 'wpl' && language !== 'oml') {
+      // 上面已分别插入 wf 系列高亮与补全，这里不重复注册。
     }
     if (language === 'json') {
       extensions.splice(6, 0, json());
@@ -166,7 +185,17 @@ function CodeEditor(props, ref) {
       view.destroy();
       viewRef.current = null;
     };
-  }, [language, uiLanguage, wplCompletionSource, omlCompletionSource, colorTheme, theme]);
+  }, [
+    language,
+    uiLanguage,
+    wplCompletionSource,
+    omlCompletionSource,
+    wfsCompletionSource,
+    wflCompletionSource,
+    wfgCompletionSource,
+    colorTheme,
+    theme,
+  ]);
 
   // 同步外部 value 到编辑器
   useEffect(() => {
@@ -178,11 +207,9 @@ function CodeEditor(props, ref) {
     const currentValue = view.state.doc.toString();
     
     if (currentValue !== nextValue) {
-      // 使用事务更新，避免触发 onChange
       view.dispatch({
         changes: { from: 0, to: currentValue.length, insert: nextValue },
-        // 添加注解标记这是外部更新，不应触发 onChange
-        annotations: [EditorView.updateListener.of(() => {})],
+        annotations: EXTERNAL_UPDATE.of(true),
       });
     }
   }, [props.value]);

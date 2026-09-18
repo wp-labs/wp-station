@@ -27,7 +27,7 @@ async fn test_assist_api_endpoints_flow() {
     // Submit a manual assist task
     let submit_req = test::TestRequest::post()
         .uri("/api/assist")
-        .set_json(&assist_request_body("manual"))
+        .set_json(assist_request_body("manual"))
         .to_request();
     let submit_resp = test::call_service(&app, submit_req).await;
     assert_eq!(submit_resp.status(), StatusCode::OK);
@@ -65,7 +65,7 @@ async fn test_assist_api_endpoints_flow() {
     // Reply to the task with suggestions
     let reply_req = test::TestRequest::post()
         .uri("/api/assist/reply")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "task_id": task_id.clone(),
             "wpl_suggestion": "formatted rule",
             "explanation": "analysis done"
@@ -86,7 +86,7 @@ async fn test_assist_api_endpoints_flow() {
     // Create another task and cancel it while still pending
     let cancel_submit = test::TestRequest::post()
         .uri("/api/assist")
-        .set_json(&assist_request_body("manual"))
+        .set_json(assist_request_body("manual"))
         .to_request();
     let cancel_resp = test::call_service(&app, cancel_submit).await;
     assert_eq!(cancel_resp.status(), StatusCode::OK);

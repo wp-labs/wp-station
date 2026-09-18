@@ -1,6 +1,6 @@
 /**
  * 调试服务模块
- * 提供日志解析、记录转换、知识库状态查询和性能测试功能
+ * 提供日志解析、记录转换和知识库状态查询功能
  */
 
 import httpRequest from './request';
@@ -33,74 +33,79 @@ export async function base64Decode(logValue) {
 }
 
 export async function wplCodeFormat(wplCode) {
-  try {
-    // 接口要求原始字符串入参，避免 JSON 序列化导致的类型不匹配
-    const response = await httpRequest.post('/debug/wpl/format', wplCode || '', {
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      // 禁用默认 JSON 序列化，保持原始字符串透传
-      transformRequest: [
-        data => data,
-      ],
-    });
-    const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
-    if (data && data.success === false) {
-      const errorMessage = data.error?.message || '格式化 WPL 代码失败，请稍后重试';
-      const error = new Error(errorMessage);
-      error.code = data.error?.code;
-      error.responseData = data;
-      throw error;
-    }
-    // 后端可能直接返回格式化后的字符串，或返回 { wpl_code: '' }
-    if (typeof data === 'string') {
-      return { wpl_code: data };
-    }
-    return data || {};
-  } catch (error) {
-    const responseData = error?.response?.data || error?.data;
-    if (responseData && responseData.success === false) {
-      const errorMessage = responseData.error?.message || error?.message || '格式化 WPL 代码失败，请稍后重试';
-      const wrapped = new Error(errorMessage);
-      wrapped.code = responseData.error?.code;
-      wrapped.responseData = responseData;
-      throw wrapped;
-    }
-    if (error instanceof Error) {
-      if (responseData && !error.responseData) {
-        error.responseData = responseData;
-      }
-      throw error;
-    }
-    throw new Error(typeof error === 'string' ? error : '格式化WPL代码失败，请稍后重试');
-  }
+  return postTextFormat('/debug/wpl/format', wplCode, '格式化 WPL 代码失败，请稍后重试');
 }
 
 export async function omlCodeFormat(omlCode) {
+  return postTextFormat('/debug/oml/format', omlCode, '格式化 OML 代码失败，请稍后重试');
+}
+
+export async function wfsCodeFormat(wfsCode) {
+  return postTextFormat('/debug/wfs/format', wfsCode, '格式化 WFS 代码失败，请稍后重试');
+}
+
+export async function wflCodeFormat(wflCode) {
+  return postTextFormat('/debug/wfl/format', wflCode, '格式化 WFL 代码失败，请稍后重试');
+}
+
+export async function wfgCodeFormat(wfgCode) {
+  return postTextFormat('/debug/wfg/format', wfgCode, '格式化 WFG 代码失败，请稍后重试');
+}
+
+export async function tomlCodeFormat(tomlCode) {
+  return postTextFormat('/debug/toml/format', tomlCode, '格式化 TOML 代码失败，请稍后重试');
+}
+
+export async function parseWfusionRuleEditor(options) {
+  const payload = {
+    events_ndjson: options?.eventsNdjson || '',
+    wfs: options?.wfs || '',
+    wfl: options?.wfl || '',
+  };
+
   try {
-    // 接口要求原始字符串入参，避免 JSON 序列化导致的类型不匹配
-    const response = await httpRequest.post('/debug/oml/format', omlCode || '', {
+    const response = await httpRequest.post('/debug/wfusion-editor/parse', payload);
+    const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
+    if (data && data.success === false) {
+      return data;
+    }
+    return data || {};
+  } catch (error) {
+    const responseData = error?.response?.data || error?.data;
+    if (responseData && typeof responseData === 'object') {
+      const wrapped = new Error(responseData.error?.message || error?.message || '执行规则试跑失败，请稍后重试');
+      wrapped.code = responseData.error?.code;
+      wrapped.responseData = responseData;
+      throw wrapped;
+    }
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(typeof error === 'string' ? error : '执行规则试跑失败，请稍后重试');
+  }
+}
+
+async function postTextFormat(path, code, fallbackMessage) {
+  try {
+    const response = await httpRequest.post(path, code || '', {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      // 禁用默认 JSON 序列化，保持原始字符串透传
       transformRequest: [
         data => data,
       ],
     });
     const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
     if (data && data.success === false) {
-      const errorMessage = data.error?.message || '格式化 OML 代码失败，请稍后重试';
+      const errorMessage = data.error?.message || fallbackMessage;
       const error = new Error(errorMessage);
       error.code = data.error?.code;
       error.responseData = data;
       throw error;
     }
-    // 后端可能直接返回格式化后的字符串，或返回 { oml_code: '' }
-    if (typeof data === 'string') {
-      return { oml_code: data };
-    }
     return data || {};
   } catch (error) {
     const responseData = error?.response?.data || error?.data;
     if (responseData && responseData.success === false) {
-      const errorMessage = responseData.error?.message || error?.message || '格式化 OML 代码失败，请稍后重试';
+      const errorMessage = responseData.error?.message || error?.message || fallbackMessage;
       const wrapped = new Error(errorMessage);
       wrapped.code = responseData.error?.code;
       wrapped.responseData = responseData;
@@ -112,7 +117,7 @@ export async function omlCodeFormat(omlCode) {
       }
       throw error;
     }
-    throw new Error(typeof error === 'string' ? error : '格式化WPL代码失败，请稍后重试');
+    throw new Error(typeof error === 'string' ? error : fallbackMessage);
   }
 }
 
@@ -120,9 +125,11 @@ export async function omlCodeFormat(omlCode) {
  * 获取调试示例列表
  * @returns {Promise<Record<string, {name: string, wpl_code: string, oml_code: string, sample_data: string}>>}
  */
-export async function fetchDebugExamples() {
+export async function fetchDebugExamples(system = 'wparse') {
   try {
-    const response = await httpRequest.get('/debug/examples');
+    const response = await httpRequest.get('/debug/examples', {
+      params: { system },
+    });
     const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
     if (data && data.success === false) {
       const errorMessage = data.error?.message || '获取示例失败，请稍后重试';
@@ -307,13 +314,14 @@ export async function parseLogs(options) {
       fieldsData = payload.fields.items;
     }
 
-    // 返回原始数据，让页面自己处理显示
-    // 兼容 format_json 和 formatJson 两种命名
+    // 返回页面展示所需的数据，兼容后端字段的 snake_case / camelCase 命名。
     const formatJson = payload?.format_json || payload?.formatJson || '';
+    const multipleLogs = payload?.multiple_logs ?? payload?.multipleLogs;
     
     return {
       fields: fieldsData,
       formatJson: typeof formatJson === 'string' ? formatJson : '',
+      multipleLogs: Boolean(multipleLogs),
     };
   } catch (error) {
     // 将请求异常与业务异常统一为可展示的错误对象，优先挂载后端响应
@@ -440,27 +448,4 @@ export async function convertRecord(options) {
       responseData,
     });
   }
-}
-
-/**
- * 运行性能测试
- * @param {Object} options - 测试选项
- * @param {string} options.testType - 测试类型
- * @param {Object} options.config - 测试配置
- * @returns {Promise<Object>} 测试任务信息
- */
-export async function runPerformanceTest(options) {
-  const { testType, config } = options;
-
-  // 调用后端性能测试接口：POST /api/debug/performance/run
-  const response = await httpRequest.post('/debug/performance/run', {
-    test_type: testType,
-    config,
-  });
-
-  // 后端返回测试任务信息
-  return response || {
-    taskId: `perf-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-001`,
-    status: 'running',
-  };
 }

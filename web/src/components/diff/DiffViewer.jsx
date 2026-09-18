@@ -12,13 +12,39 @@ import 'react-diff-view/style/index.css';
 import './DiffViewer.css';
 import { splitHunkIntoSegments } from './diffUtils';
 
-const DEFAULT_COLLAPSED_LINE_THRESHOLD = 300;
+// 超过阈值的文件默认收起，避免详情页一次渲染超长 diff 影响可读性。
+const DEFAULT_COLLAPSED_LINE_THRESHOLD = 30;
 
 const countDiffLines = (file) =>
   (Array.isArray(file?.hunks) ? file.hunks : []).reduce(
     (total, hunk) => total + (Array.isArray(hunk?.changes) ? hunk.changes.length : 0),
     0,
   );
+
+const countRawDiffLines = (diffText) => {
+  if (!diffText || typeof diffText !== 'string') {
+    return 0;
+  }
+
+  return diffText.split('\n').reduce((total, line) => {
+    if (!line) {
+      return total;
+    }
+    if (
+      line.startsWith('diff --git ') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('@@ ')
+    ) {
+      return total;
+    }
+    if (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) {
+      return total + 1;
+    }
+    return total;
+  }, 0);
+};
 
 /**
  * Get change type badge configuration
@@ -512,6 +538,8 @@ function DiffViewer({
   maxLines = 10000,
   loading = false,
   collapsedLineThreshold = DEFAULT_COLLAPSED_LINE_THRESHOLD,
+  getFileAnchorId,
+  focusedFileAnchorId,
 }) {
   const [expandedLargeFiles, setExpandedLargeFiles] = useState(new Set());
   const [collapsedFiles, setCollapsedFiles] = useState(new Set());
@@ -591,75 +619,84 @@ function DiffViewer({
           }
 
           // Render the diff
-          const lineCount = countDiffLines(file);
+          const lineCount = Math.max(countDiffLines(file), countRawDiffLines(diff_text));
           const isLargeDiff = lineCount > collapsedLineThreshold;
           const fileKey = `${file_path}-${old_path || ''}-${index}`;
+          const fileAnchorId =
+            (typeof getFileAnchorId === 'function' && getFileAnchorId(fileData, index)) ||
+            fileData?.diff_anchor_id ||
+            undefined;
+          const isFocusedFile = Boolean(fileAnchorId) && fileAnchorId === focusedFileAnchorId;
           const isCollapsed =
-            collapsedFiles.has(fileKey) || (isLargeDiff && !expandedLargeFiles.has(fileKey));
+            !isFocusedFile &&
+            (collapsedFiles.has(fileKey) || (isLargeDiff && !expandedLargeFiles.has(fileKey)));
 
           if (isCollapsed) {
             return (
-              <CollapsedFileSummary
-                key={fileKey}
-                file={file}
-                changeType={change_type}
-                oldPath={old_path}
-                lineCount={lineCount}
-                large={isLargeDiff}
-                onExpand={() => {
-                  setCollapsedFiles((prev) => {
-                    const next = new Set(prev);
-                    next.delete(fileKey);
-                    return next;
-                  });
-                  setExpandedLargeFiles((prev) => {
-                    const next = new Set(prev);
-                    next.add(fileKey);
-                    return next;
-                  });
-                }}
-              />
+              <div key={fileKey} id={fileAnchorId} className="diff-file-anchor">
+                <CollapsedFileSummary
+                  file={file}
+                  changeType={change_type}
+                  oldPath={old_path}
+                  lineCount={lineCount}
+                  large={isLargeDiff}
+                  onExpand={() => {
+                    setCollapsedFiles((prev) => {
+                      const next = new Set(prev);
+                      next.delete(fileKey);
+                      return next;
+                    });
+                    setExpandedLargeFiles((prev) => {
+                      const next = new Set(prev);
+                      next.add(fileKey);
+                      return next;
+                    });
+                  }}
+                />
+              </div>
             );
           }
 
           return (
-            <div key={fileKey} className="diff-file">
-              <FileHeader 
-                file={file} 
-                changeType={change_type}
-                oldPath={old_path}
-                onToggleCollapse={() => {
-                  setCollapsedFiles((prev) => {
-                    const next = new Set(prev);
-                    next.add(fileKey);
-                    return next;
-                  });
-                  setExpandedLargeFiles((prev) => {
-                    const next = new Set(prev);
-                    next.delete(fileKey);
-                    return next;
-                  });
-                }}
-              />
-              
-              <Diff 
-                viewType={viewType} 
-                diffType={file.type}
-                hunks={file.hunks}
-                className="diff-content"
-              >
-                {(hunks) => 
-                  hunks.map((hunk, hunkIndex) => (
-                    <CollapsibleHunk
-                      key={`${index}-hunk-${hunkIndex}`}
-                      hunk={hunk}
-                      fileIndex={index}
-                      hunkIndex={hunkIndex}
-                      viewType={viewType}
-                    />
-                  ))
-                }
-              </Diff>
+            <div key={fileKey} id={fileAnchorId} className="diff-file-anchor">
+              <div className="diff-file">
+                <FileHeader 
+                  file={file} 
+                  changeType={change_type}
+                  oldPath={old_path}
+                  onToggleCollapse={() => {
+                    setCollapsedFiles((prev) => {
+                      const next = new Set(prev);
+                      next.add(fileKey);
+                      return next;
+                    });
+                    setExpandedLargeFiles((prev) => {
+                      const next = new Set(prev);
+                      next.delete(fileKey);
+                      return next;
+                    });
+                  }}
+                />
+                
+                <Diff 
+                  viewType={viewType} 
+                  diffType={file.type}
+                  hunks={file.hunks}
+                  className="diff-content"
+                >
+                  {(hunks) => 
+                    hunks.map((hunk, hunkIndex) => (
+                      <CollapsibleHunk
+                        key={`${index}-hunk-${hunkIndex}`}
+                        hunk={hunk}
+                        fileIndex={index}
+                        hunkIndex={hunkIndex}
+                        viewType={viewType}
+                      />
+                    ))
+                  }
+                </Diff>
+              </div>
             </div>
           );
         } catch (error) {

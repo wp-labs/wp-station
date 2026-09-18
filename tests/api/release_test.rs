@@ -29,7 +29,8 @@ async fn test_release_api_end_to_end_flow() {
 
     let create_req = test::TestRequest::post()
         .uri("/api/releases")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
+            "system": "wparse",
             "pipeline": requested_pipeline,
             "note": "api release"
         }))
@@ -51,7 +52,7 @@ async fn test_release_api_end_to_end_flow() {
         .to_string();
 
     let list_uri = format!(
-        "/api/releases?page=1&page_size=5&version={}",
+        "/api/releases?system=wparse&page=1&page_size=5&version={}",
         actual_version
     );
     let list_req = test::TestRequest::get().uri(&list_uri).to_request();
@@ -75,7 +76,7 @@ async fn test_release_api_end_to_end_flow() {
 
     let validate_req = test::TestRequest::post()
         .uri(&format!("/api/releases/{}/validate", rel_id))
-        .set_json(&serde_json::json!({ "rule_type": null }))
+        .set_json(serde_json::json!({ "rule_type": null }))
         .to_request();
     let validate_resp = test::call_service(&app, validate_req).await;
     assert_eq!(validate_resp.status(), StatusCode::OK);

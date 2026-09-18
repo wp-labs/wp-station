@@ -1,0 +1,19 @@
+version = "1.0"
+
+[generator]
+count = 10
+speed = 1000
+parallel = 1
+
+[output]
+connect = "udp_out_sink"
+
+[output.params]
+addr = "127.0.0.1"
+port = 31601
+
+[logging]
+level = "warn"
+output = "console"
+
+[presets]

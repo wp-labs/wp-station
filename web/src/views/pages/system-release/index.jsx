@@ -1,10 +1,64 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
+import { DatePicker, Dropdown, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
+import {
+  fetchReleases,
+  fetchReleaseDetail,
+  fetchRestoreJob,
+  publishRelease,
+  restoreRelease,
+  validateRelease,
+} from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
+import { useSystem } from '@/contexts/SystemContext';
+import {
+  confirmProjectArchiveImport,
+  buildProjectFolderArchive,
+  downloadBlob,
+  exportProjectArchive,
+  importProjectArchive,
+} from '@/services/project';
 import ValidateResultModal from '@/components/ValidateResultModal';
+import ProjectImportResult from '@/views/components/ProjectImportResult';
+
+const IMPORTABLE_FOLDER_NAMES = ['conf', 'connectors', 'models', 'topology'];
+const RELEASE_STATUS_POLL_INTERVAL_MS = 3000;
+const RELEASE_STATUS_POLL_TIMEOUT_MS = 60000;
+const TERMINAL_RELEASE_STATUSES = new Set(['PASS', 'FAIL', 'PARTIAL_FAIL']);
+
+/** 等待普通发布记录进入终态；轮询超时只代表仍在执行，不直接判定发布失败。 */
+async function waitForReleaseTerminalStatus(releaseId, system) {
+  const deadline = Date.now() + RELEASE_STATUS_POLL_TIMEOUT_MS;
+  let latestRelease = null;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    await new Promise((resolve) => window.setTimeout(
+      resolve,
+      Math.min(RELEASE_STATUS_POLL_INTERVAL_MS, Math.max(remaining, 0)),
+    ));
+
+    try {
+      latestRelease = await fetchReleaseDetail(releaseId, system);
+      const status = String(latestRelease?.status || '').toUpperCase();
+      if (TERMINAL_RELEASE_STATUSES.has(status)) {
+        return { status, release: latestRelease, timedOut: false };
+      }
+    } catch (error) {
+      // 单次查询失败不终止发布，继续在 1 分钟窗口内等待下一次状态查询。
+      lastError = error;
+    }
+  }
+
+  return {
+    status: 'TIMEOUT',
+    release: latestRelease,
+    timedOut: true,
+    error: lastError,
+  };
+}
 
 /**
  * 系统发布列表页面
@@ -16,6 +70,7 @@ import ValidateResultModal from '@/components/ValidateResultModal';
 function SystemReleasePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { currentSystem, decoratePath } = useSystem();
   const [loading, setLoading] = useState(false);
   const [dataSource, setDataSource] = useState([]);
   const [total, setTotal] = useState(0);
@@ -42,6 +97,21 @@ function SystemReleasePage() {
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
   const [publishNote, setPublishNote] = useState('');
   const [publishReleaseGroup, setPublishReleaseGroup] = useState('models');
+  const [publishMode, setPublishMode] = useState('publish');
+  const [importingArchive, setImportingArchive] = useState(false);
+  const [exportingArchive, setExportingArchive] = useState(false);
+  const [restoringReleaseId, setRestoringReleaseId] = useState(null);
+  const [restoreProgress, setRestoreProgress] = useState(null);
+
+  const getRestoreGroups = (releaseRecord) => (
+    Array.isArray(releaseRecord?.restoreGroups) ? releaseRecord.restoreGroups : []
+  );
+
+  const getGroupLabel = (group) => {
+    if (group === 'models') return t('systemRelease.groupModels');
+    if (group === 'infra') return t('systemRelease.groupInfraAlt');
+    return t('systemRelease.groupAll');
+  };
 
   const getAvailablePublishGroups = (releaseRecord) => {
     const status = String(releaseRecord?.status || '').toUpperCase();
@@ -60,9 +130,21 @@ function SystemReleasePage() {
 
     if (releaseGroup === 'models') return ['models', 'infra'];
     if (releaseGroup === 'infra') return ['infra', 'models'];
-    return ['models', 'infra'];
+    return ['all', 'models', 'infra'];
   };
   const availablePublishGroups = getAvailablePublishGroups(currentRelease);
+  const restoreProgressVisible = publishMode === 'restore' && Boolean(restoreProgress);
+
+  const closePublishModal = () => {
+    setPublishModalVisible(false);
+    setCurrentRelease(null);
+    setSelectedConnectionIds([]);
+    setPublishNote('');
+    setPublishReleaseGroup('models');
+    setPublishMode('publish');
+    setRestoreProgress(null);
+    setRestoringReleaseId(null);
+  };
 
   const getErrorMessage = (error, fallback) => {
     const responseData = error?.response?.data || error?.data || error?.responseData;
@@ -79,6 +161,37 @@ function SystemReleasePage() {
       return backendError.message;
     }
     return error?.message || fallback;
+  };
+
+  const buildArchiveImportFailureResult = (message, sourceLabel = '') => ({
+    summary: {
+      rules_deleted: 0,
+      rules_imported: 0,
+      knowledge_deleted: 0,
+      knowledge_imported: 0,
+      imported_dirs: [],
+      retained_dirs: [],
+      rule_breakdown: [],
+      warnings: [],
+      failed_files: 1,
+      source_dir: sourceLabel,
+      models_root: '',
+      infra_root: '',
+    },
+    validation: {
+      passed: false,
+      message,
+    },
+  });
+
+  const showArchiveImportResultModal = (title, result, showPaths = true) => {
+    Modal.info({
+      title,
+      width: 760,
+      icon: null,
+      okText: t('common.confirm'),
+      content: <ProjectImportResult result={result} showPaths={showPaths} system={currentSystem} />,
+    });
   };
 
   /**
@@ -105,6 +218,7 @@ function SystemReleasePage() {
         ...searchForm,
         page,
         pageSize,
+        system: currentSystem,
       });
       setDataSource(response.items || []);
       setTotal(response.total || 0);
@@ -116,7 +230,7 @@ function SystemReleasePage() {
   // 组件挂载时加载数据
   useEffect(() => {
     loadReleases();
-  }, [page, pageSize]);
+  }, [currentSystem, page, pageSize]);
 
   /**
    * 处理查询按钮点击
@@ -155,10 +269,12 @@ function SystemReleasePage() {
   const handleValidate = async (releaseRecord) => {
     setCurrentRelease(releaseRecord);
     try {
-      const result = await validateRelease(releaseRecord.id);
+      const result = await validateRelease(releaseRecord.id, currentSystem);
       const details = Array.isArray(result.details) ? result.details : [];
       setValidateResult({
         filename: result.filename || `版本 ${releaseRecord.version}`,
+        subjectLabel: t('systemRelease.versionNumber'),
+        subjectValue: releaseRecord.version || '—',
         valid: result.valid !== false,
         message: result.message || (details.length > 0 ? details.join('\n') : ''),
         details,
@@ -168,6 +284,8 @@ function SystemReleasePage() {
     } catch (error) {
       setValidateResult({
         filename: `版本 ${releaseRecord.version}`,
+        subjectLabel: t('systemRelease.versionNumber'),
+        subjectValue: releaseRecord.version || '—',
         valid: false,
         message: error.message || t('systemRelease.validateFailedMessage'),
         details: [],
@@ -182,14 +300,6 @@ function SystemReleasePage() {
    * 同时加载在线机器列表供用户多选
    */
   const handlePublish = async (releaseRecord) => {
-    if (!releaseRecord?.sandboxReady) {
-      Modal.warning({
-        title: t('sandbox.publishBlockedTitle'),
-        content: t('sandbox.publishBlocked'),
-      });
-      return;
-    }
-
     const availableGroups = getAvailablePublishGroups(releaseRecord);
     if (availableGroups.length === 0) {
       Modal.warning({
@@ -203,11 +313,13 @@ function SystemReleasePage() {
     setSelectedConnectionIds([]);
     setPublishNote('');
     setPublishReleaseGroup(availableGroups[0] || 'models');
+    setPublishMode('publish');
+    setRestoreProgress(null);
     setPublishModalVisible(true);
     // 异步加载在线机器
     setLoadingConnections(true);
     try {
-      const connections = await fetchOnlineConnections();
+      const connections = await fetchOnlineConnections(currentSystem);
       setOnlineConnections(connections);
     } finally {
       setLoadingConnections(false);
@@ -218,8 +330,10 @@ function SystemReleasePage() {
    * 确认发布
    */
   const handleConfirmPublish = async () => {
-    if (!currentRelease) return;
-    if (availablePublishGroups.length === 0) {
+    if (!currentRelease || restoreProgressVisible) return;
+    const isRestore = publishMode === 'restore';
+    const releaseVersion = currentRelease.version;
+    if (!isRestore && availablePublishGroups.length === 0) {
       Modal.warning({
         title: t('systemRelease.publishWarning'),
         content: t('systemRelease.statusPublishedAll'),
@@ -236,33 +350,319 @@ function SystemReleasePage() {
       return;
     }
 
+    if (isRestore) {
+      setRestoringReleaseId(currentRelease.id);
+      setRestoreProgress({
+        jobId: null,
+        status: 'QUEUED',
+        phase: 'QUEUED',
+        progress: 5,
+        elapsedSeconds: 0,
+        errorMessage: '',
+      });
+    }
+
     try {
       // 将选中的在线机器 ID 传给后端
-      const result = await publishRelease(
-        currentRelease.id,
-        publishReleaseGroup,
-        selectedConnectionIds,
-        publishNote,
-      );
+      const result = isRestore
+        ? await restoreRelease(
+            currentRelease.id,
+            publishReleaseGroup,
+            selectedConnectionIds,
+            publishNote,
+            currentSystem,
+          )
+        : await publishRelease(
+            currentRelease.id,
+            publishReleaseGroup,
+            selectedConnectionIds,
+            publishNote,
+            currentSystem,
+          );
+      if (isRestore) {
+        const startedAt = Date.now();
+        let job = result;
+        setRestoreProgress({
+          jobId: result?.job_id || result?.id || null,
+          status: String(result?.status || 'QUEUED').toUpperCase(),
+          phase: result?.phase || 'QUEUED',
+          progress: 5,
+          elapsedSeconds: 0,
+          errorMessage: '',
+        });
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          job = await fetchRestoreJob(result.job_id);
+          const status = String(job?.status || 'RUNNING').toUpperCase();
+          const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+          const terminal = !['QUEUED', 'RUNNING'].includes(status);
+          const progress = status === 'PASS'
+            ? 100
+            : terminal
+              ? 100
+              : Math.min(95, Math.max(5, Math.round((elapsedSeconds / 30) * 90)));
+          setRestoreProgress({
+            jobId: result.job_id,
+            status,
+            phase: job?.phase || 'RUNNING',
+            progress,
+            elapsedSeconds,
+            errorMessage: job?.error_message || '',
+          });
+          if (terminal) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        }
+        if (String(job?.status || '').toUpperCase() !== 'PASS') {
+          throw new Error(job?.error_message || t('systemRelease.restoreFailedMessage'));
+        }
+      } else {
+        const publishStatus = await waitForReleaseTerminalStatus(currentRelease.id, currentSystem);
+        if (publishStatus.timedOut) {
+          closePublishModal();
+          loadReleases();
+          Modal.info({
+            title: t('systemRelease.publishStillRunningTitle'),
+            content: t('systemRelease.publishStillRunningMessage', {
+              version: releaseVersion,
+            }),
+          });
+          return;
+        }
+        if (publishStatus.status !== 'PASS') {
+          throw new Error(
+            publishStatus.release?.error_message
+              || result?.message
+              || t('systemRelease.publishFailedMessage'),
+          );
+        }
+      }
       Modal.success({
-        title: t('systemRelease.publishSuccess'),
-        content:
-          result?.message || t('systemRelease.publishSuccessMessage', { version: currentRelease.version }),
+        title: isRestore
+          ? t('systemRelease.restoreSuccessTitle')
+          : t('systemRelease.publishSuccess'),
+        content: isRestore
+          ? t('systemRelease.restoreSuccessMessage', { version: releaseVersion })
+          : t('systemRelease.publishSuccessMessage', { version: releaseVersion }),
       });
 
-      setPublishModalVisible(false);
-      setCurrentRelease(null);
-      setSelectedConnectionIds([]);
-      setPublishNote('');
-      setPublishReleaseGroup('models');
+      closePublishModal();
 
       // 刷新列表
       loadReleases();
     } catch (error) {
+      if (isRestore) {
+        closePublishModal();
+        loadReleases();
+      }
       Modal.error({
-        title: t('systemRelease.publishFailed'),
-        content: getErrorMessage(error, t('systemRelease.publishFailedMessage')),
+        title: isRestore
+          ? t('systemRelease.restoreFailedTitle')
+          : t('systemRelease.publishFailed'),
+        content: getErrorMessage(
+          error,
+          isRestore
+            ? t('systemRelease.restoreFailedMessage')
+            : t('systemRelease.publishFailedMessage'),
+        ),
       });
+    } finally {
+      if (isRestore) setRestoringReleaseId(null);
+    }
+  };
+
+  const isSupportedArchive = (fileName) => {
+    const lower = String(fileName || '').toLowerCase();
+    return lower.endsWith('.tar') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.zip');
+  };
+
+  const handleImportArchiveFile = async (file, sourceLabel = file?.name) => {
+    if (!file) return;
+
+    if (!isSupportedArchive(file.name)) {
+      Modal.warning({
+        title: t('systemRelease.importArchiveInvalidTitle'),
+        content: t('systemRelease.importArchiveInvalidMessage'),
+      });
+      return;
+    }
+
+    setImportingArchive(true);
+    try {
+      const preview = await importProjectArchive(file, currentSystem);
+      Modal.confirm({
+        title: t('systemRelease.importArchiveConfirmTitle'),
+        content: (
+          <div style={{ lineHeight: 1.7, marginTop: 8 }}>
+            <p>{t('systemRelease.importArchivePreviewMessage', { file: sourceLabel })}</p>
+            <ProjectImportResult result={preview} showPaths={false} system={currentSystem} />
+          </div>
+        ),
+        width: 720,
+        okText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        onOk: async () => {
+          setImportingArchive(true);
+          try {
+            const result = await confirmProjectArchiveImport(preview.import_id, currentSystem);
+            showArchiveImportResultModal(t('systemRelease.importArchiveSuccessTitle'), result);
+            loadReleases();
+          } catch (error) {
+            showArchiveImportResultModal(
+              t('systemRelease.importArchiveFailedTitle'),
+              buildArchiveImportFailureResult(
+                error?.message || t('systemRelease.importArchiveFailedMessage'),
+                sourceLabel,
+              ),
+              false,
+            );
+          } finally {
+            setImportingArchive(false);
+          }
+        },
+      });
+    } catch (error) {
+      showArchiveImportResultModal(
+        t('systemRelease.importArchiveFailedTitle'),
+        buildArchiveImportFailureResult(
+          error?.message || t('systemRelease.importArchiveFailedMessage'),
+          sourceLabel,
+        ),
+        false,
+      );
+    } finally {
+      setImportingArchive(false);
+    }
+  };
+
+  const handleImportArchive = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    await handleImportArchiveFile(file, file?.name);
+  };
+
+  const handleImportFolder = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const folderLabel = files[0]?.webkitRelativePath?.split('/')[0] || '所选文件夹';
+    await handleImportFolderEntries(files, folderLabel);
+  };
+
+  const collectDirectoryFiles = async (directoryHandle) => {
+    const entries = [];
+    const selectedFolderIsImportable = IMPORTABLE_FOLDER_NAMES.includes(directoryHandle.name);
+    const walk = async (handle, pathParts, insideImportableFolder) => {
+      for await (const [name, entry] of handle.entries()) {
+        const nextPathParts = [...pathParts, name];
+
+        if (entry.kind === 'file') {
+          if (insideImportableFolder) {
+            entries.push({
+              file: await entry.getFile(),
+              relativePath: nextPathParts.join('/'),
+            });
+          }
+          continue;
+        }
+
+        if (entry.kind === 'directory') {
+          const isDirectImportableFolder =
+            pathParts.length === 1 && IMPORTABLE_FOLDER_NAMES.includes(name);
+          if (insideImportableFolder || isDirectImportableFolder) {
+            await walk(entry, nextPathParts, insideImportableFolder || isDirectImportableFolder);
+          }
+        }
+      }
+    };
+
+    await walk(directoryHandle, [directoryHandle.name], selectedFolderIsImportable);
+    return entries;
+  };
+
+  const handleImportFolderEntries = async (entries, folderLabel) => {
+    try {
+      const archive = buildProjectFolderArchive(entries);
+      await handleImportArchiveFile(archive, `文件夹：${folderLabel}`);
+    } catch (error) {
+      showArchiveImportResultModal(
+        t('systemRelease.importArchiveFailedTitle'),
+        buildArchiveImportFailureResult(
+          error?.message || t('systemRelease.importArchiveFailedMessage'),
+          `文件夹：${folderLabel}`,
+        ),
+        false,
+      );
+    }
+  };
+
+  const handleSelectImportFolder = async () => {
+    // File System Access API 不会触发“上传整个文件夹”的浏览器确认，
+    // 前端只读取核心目录下的文件并生成归档。
+    if (typeof window.showDirectoryPicker === 'function') {
+      try {
+        const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+        const entries = await collectDirectoryFiles(directoryHandle);
+        await handleImportFolderEntries(entries, directoryHandle.name || '所选文件夹');
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        showArchiveImportResultModal(
+          t('systemRelease.importArchiveFailedTitle'),
+          buildArchiveImportFailureResult(
+            error?.message || t('systemRelease.importArchiveFailedMessage'),
+            '所选文件夹',
+          ),
+          false,
+        );
+      }
+      return;
+    }
+
+    // 兼容不支持 File System Access API 的浏览器。
+    document.getElementById('project-folder-import')?.click();
+  };
+
+  const handleRestore = async (releaseRecord) => {
+    setCurrentRelease(releaseRecord);
+    setSelectedConnectionIds([]);
+    setPublishNote('');
+    setPublishMode('restore');
+    setRestoreProgress(null);
+    const restoreGroups = getRestoreGroups(releaseRecord);
+    setPublishReleaseGroup(restoreGroups[0] || 'models');
+    setPublishModalVisible(true);
+    setLoadingConnections(true);
+    try {
+      setOnlineConnections(await fetchOnlineConnections(currentSystem));
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const importConfigMenuItems = [
+    {
+      key: 'archive',
+      label: t('systemRelease.importArchive'),
+      onClick: () => document.getElementById('project-archive-import')?.click(),
+    },
+    {
+      key: 'folder',
+      label: t('systemRelease.importFolder'),
+      onClick: handleSelectImportFolder,
+    },
+  ];
+
+  const handleExportArchive = async () => {
+    setExportingArchive(true);
+    try {
+      const { blob, fileName } = await exportProjectArchive(currentSystem);
+      downloadBlob(blob, fileName);
+    } catch (error) {
+      Modal.error({
+        title: t('systemRelease.exportArchiveFailedTitle'),
+        content: error?.message || t('systemRelease.exportArchiveFailedMessage'),
+      });
+    } finally {
+      setExportingArchive(false);
     }
   };
 
@@ -280,6 +680,12 @@ function SystemReleasePage() {
       </span>
     );
   };
+
+  const renderSystemTag = (system) => (
+    <span className="release-status" style={{ marginLeft: 0 }}>
+      {t(`navigation.system.${system || 'wparse'}`)}
+    </span>
+  );
 
   const getReleaseStatusMeta = (record) => {
     const normalizedStatus = String(record?.status || '').toUpperCase();
@@ -340,6 +746,12 @@ function SystemReleasePage() {
       },
     },
     {
+      title: t('systemRelease.system'),
+      dataIndex: 'system',
+      key: 'system',
+      render: (system) => renderSystemTag(system),
+    },
+    {
       title: t('systemRelease.versionNumber'),
       dataIndex: 'version',
       key: 'version',
@@ -398,23 +810,23 @@ function SystemReleasePage() {
         const statusUpper = String(releaseRecord.status || '').toUpperCase();
         const availableGroups = getAvailablePublishGroups(releaseRecord);
         const publishHidden = statusUpper === 'PASS' && availableGroups.length === 0;
-        const publishDisabled =
-          !(releaseRecord.sandboxReady ?? false) || statusUpper === 'RUNNING';
+        const publishDisabled = statusUpper === 'RUNNING';
+        const restoreDisabled = restoringReleaseId === releaseRecord.id;
         return (
           <>
             <button
               type="button"
               className="link-btn release-detail-btn"
-              onClick={() => {
-                navigate(`/system-release/${releaseRecord.id}`);
-              }}
+              onClick={() => navigate(decoratePath(`/system-release/${releaseRecord.id}`))}
             >
               {t('systemRelease.detail')}
             </button>
             <button
               type="button"
               className="link-btn release-prepublish-btn"
-              onClick={() => navigate(`/system-release/${releaseRecord.id}/prepublish`)}
+              onClick={() =>
+                navigate(decoratePath(`/system-release/${releaseRecord.id}/prepublish`))
+              }
             >
               {statusUpper === 'PASS'
                 ? t('sandbox.prepublishDetail')
@@ -446,6 +858,17 @@ function SystemReleasePage() {
                   </button>
                 )}
               </>
+            )}
+            {releaseRecord.canRestore === true && releaseRecord.restoreGroups.length > 0 && (
+              <button
+                type="button"
+                className="link-btn release-restore-btn"
+                onClick={() => handleRestore(releaseRecord)}
+                disabled={restoreDisabled}
+                title={releaseRecord.restoreDisabledReason || t('systemRelease.restoreButtonHint')}
+              >
+                {restoreDisabled ? t('systemRelease.restoring') : t('systemRelease.restore')}
+              </button>
             )}
           </>
         );
@@ -532,6 +955,43 @@ function SystemReleasePage() {
             <h3>{t('systemRelease.releaseRecords')}</h3>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               <span className="release-list-hint">{t('systemRelease.recentRecords', { count: total })}</span>
+              <input
+                id="project-archive-import"
+                type="file"
+                style={{ display: 'none' }}
+                onChange={handleImportArchive}
+              />
+              <input
+                id="project-folder-import"
+                type="file"
+                webkitdirectory="true"
+                directory="true"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleImportFolder}
+              />
+              <Dropdown
+                menu={{ items: importConfigMenuItems }}
+                trigger={['click']}
+                disabled={importingArchive}
+              >
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={importingArchive}
+                  aria-haspopup="menu"
+                >
+                  {importingArchive ? t('systemRelease.importingConfig') : t('systemRelease.importConfig')}
+                </button>
+              </Dropdown>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={exportingArchive}
+                onClick={handleExportArchive}
+              >
+                {exportingArchive ? t('systemRelease.exportingArchive') : t('systemRelease.exportArchive')}
+              </button>
             </div>
           </header>
           
@@ -551,8 +1011,7 @@ function SystemReleasePage() {
               showTotal: (total) => t('systemRelease.total', { count: total }),
               position: ['bottomCenter'],
             }}
-            size="small"
-            className="data-table release-table"
+            className="release-table"
           />
         </div>
       </section>
@@ -568,27 +1027,28 @@ function SystemReleasePage() {
       />
 
       <Modal
-        title={t('systemRelease.confirmPublish')}
+        title={restoreProgressVisible
+          ? t('systemRelease.restorePublishingTitle')
+          : publishMode === 'restore'
+            ? t('systemRelease.restoreConfirmTitle', { version: currentRelease?.version })
+          : t('systemRelease.confirmPublish')}
         open={publishModalVisible}
-        onCancel={() => {
-          setPublishModalVisible(false);
-          setCurrentRelease(null);
-          setSelectedConnectionIds([]);
-          setPublishNote('');
-          setPublishReleaseGroup('models');
-        }}
-        footer={[
+        onCancel={closePublishModal}
+        footer={restoreProgressVisible ? (
+          <button
+            key="close"
+            type="button"
+            className="btn ghost"
+            onClick={closePublishModal}
+          >
+            {t('systemRelease.restoreClose')}
+          </button>
+        ) : [
           <button
             key="cancel"
             type="button"
             className="btn ghost"
-            onClick={() => {
-              setPublishModalVisible(false);
-              setCurrentRelease(null);
-              setSelectedConnectionIds([]);
-              setPublishNote('');
-              setPublishReleaseGroup('models');
-            }}
+            onClick={closePublishModal}
           >
             {t('common.cancel')}
           </button>,
@@ -598,32 +1058,131 @@ function SystemReleasePage() {
             className="btn primary"
             onClick={handleConfirmPublish}
           >
-            {t('common.confirm')}
+            {publishMode === 'restore' ? t('systemRelease.restoreAndPublish') : t('common.confirm')}
           </button>,
         ]}
         width={520}
       >
-        <p style={{ margin: '0 0 12px', fontSize: '14px', lineHeight: '1.6' }}>
-          {t('systemRelease.confirmPublishMessage', { version: currentRelease?.version })}
-        </p>
+        {restoreProgressVisible ? (
+          <div style={{ padding: '8px 0 12px' }}>
+            <p style={{ margin: '0 0 18px', fontSize: '14px', lineHeight: '1.6' }}>
+              {t('systemRelease.restorePublishingMessage')}
+            </p>
+            <div style={{ marginBottom: '14px', fontSize: '13px', color: '#667085' }}>
+              {t('systemRelease.restoreProgressVersion', {
+                version: currentRelease?.version || '—',
+                scope: getGroupLabel(publishReleaseGroup),
+              })}
+            </div>
+            <div
+              style={{
+                height: '10px',
+                overflow: 'hidden',
+                borderRadius: '999px',
+                background: '#edf1f7',
+              }}
+            >
+              <div
+                style={{
+                  width: `${restoreProgress.progress}%`,
+                  height: '100%',
+                  borderRadius: '999px',
+                  background: '#275efe',
+                  transition: 'width 0.4s ease',
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginTop: '10px',
+                fontSize: '13px',
+                color: '#667085',
+              }}
+            >
+              <span>
+                {t('systemRelease.restoreProgressPhase')}: {restoreProgress.phase || '—'}
+              </span>
+              <strong style={{ color: '#275efe' }}>{restoreProgress.progress}%</strong>
+            </div>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#98a2b3' }}>
+              {t('systemRelease.restoreProgressElapsed', {
+                seconds: restoreProgress.elapsedSeconds || 0,
+              })}
+            </div>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#98a2b3' }}>
+              {t('systemRelease.restoreProgressWaiting')}
+            </div>
+          </div>
+        ) : (
+          <>
+            {publishMode === 'restore' ? (
+              <>
+                <p style={{ margin: '0 0 12px', fontSize: '14px', lineHeight: '1.6' }}>
+                  {t('systemRelease.restoreConfirmMessage', {
+                    version: currentRelease?.version,
+                    scope: getGroupLabel(publishReleaseGroup),
+                  })}
+                </p>
+                <div
+                  style={{
+                    marginBottom: '16px',
+                    padding: '12px 14px',
+                    border: '1px solid #e6eaf0',
+                    borderRadius: '8px',
+                    background: '#fafbfc',
+                    fontSize: '13px',
+                    lineHeight: 1.8,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <span style={{ color: '#667085' }}>{t('systemRelease.restoreSourceVersion')}</span>
+                    <strong>{currentRelease?.version || '—'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <span style={{ color: '#667085' }}>{t('systemRelease.restoreScope')}</span>
+                    <strong>{getGroupLabel(publishReleaseGroup)}</strong>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p style={{ margin: '0 0 12px', fontSize: '14px', lineHeight: '1.6' }}>
+                {t('systemRelease.confirmPublishMessage', { version: currentRelease?.version })}
+              </p>
+            )}
         <div style={{ marginBottom: '16px' }}>
           <div style={{ marginBottom: '8px', fontSize: '13px', color: '#666', fontWeight: 500 }}>
-            {t('systemRelease.releaseGroup')}
+            {publishMode === 'restore'
+              ? t('systemRelease.restoreScope')
+              : t('systemRelease.releaseGroup')}
           </div>
           <Radio.Group
             value={publishReleaseGroup}
             onChange={(e) => setPublishReleaseGroup(e.target.value)}
           >
-            {availablePublishGroups.includes('models') && (
+            {(publishMode === 'restore'
+              ? getRestoreGroups(currentRelease)
+              : availablePublishGroups).includes('models') && (
               <Radio value="models">{t('systemRelease.groupModels')}</Radio>
             )}
-            {availablePublishGroups.includes('infra') && (
+            {(publishMode === 'restore'
+              ? getRestoreGroups(currentRelease)
+              : availablePublishGroups).includes('infra') && (
               <Radio value="infra">{t('systemRelease.groupInfraAlt')}</Radio>
+            )}
+            {(publishMode === 'restore'
+              ? getRestoreGroups(currentRelease)
+              : availablePublishGroups).includes('all') && (
+              <Radio value="all">{t('systemRelease.groupAll')}</Radio>
             )}
           </Radio.Group>
         </div>
         <div style={{ marginBottom: '8px', fontSize: '13px', color: '#666', fontWeight: 500 }}>
-          {t('systemRelease.selectTargetMachines')}
+            {publishMode === 'restore'
+              ? t('systemRelease.restoreTargetMachines')
+              : t('systemRelease.selectTargetMachines')}
         </div>
         {loadingConnections ? (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
@@ -650,6 +1209,11 @@ function SystemReleasePage() {
                   <span style={{ fontSize: '13px' }}>
                     {conn.name ? `${conn.name} (${conn.ip}:${conn.port})` : `${conn.ip}:${conn.port}`}
                   </span>
+                  {publishMode === 'restore' && (
+                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#667085' }}>
+                      {t('systemRelease.currentDeviceVersion')}: {conn.configVersion || '—'}
+                    </span>
+                  )}
                 </Checkbox>
               </div>
             ))}
@@ -672,6 +1236,8 @@ function SystemReleasePage() {
             onChange={(e) => setPublishNote(e.target.value)}
           />
         </div>
+          </>
+        )}
       </Modal>
     </div>
   );

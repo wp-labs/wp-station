@@ -46,15 +46,23 @@ pub struct RepoInfo {
     pub clone_url: String,
     pub ssh_url: String,
     pub html_url: String,
+    pub empty: bool,
 }
 
 impl RepoInfo {
-    pub fn new(name: String, clone_url: String, ssh_url: String, html_url: String) -> Self {
+    pub fn new(
+        name: String,
+        clone_url: String,
+        ssh_url: String,
+        html_url: String,
+        empty: bool,
+    ) -> Self {
         Self {
             name,
             clone_url,
             ssh_url,
             html_url,
+            empty,
         }
     }
 }

@@ -1,0 +1,13 @@
+{
+  "language_id": "wfg",
+  "display_name": "WFG",
+  "mode": "tree-sitter",
+  "rust_crate": "tree-sitter-wfl",
+  "file_extensions": ["wfg"],
+  "theme_prefix": "cm-wf",
+  "runtime_wasm_file_name": "tree-sitter.wasm",
+  "parser_wasm_file_name": "tree-sitter-wfg.wasm",
+  "parser_wasm": "editor/wasm/tree-sitter-wfg.wasm",
+  "highlights_query": "queries/wfg/highlights.scm",
+  "completion_bundle": "completions/wfg/completion.bundle.json"
+}

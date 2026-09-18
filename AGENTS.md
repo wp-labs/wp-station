@@ -1,12 +1,13 @@
 # AGENTS.md
 
-`wp-station` 的 AI 开发导航。接需求前先读 `README.md` 了解项目全貌，再用本文件定位改哪些文件、注意哪些联动、遵守哪些规范。
+`wp-station` 的 AI 开发导航。接需求前先读 `README.md` 了解项目全貌，再看 `CHANGELOG.md` 把握近期版本脉络，最后用本文件定位改哪些文件、注意哪些联动、遵守哪些规范。
 
 ## 阅读顺序
 
 1. `README.md`：项目是什么、怎么跑
-2. 本文件：改什么文件、联动什么、遵守什么规范
-3. 对应源码：确定改动范围后再进目录
+2. `CHANGELOG.md`：近期版本变化、依赖升级、功能落地时间点
+3. 本文件：改什么文件、联动什么、遵守什么规范
+4. 对应源码：确定改动范围后再进目录
 
 ---
 
@@ -17,12 +18,14 @@
 | 设备管理 | `views/pages/system-manage/ConnectionManage.jsx` | `services/connection.js` | `src/api/device.rs` | `src/server/device.rs` | `src/db/device.rs` |
 | 发布列表/详情 | `views/pages/system-release/index.jsx` `detail.jsx` | `services/release.js` | `src/api/release.rs` | `src/server/release.rs` `release_task_runner.rs` | `src/db/release.rs` `release_target.rs` |
 | 沙盒预发布 | `views/pages/system-release/prepublish.jsx` | `services/sandbox.js` | `src/api/sandbox.rs` | `src/server/sandbox*.rs` | `src/db/sandbox.rs` |
-| 规则管理 | `views/pages/rule-manage/index.jsx` | `services/config.js` | `src/api/rules.rs` | `src/server/rules.rs` | `project_root` 文件 + `src/utils/project.rs` |
-| 配置管理 | `views/pages/config-manage/index.jsx` | `services/config.js` | `src/api/config.rs` | `src/server/config.rs` | `project_root` 文件 + `src/utils/project.rs` |
+| 规则管理 | `views/pages/rule-manage/index.jsx` | `services/config.js` | `src/api/rules.rs` | `src/server/rules.rs` | `project_models` / `project_infra` 文件 + `src/utils/project.rs` |
+| 配置管理 | `views/pages/config-manage/index.jsx` | `services/config.js` | `src/api/config.rs` | `src/server/config.rs` `config_templates.rs` | `project_infra` 文件 + `src/utils/project.rs` `src/utils/config_templates.rs` |
 | 调试页 | `views/pages/simulate-debug/index.jsx` | `services/debug.js` | `src/api/debug.rs` | `src/server/debug.rs` | — |
+| 接入概览 | `views/pages/integration-overview/index.jsx` | `services/features.js` `services/config.js` | `src/api/integration_overview.rs` | `src/utils/integration_overview.rs` | `project_models` / `project_infra` 文件 |
 | 用户/登录 | `views/pages/login/index.jsx` `system-manage/index.jsx` | `services/auth.js` `services/user.js` | `src/api/user.rs` | `src/server/user.rs` | `src/db/user.rs` |
 | 操作日志 | `views/pages/system-manage/index.jsx` | `services/operation_log.js` | `src/api/operation_log.rs` | `src/server/operation_log.rs` | `src/db/operation_log.rs` |
 | AI 辅助任务 | `components/AssistTaskCenter/index.jsx` | `services/assist_task.js` | `src/api/assist_task.rs` | `src/server/assist_task.rs` | `src/db/assist_task.rs` |
+| 项目导入/导出 | `views/pages/system-manage/index.jsx` `views/components/ProjectImportResult.jsx` | `services/project.js` | `src/api/project.rs` | `src/server/project.rs` | `src/utils/project.rs` |
 | 导航/路由/国际化 | `components/Navigation.jsx` `App.jsx` | `i18n/locales/*.json` | — | — | — |
 
 ---
@@ -39,9 +42,10 @@
 
 关键事实：
 
-- **规则/配置/知识库以 `project_root` 文件为主数据源**；数据库仍承载设备、发布、用户、操作日志、沙盒等运行态数据。
-- **规则/配置保存不只是写文件**，通常还要：写 `project_root` → 操作日志 → 同步 Gitea → 刷新草稿发布记录。
+- **当前采用双仓库布局**：`project_models` 承载 `models/*`，`project_infra` 承载 `conf` / `connectors` / `topology`；数据库仍承载设备、发布、用户、操作日志、沙盒等运行态数据。
+- **规则/配置保存不只是写文件**，通常还要：写 `project_models` / `project_infra` → 操作日志 → 同步 Gitea → 刷新草稿发布记录。
 - **发布是设备维度的**，核心在 `release_targets`，不是改 release 主表状态。
+- **来源/输出模板不是硬编码**，而是运行时扫描 `project_infra/connectors/source.d`、`sink.d` 生成。
 
 ---
 
@@ -51,10 +55,15 @@
 
 前端保存后，后端按序执行：
 
-1. 写入 `project_root`
+1. 写入 `project_models` / `project_infra`
 2. 记录操作日志
 3. 提交并同步到 Gitea（`src/server/sync.rs`）
 4. 创建或刷新草稿发布记录
+
+实际落盘位置：
+
+- 规则、知识库：`project_models`
+- parse / connectors / topology：`project_infra`
 
 覆盖：配置管理、规则管理、知识库保存。
 
@@ -72,7 +81,7 @@
 1. 前端创建或选择发布版本
 2. 发布时为每台设备生成 `release_targets`
 3. `release_task_runner` 周期轮询待处理任务
-4. 通过 `WarpParseService`（`src/utils/warparse_service.rs`）调设备部署接口和状态接口
+4. 通过 `WarpParseService`（`src/utils/wparse_service.rs`）调设备部署接口和状态接口
 5. 汇总设备结果后刷新 release 聚合状态
 
 ### 4. 沙盒预发布验证链路
@@ -97,9 +106,10 @@
 | `src/server/*` | 业务编排主入口，绝大多数需求先改这里 |
 | `src/db/*` | CRUD、分页、状态更新；规则/知识库不再建表存储 |
 | `src/utils/common.rs` | 通用常量定义与展示格式化工具（北京时间格式化、sink 展示名称推导） |
-| `src/utils/project.rs` | `project_root` 中规则、配置、知识库文件的读写、扫描和初始化辅助 |
+| `src/utils/project.rs` | 双仓库中的规则、配置、知识库文件读写、扫描和初始化辅助 |
+| `src/utils/config_templates.rs` | 从 `project_infra/connectors/source.d|sink.d` 扫描 connector 并转换为 source / sink 模板片段 |
 | `src/utils/project_check.rs` | 项目组件完整性校验（基于 wp_proj） |
-| `src/utils/warparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
+| `src/utils/wparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
 | `src/utils/health_check.rs` | 设备在线检查 |
 | `src/utils/sandbox.rs` | 沙盒运行时管理（工作区准备、进程启停、配置生成、输出收集） |
 | `src/utils/wpl.rs` | WPL 解析与格式化 |
@@ -152,7 +162,7 @@
 
 改动注意：
 - `knowledge` 与 `wpl/oml` 数据结构不完全相同。
-- 保存后须完整走：写 `project_root` → 操作日志 → Gitea → 草稿发布。
+- 保存后须完整走：写 `project_models` / `project_infra` → 操作日志 → Gitea → 草稿发布。
 - 规则校验逻辑变化时，前端成功/失败弹窗一并核对。
 
 ### 配置管理（parse / source / sink / connect）
@@ -160,6 +170,10 @@
 改动注意：
 - 链路与规则管理相同，也会触发文件写入、同步和草稿发布。
 - `parse` 与连接配置的文件和规则类型不同，前端有一层映射。
+- `source` / `sink` 模板能力走独立接口：`GET /api/config/templates`、`POST /api/config/templates/render`。
+- 模板来源是运行时 connector 文件，不是后端常量；改 connector 后，重新打开模板弹窗即可读到最新内容。
+- `输出配置` 只有 `business.d/*` 支持 `新增输出源`；`infra.d/*` 不开放。
+- 模板会省略高级调优字段；如需调整，用户仍需手改 `topology/*.toml` 或 connector 文件。
 - `services/config.js` 有真实接口与 Mock 混用，改之前先确认你动的是哪一支。
 
 ### 调试页
@@ -169,6 +183,20 @@
 - 后端已实现的调试接口：`/api/debug/parse`、`/api/debug/knowledge/status`、`/api/debug/knowledge/query`、`/api/debug/performance/run`、`/api/debug/performance/{taskId}`、`/api/debug/wpl/format`、`/api/debug/oml/format`、`/api/debug/examples`。
 - `services/debug.js` 里的 `/debug/transform`、`/debug/decode/base64` 后端尚未实现，不要默认已有。
 - `index-old.jsx` 和 `index-backup.jsx` 是遗留文件，不要动。
+
+### 接入概览
+
+改动注意：
+- 页面数据来自两路：规则侧解析 `wpl` 文件、运行时侧读取 `/api/integration-overview/runtime`。
+- `ignore` 类型规则不展示、不计数；改 WPL 解析或展示口径时要同步核对这个约束。
+- `设备类型` / `日志类型` 展示名称带有回退链路，修改 tag 或字段名时要同步核对页面兼容逻辑。
+
+### 项目导入 / 导出
+
+改动注意：
+- 压缩包导入是 `preview` + `confirm` 两阶段，不要把预检和正式覆盖逻辑混在一起。
+- 导入导出会直接影响 `project_models` / `project_infra`，同时会碰到 Git/Gitea 仓库状态与冲突处理。
+- 前端入口目前在 `system-manage/index.jsx`，不是独立页面。
 
 ### 用户 / 登录 / 密码 / 操作日志
 
@@ -217,7 +245,7 @@
 
 必须核对五个联动点：
 1. 操作日志
-2. 写入 `project_root`
+2. 写入 `project_models` / `project_infra`
 3. 同步到 Gitea
 4. 刷新草稿发布记录
 5. 重新加载知识库（如涉及）
@@ -328,13 +356,19 @@ result
 
 **不要：** 把业务逻辑放进 `api` 或 `db`；把接口调用写进页面组件；把工具方法塞到 `server` 文件底部。
 
+### 测试归属
+
+- 单元测试、集成测试统一写到 `tests/` 目录下对应模块，不要写在 `src/*` 文件内联 `#[cfg(test)]`。
+- 新增测试时优先复用 `tests/common/mod.rs` 的测试环境与项目目录辅助，避免各处重复造临时目录和初始化逻辑。
+
 ---
 
 ## 关键联动约束
 
 **配置和规则：**
-- 保存逻辑变化后，必须核对：写入 `project_root` → Gitea → 草稿发布。
-- `project_root` 是规则/配置/知识库主数据源，默认配置初始化只能补齐缺失文件，不能覆盖用户已编辑内容。
+- 保存逻辑变化后，必须核对：写入 `project_models` / `project_infra` → Gitea → 草稿发布。
+- 双仓库是规则/配置/知识库主数据源，默认配置初始化只能补齐缺失文件，不能覆盖用户已编辑内容。
+- `src/server/config_templates.rs` 只承载模板接口编排；connector 扫描、字段分层、片段渲染集中在 `src/utils/config_templates.rs`，不要再塞回 `src/server/config.rs`。
 
 **设备与发布：**
 - `token` 是发布和健康检查的关键字段。
@@ -345,6 +379,7 @@ result
 - 页面层不直接拼后端字段，统一在 `services` 做适配。
 - 后端返回 snake_case，前端显示层用 camelCase。
 - 后端错误格式：`{ success: false, error: { code, message, details } }`
+- 连接配置左侧展示名目前仍依赖 `web/src/services/config.js` 中的 `LEGACY_CONNECTION_DISPLAY_NAMES` 兼容映射；新增 connector 类型后，如展示名不友好，需要同步补这个表。
 
 ---
 
@@ -359,6 +394,8 @@ result
 5. Rust 测试有一部分落后于最新接口定义。
 6. 前端有 1 个已知依赖导入失败用例。
 7. `web/dist` 是构建产物，不要当源码改。
+8. 配置模板高级参数判定在 `src/utils/config_templates.rs` 中是启发式规则，不是通用 schema。
+9. 模板弹窗会在每次打开时重新请求后端，但弹窗打开期间不会自动热刷新 connector 目录。
 
 ---
 
@@ -375,5 +412,11 @@ cargo run           # 联调
 改配置/规则/发布相关逻辑后，手动验证：
 1. 保存是否成功
 2. 操作日志是否写入
-3. `project_root` 是否更新
+3. `project_models` / `project_infra` 是否更新
 4. 发布列表/详情是否反映新状态
+
+改配置模板相关逻辑后，额外手动验证：
+1. `project_infra/connectors/source.d` 或 `sink.d` 变更后，重新打开弹窗是否读到最新模板
+2. `新增输入源` 是否只改 `wpsrc.toml` 编辑器内容且不自动保存
+3. `新增输出源` 是否仅在 `business.d/*` 可用
+4. 高级参数是否仅出现在“已省略高级调优参数”中，未自动插入片段

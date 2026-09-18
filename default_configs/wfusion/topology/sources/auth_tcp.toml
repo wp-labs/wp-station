@@ -1,0 +1,6 @@
+connect = "tcp_src"
+key = "auth_tcp"
+enable = false
+data_format = "ndjson"
+stream_tag_field = "log_type"
+params = { addr = "127.0.0.1", port = 19001, prefer_newline = true }

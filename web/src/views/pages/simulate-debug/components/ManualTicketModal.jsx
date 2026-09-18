@@ -93,7 +93,7 @@ function ManualTicketModal({
       okText={t('assistTask.submitTicket')}
       cancelText={t('assistTask.cancel')}
       width={600}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
         {/* 日志数据（可编辑） */}

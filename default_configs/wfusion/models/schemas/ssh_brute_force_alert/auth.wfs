@@ -1,0 +1,23 @@
+// 输入：SSH 登录事件。
+window ssh_login {
+    stream_tag = "ssh_login"
+    time = occur_time
+    over = 1m
+    fields {
+        occur_time: time
+        source_ip: ip
+        target_user: chars
+        outcome: chars
+    }
+}
+
+// 输出：规则命中后生成的最小告警结构。
+window security_alerts {
+    over = 0
+    fields {
+        alert_name: chars
+        source_ip: ip
+        target_user: chars
+        failed_count: digit
+    }
+}

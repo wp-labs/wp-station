@@ -22,7 +22,8 @@ async fn test_rule_file_crud_and_validation() {
 
     let create_req = test::TestRequest::post()
         .uri("/api/config/rules/files")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
+            "system": "wparse",
             "rule_type": "wpl",
             "file": file.clone(),
         }))
@@ -32,16 +33,17 @@ async fn test_rule_file_crud_and_validation() {
 
     let save_req = test::TestRequest::post()
         .uri("/api/config/rules/save")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
+            "system": "wparse",
             "rule_type": "wpl",
             "file": file.clone(),
-            "content": "package test { rule sample { digit:a } }",
+            "content": "package test { rule sample { ( digit:a ) } }",
         }))
         .to_request();
     let save_resp = test::call_service(&app, save_req).await;
     assert_eq!(save_resp.status(), StatusCode::NO_CONTENT);
 
-    let list_uri = "/api/config/rules/files?rule_type=wpl&page=1&page_size=10";
+    let list_uri = "/api/config/rules/files?system=wparse&rule_type=wpl&page=1&page_size=10";
     let list_req = test::TestRequest::get().uri(list_uri).to_request();
     let list_resp = test::call_service(&app, list_req).await;
     assert_eq!(list_resp.status(), StatusCode::OK);
@@ -54,14 +56,18 @@ async fn test_rule_file_crud_and_validation() {
             .any(|entry| entry["file"] == file)
     );
 
-    let get_uri = format!("/api/config/rules?rule_type=wpl&file={}", file);
+    let get_uri = format!(
+        "/api/config/rules?system=wparse&rule_type=wpl&file={}",
+        file
+    );
     let get_req = test::TestRequest::get().uri(&get_uri).to_request();
     let get_resp = test::call_service(&app, get_req).await;
     assert_eq!(get_resp.status(), StatusCode::OK);
 
     let validate_req = test::TestRequest::post()
         .uri("/api/config/rules/validate")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
+            "system": "wparse",
             "rule_type": "wpl",
             "file": file.clone(),
         }))
@@ -74,7 +80,10 @@ async fn test_rule_file_crud_and_validation() {
         "validation response should include a valid flag"
     );
 
-    let delete_uri = format!("/api/config/rules/files?rule_type=wpl&file={}", file);
+    let delete_uri = format!(
+        "/api/config/rules/files?system=wparse&rule_type=wpl&file={}",
+        file
+    );
     let delete_req = test::TestRequest::delete().uri(&delete_uri).to_request();
     let delete_resp = test::call_service(&app, delete_req).await;
     assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);

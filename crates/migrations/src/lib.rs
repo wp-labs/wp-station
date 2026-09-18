@@ -4,7 +4,7 @@ pub use sea_orm_migration::prelude::*;
 
 pub mod entity;
 mod m20250101_000001_create_tables;
-mod m20260428_000002_add_release_group;
+mod m20260917_000002_create_release_restore_jobs;
 
 pub use entity::*;
 
@@ -15,7 +15,7 @@ impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
             Box::new(m20250101_000001_create_tables::Migration),
-            Box::new(m20260428_000002_add_release_group::Migration),
+            Box::new(m20260917_000002_create_release_restore_jobs::Migration),
         ]
     }
 }

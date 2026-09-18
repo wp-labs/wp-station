@@ -1,49 +1,64 @@
 [package]
 name = "wp-station"
-version = "0.1.8"
+version = "0.3.7" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "~1.0"
-actix-web = "~4.4"
-actix-files = "~0.6"
-tracing = "~0.1"
-simple-log = "2.4.0"
-small_ctor = "~0.1"
-cargo_metadata = "~0.20"
-tokio = { version = "~1.50", features = ["full"] }
-rust-embed = "~6.8"
-mime_guess = "~2"
-config = "~0.14"
-toml = "~0.8"
-chrono = { version = "~0.4", features = ["serde"] }
-thiserror = "~1.0"
-strum = { version = "~0.26", features = ["derive"] }
+serde_json = "1.0"
+actix-web = "4.4"
+actix-files = "0.6"
+tracing = "0.1"
+simple-log = "2.4"
+small_ctor = "0.1"
+cargo_metadata = "0.23"
+tokio = { version = "1.52", features = ["full"] }
+rust-embed = "8.11"
+mime_guess = "2"
+config = "0.15"
+toml = "1.1"
+toml_edit = "0.25"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2.0"
+orion-error = "0.8.1"
+strum = { version = "0.28.0", features = ["derive"] }
 anyhow = "~1"
 lazy_static = "1.4"
-bcrypt = "~0.15"
-rand = "~0.8"
+bcrypt = "0.19"
+rand = "0.10.2"
 regex = "1"
 urlencoding = "2.1"
+futures-util = "0.3"
+tempfile = "3"
+tar = "0.4"
+flate2 = "1"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
-wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.7" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.7" }
-wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.7" }
-wp-knowledge  = "0.11"
-wp-model-core = "0.8"
-wp-parse-api = "0.8"
-wp-data-fmt = "0.2"
-wpl = { package = "wp-lang", version = "0.1" }
-wp_primitives = { package = "wp-primitives", version = "0.2" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
+wpl           = { package = "wp-lang",       version = "~0.5" }
+wp_primitives = { package = "wp-primitives", version = "~0.2" }
+wp-knowledge  = "~0.16"
+wp-model-core = "~0.9"
+wp-parse-api = "~0.11"
+wp-data-fmt = "0.9"
+wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
+wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
 
 # Tree-sitter 支持（用于代码格式化）
-tree-sitter = "0.26.6"
+# tree-sitter = "0.26.6"
+# tree-sitter-wpl = { package = "tree-sitter-wpl", path = "../wp-tree-sitter/tree-sitter-wpl" }
+# tree-sitter-oml = { package = "tree-sitter-oml", path = "../wp-tree-sitter/tree-sitter-oml" }
+# tree-sitter-wfl = { package = "tree-sitter-wfl", path = "../wp-tree-sitter/tree-sitter-wfl" }
+
 tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
+tree-sitter-oml = { package = "tree-sitter-oml", git = "https://github.com/wp-labs/tree-sitter-oml.git", branch = "main" }
+tree-sitter-wfl = { package = "tree-sitter-wfl", git = "https://github.com/wp-labs/tree-sitter-wfl.git", branch = "main" }
 
 # PostgreSQL 数据库支持 - SeaORM
-sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-chrono"] }
+sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono"] }
 wp-station-migrations = { path = "crates/migrations" }
 
 # HTTP 客户端（用于健康检查）
@@ -53,9 +68,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 gitea = {package = "gitea", path = "crates/gitea"}
 
 # 命令行辅助
-which = "6.0"
 tokio-util = { version = "0.7", features = ["full"] }
-nix = { version = "0.28", default-features = false, features = ["signal", "process"] }
+nix = { version = "0.31", default-features = false, features = ["signal", "process"] }
 
 [build-dependencies]
 serde = { version = "~1.0", features = ["derive"] }

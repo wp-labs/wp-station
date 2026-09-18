@@ -27,6 +27,8 @@ function ConnectionManage() {
   const [formValues, setFormValues] = useState({ name: '', ip: '', port: '', token: '', remark: '' });
   const [submitting, setSubmitting] = useState(false);
   const [refreshingMap, setRefreshingMap] = useState({});
+  const [refreshErrorMap, setRefreshErrorMap] = useState({});
+  const [hoveredStatusId, setHoveredStatusId] = useState(null);
 
   /**
    * 加载连接列表
@@ -35,7 +37,16 @@ function ConnectionManage() {
     setLoading(true);
     try {
       const resp = await fetchConnections({ keyword, page: 1, pageSize: 100 });
-      setDataSource(resp.items || []);
+      const items = resp.items || [];
+      setDataSource(items);
+      setRefreshErrorMap(
+        items.reduce((acc, item) => {
+          if (item.healthError) {
+            acc[item.id] = item.healthError;
+          }
+          return acc;
+        }, {}),
+      );
     } finally {
       setLoading(false);
     }
@@ -106,10 +117,32 @@ function ConnectionManage() {
     if (!record?.id) return;
     setRefreshingMap((prev) => ({ ...prev, [record.id]: true }));
     try {
-      await refreshConnectionStatus(record.id);
-      message.success(t('connectionManage.refreshSuccess'));
+      const result = await refreshConnectionStatus(record.id);
+      const healthError = result?.healthError || null;
+      setRefreshErrorMap((prev) => {
+        const next = { ...prev };
+        if (healthError) {
+          next[record.id] = healthError;
+        } else {
+          delete next[record.id];
+        }
+        return next;
+      });
+      if (healthError) {
+        message.warning(
+          t('connectionManage.refreshOffline', {
+            message: healthError,
+          }),
+        );
+      } else {
+        message.success(t('connectionManage.refreshSuccess'));
+      }
       await loadConnections();
     } catch (err) {
+      setRefreshErrorMap((prev) => ({
+        ...prev,
+        [record.id]: err.message || 'unknown',
+      }));
       message.error(
         t('connectionManage.refreshFailed', {
           message: err.message || 'unknown',
@@ -184,7 +217,7 @@ function ConnectionManage() {
    * 渲染在线状态标签
    * @param {string} status - active / inactive
    */
-  const renderStatus = (status) => {
+  const renderStatus = (recordId, status, errorMessage) => {
     const normalizedStatus = String(status || '').toLowerCase();
     const isActive = normalizedStatus === 'active';
     
@@ -196,10 +229,53 @@ function ConnectionManage() {
       );
     }
     
+    if (!errorMessage) {
+      return (
+        <Tag icon={<CloseCircleOutlined />} color="error">
+          {t('connectionManage.statusInactive')}
+        </Tag>
+      );
+    }
+
     return (
-      <Tag icon={<CloseCircleOutlined />} color="error">
-        {t('connectionManage.statusInactive')}
-      </Tag>
+      <span
+        style={{
+          position: 'relative',
+          display: 'inline-flex',
+          alignItems: 'center',
+        }}
+        onMouseEnter={() => setHoveredStatusId(recordId)}
+        onMouseLeave={() => setHoveredStatusId((current) => (current === recordId ? null : current))}
+      >
+        <Tag icon={<CloseCircleOutlined />} color="error" style={{ marginInlineEnd: 0, cursor: 'help' }}>
+          {t('connectionManage.statusInactive')}
+        </Tag>
+        {hoveredStatusId === recordId && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 8px)',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              minWidth: '220px',
+              maxWidth: '320px',
+              padding: '10px 12px',
+              borderRadius: '10px',
+              background: 'rgba(23, 23, 23, 0.88)',
+              color: '#fff',
+              fontSize: '12px',
+              lineHeight: '1.5',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+              backdropFilter: 'blur(8px)',
+              zIndex: 20,
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
+            }}
+          >
+            {errorMessage}
+          </div>
+        )}
+      </span>
     );
   };
 
@@ -241,7 +317,7 @@ function ConnectionManage() {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {renderStatus(record.status)}
+            {renderStatus(record.id, record.status, refreshErrorMap[record.id] || record.healthError)}
             <Tooltip title={t('connectionManage.refreshStatus')}>
               <button
                 type="button"
@@ -340,19 +416,17 @@ function ConnectionManage() {
   return (
     <>
       {/* 顶部操作栏 */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' }}>
+      <div className="connection-manage-toolbar">
         <Input
           placeholder={t('connectionManage.searchPlaceholder')}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          style={{ width: 320 }}
           allowClear
           size="large"
         />
         <button
           type="button"
           className="btn primary"
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
           onClick={handleAdd}
         >
           <PlusOutlined />
@@ -388,7 +462,7 @@ function ConnectionManage() {
         okText={t('common.confirm')}
         cancelText={t('common.cancel')}
         width={480}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '8px 0' }}>
           <div>
