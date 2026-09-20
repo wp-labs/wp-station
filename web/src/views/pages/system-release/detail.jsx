@@ -340,6 +340,9 @@ function ReleaseDetailPage() {
       INIT: t('systemRelease.statusInit'),
       ROLLED_BACK: t('systemRelease.statusRolledBack'),
       COMPLETED: t('systemRelease.statusCompleted'),
+      CANCELLED: t('systemRelease.statusCancelled'),
+      SKIPPED: t('systemRelease.statusSkipped'),
+      TIMEOUT: t('systemRelease.statusTimeout'),
     };
     return statusMap[normalizedStatus] || status || '—';
   };
@@ -353,8 +356,10 @@ function ReleaseDetailPage() {
       TAG_READY: 'restorePhaseTagReady',
       MODELS_RUNNING: 'restorePhaseModelsRunning',
       MODELS_SUCCESS: 'restorePhaseModelsSuccess',
+      MODELS_FAILED: 'restorePhaseModelsFailed',
       INFRA_RUNNING: 'restorePhaseInfraRunning',
       INFRA_SUCCESS: 'restorePhaseInfraSuccess',
+      INFRA_FAILED: 'restorePhaseInfraFailed',
       PROMOTING: 'restorePhasePromoting',
       PROMOTE_PENDING: 'restorePhasePromotePending',
       ROLLBACK_RUNNING: 'restorePhaseRollbackRunning',

@@ -20,13 +20,13 @@ pub use release::{
     NewRelease, NewReleaseTarget, Release, ReleaseGroup, ReleaseStatus, ReleaseTarget,
     ReleaseTargetStatus, ReleaseTargetUpdate, create_release_targets,
     find_device_previous_success_version, find_due_release_targets,
-    find_release_targets_by_release, update_release_target,
+    find_release_targets_by_release, find_running_release_ids, update_release_target,
 };
 pub use release_restore::{
-    NewRestoreJob, ReleaseRestoreJob, RestoreJobStatus, RestoreJobUpdate, RestorePhase,
-    create_restore_job, find_active_restore_job, find_restore_job_by_id,
-    find_restore_job_by_target_release, find_restore_jobs_by_source,
-    find_runnable_restore_jobs, claim_restore_job, release_restore_job_lock, update_restore_job,
+    NewRestoreJob, ReleaseRestoreJob, RestoreJobCreateOutcome, RestoreJobStatus, RestoreJobUpdate,
+    RestorePhase, claim_restore_job, create_restore_job, find_active_restore_job,
+    find_restore_job_by_id, find_restore_job_by_target_release, find_restore_jobs_by_source,
+    find_runnable_restore_jobs, release_restore_job_lock, update_restore_job,
 };
 pub use rule_type::RuleType;
 pub use sandbox::{
@@ -47,8 +47,8 @@ pub use device::{
 pub use release::{
     archive_extra_draft_releases, create_release, find_all_releases, find_latest_draft_release,
     find_latest_passed_release, find_latest_passed_release_by_group, find_release_by_id,
-    find_releases_by_system, touch_release_as_draft, update_release_group,
-    update_release_pipeline, update_release_status,
+    find_releases_by_system, touch_release_as_draft, update_release_group, update_release_pipeline,
+    update_release_status,
 };
 
 // 导出 user 函数

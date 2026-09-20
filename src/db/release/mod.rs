@@ -179,6 +179,28 @@ pub async fn find_releases_by_system(system: SystemKind) -> DbResult<Vec<Release
     Ok(query.order_by_desc(Column::CreatedAt).all(db).await?)
 }
 
+/// 查询仍在执行的普通发布记录，供发布调度器恢复全量发布阶段。
+pub async fn find_running_release_ids() -> DbResult<Vec<i32>> {
+    let pool = get_pool();
+    let db = pool.inner();
+    let restore_target_ids = release_restore_job::Entity::find()
+        .select_only()
+        .column(release_restore_job::Column::TargetReleaseId)
+        .into_tuple::<i32>()
+        .all(db)
+        .await?;
+
+    let mut query = Entity::find()
+        .select_only()
+        .column(Column::Id)
+        .filter(Column::Status.eq(ReleaseStatus::RUNNING.as_ref()));
+    if !restore_target_ids.is_empty() {
+        query = query.filter(Column::Id.is_not_in(restore_target_ids));
+    }
+
+    Ok(query.into_tuple::<i32>().all(db).await?)
+}
+
 /// 查找当前系统唯一草稿发布记录（WAIT 状态）。
 pub async fn find_latest_draft_release(system: SystemKind) -> DbResult<Option<Release>> {
     let pool = get_pool();

@@ -7,8 +7,7 @@
 //! 不尝试做动态系统注册，而是直接返回约定好的仓库路径。
 
 use crate::constants::project::{
-    DIR_GITEA_ROOT, REPO_WFUSION_INFRA, REPO_WFUSION_MODELS, REPO_WPARSE_INFRA,
-    REPO_WPARSE_MODELS,
+    DIR_GITEA_ROOT, REPO_WFUSION_INFRA, REPO_WFUSION_MODELS, REPO_WPARSE_INFRA, REPO_WPARSE_MODELS,
 };
 use crate::server::{RepoLayout, Setting};
 use serde::{Deserialize, Serialize};

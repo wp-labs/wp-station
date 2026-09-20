@@ -4,8 +4,8 @@ use chrono::Utc;
 
 use crate::constants::release::{GROUP_ALL, GROUP_INFRA, GROUP_MODELS};
 use crate::db::{
-    NewRestoreJob, Release, ReleaseGroup, ReleaseStatus, create_restore_job,
-    find_active_restore_job, find_devices_by_ids, find_latest_draft_release, find_release_by_id,
+    NewRestoreJob, Release, ReleaseGroup, ReleaseStatus, RestoreJobCreateOutcome,
+    create_restore_job, find_devices_by_ids, find_latest_draft_release, find_release_by_id,
     find_release_targets_by_release, find_releases_by_system, find_restore_job_by_id,
     find_restore_jobs_by_source,
 };
@@ -124,25 +124,6 @@ pub async fn create_restore_job_logic(
     if find_latest_draft_release(system).await?.is_some() {
         return Err(AppError::validation("当前存在草稿，不能执行还原"));
     }
-    if let Some(active) = find_active_restore_job(system).await? {
-        let active_group = find_release_by_id(active.target_release_id)
-            .await?
-            .map(|release| release.release_group)
-            .unwrap_or_else(|| GROUP_ALL.to_string());
-        if active.source_release_id == source.id && active_group == requested_group {
-            return Ok(ReleaseRestoreResponse {
-                success: true,
-                message: "当前系统已有还原任务，已返回原任务".to_string(),
-                job_id: active.id,
-                target_release_id: active.target_release_id,
-                source_version: active.source_version.clone(),
-                target_version: active.source_version,
-                release_group: active_group,
-                status: active.status,
-            });
-        }
-        return Err(AppError::validation("当前系统已有进行中的还原任务"));
-    }
     if releases
         .iter()
         .any(|release| release.status == ReleaseStatus::RUNNING.as_ref())
@@ -167,7 +148,7 @@ pub async fn create_restore_job_logic(
         requested_group,
         Utc::now().timestamp_millis()
     );
-    let job = create_restore_job(NewRestoreJob {
+    let outcome = create_restore_job(NewRestoreJob {
         system,
         source_release_id: source.id,
         source_version: source.version.clone(),
@@ -180,6 +161,29 @@ pub async fn create_restore_job_logic(
     })
     .await?;
 
+    let job = match outcome {
+        RestoreJobCreateOutcome::Created(job) => job,
+        RestoreJobCreateOutcome::Existing(active) => {
+            let active_group = find_release_by_id(active.target_release_id)
+                .await?
+                .map(|release| release.release_group)
+                .unwrap_or_else(|| GROUP_ALL.to_string());
+            if active.source_release_id == source.id && active_group == requested_group {
+                return Ok(ReleaseRestoreResponse {
+                    success: true,
+                    message: "当前系统已有还原任务，已返回原任务".to_string(),
+                    job_id: active.id,
+                    target_release_id: active.target_release_id,
+                    source_version: active.source_version.clone(),
+                    target_version: active.source_version,
+                    release_group: active_group,
+                    status: active.status,
+                });
+            }
+            return Err(AppError::validation("当前系统已有进行中的还原任务"));
+        }
+    };
+
     info!(
         "创建还原任务成功: job_id={}, source_release_id={}, target_release_id={}, source_version={}, target_version={}",
         job.id, source.id, job.target_release_id, source.version, target_version
@@ -187,7 +191,7 @@ pub async fn create_restore_job_logic(
 
     Ok(ReleaseRestoreResponse {
         success: true,
-        message: "还原任务已创建".to_string(),
+        message: "还原任务已开始执行".to_string(),
         job_id: job.id,
         target_release_id: job.target_release_id,
         source_version: job.source_version.clone(),

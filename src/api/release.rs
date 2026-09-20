@@ -5,6 +5,7 @@
 
 use actix_web::{HttpResponse, get, post, web};
 
+use crate::db::ReleaseGroup;
 use crate::error::AppError;
 use crate::server::{
     CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseRestoreRequest,
@@ -12,7 +13,6 @@ use crate::server::{
     get_release_detail_logic, get_release_diff_logic, get_restore_job_logic, list_releases_logic,
     publish_release_logic, retry_release_logic, rollback_release_logic, validate_release_logic,
 };
-use crate::db::ReleaseGroup;
 
 /// 发布详情路径参数。
 #[derive(serde::Deserialize)]
@@ -87,7 +87,8 @@ pub async fn publish_release(
     let note = req.note.clone();
 
     // 具体发布分发由 server 层根据发布记录中的 system 决定。
-    let resp = publish_release_logic(path.id, release_group, device_ids, note, full_publish).await?;
+    let resp =
+        publish_release_logic(path.id, release_group, device_ids, note, full_publish).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

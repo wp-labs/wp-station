@@ -3,8 +3,8 @@
 use chrono::{Duration, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
@@ -66,17 +66,65 @@ pub struct NewRestoreJob {
     pub created_by: Option<String>,
 }
 
+/// 还原任务创建结果。
+///
+/// `Existing` 用于并发请求命中同一系统已有任务时保持幂等，避免第二个请求
+/// 误创建新的业务发布记录。
+#[derive(Debug)]
+pub enum RestoreJobCreateOutcome {
+    Created(ReleaseRestoreJob),
+    Existing(ReleaseRestoreJob),
+}
+
 /// 在同一事务中创建 INIT 目标发布记录和还原任务。
-pub async fn create_restore_job(input: NewRestoreJob) -> DbResult<ReleaseRestoreJob> {
+///
+/// 事务会先锁定当前系统最早的一条发布记录，再检查进行中的还原任务。
+/// PostgreSQL 使用行锁，SQLite 依靠事务写锁和 active 唯一索引兜底，避免
+/// 两个并发请求同时通过服务层的前置查询。
+pub async fn create_restore_job(input: NewRestoreJob) -> DbResult<RestoreJobCreateOutcome> {
     let pool = get_pool();
     let db = pool.inner();
+    let backend = db.get_database_backend();
     let now = Utc::now();
     let selected_device_ids = serde_json::to_string(&input.selected_device_ids)
         .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
 
-    let job = db
-        .transaction::<_, ReleaseRestoreJob, sea_orm::DbErr>(|txn| {
+    let outcome = db
+        .transaction::<_, RestoreJobCreateOutcome, sea_orm::DbErr>(|txn| {
             Box::pin(async move {
+                let anchor = if backend == DbBackend::Postgres {
+                    release::Entity::find()
+                        .filter(release::Column::System.eq(input.system.as_ref()))
+                        .order_by_asc(release::Column::Id)
+                        .lock_exclusive()
+                        .one(txn)
+                        .await?
+                } else {
+                    release::Entity::find()
+                        .filter(release::Column::System.eq(input.system.as_ref()))
+                        .order_by_asc(release::Column::Id)
+                        .one(txn)
+                        .await?
+                };
+                if anchor.is_none() {
+                    return Err(sea_orm::DbErr::Custom(
+                        "当前系统没有可用于锁定的发布记录".to_string(),
+                    ));
+                }
+
+                let active_job = release_restore_job::Entity::find()
+                    .filter(release_restore_job::Column::System.eq(input.system.as_ref()))
+                    .filter(release_restore_job::Column::Status.is_in([
+                        RestoreJobStatus::Queued.as_ref(),
+                        RestoreJobStatus::Running.as_ref(),
+                    ]))
+                    .order_by_desc(release_restore_job::Column::CreatedAt)
+                    .one(txn)
+                    .await?;
+                if let Some(active_job) = active_job {
+                    return Ok(RestoreJobCreateOutcome::Existing(active_job));
+                }
+
                 let target = release::ActiveModel {
                     system: Set(input.system.as_ref().to_string()),
                     version: Set(input.release_version),
@@ -94,7 +142,7 @@ pub async fn create_restore_job(input: NewRestoreJob) -> DbResult<ReleaseRestore
                 .insert(txn)
                 .await?;
 
-                release_restore_job::ActiveModel {
+                let job = release_restore_job::ActiveModel {
                     system: Set(input.system.as_ref().to_string()),
                     source_release_id: Set(input.source_release_id),
                     target_release_id: Set(target.id),
@@ -120,7 +168,9 @@ pub async fn create_restore_job(input: NewRestoreJob) -> DbResult<ReleaseRestore
                     ..Default::default()
                 }
                 .insert(txn)
-                .await
+                .await?;
+
+                Ok(RestoreJobCreateOutcome::Created(job))
             })
         })
         .await
@@ -129,7 +179,7 @@ pub async fn create_restore_job(input: NewRestoreJob) -> DbResult<ReleaseRestore
             | sea_orm::TransactionError::Transaction(error) => error,
         })?;
 
-    Ok(job)
+    Ok(outcome)
 }
 
 pub async fn find_restore_job_by_id(id: i32) -> DbResult<Option<ReleaseRestoreJob>> {

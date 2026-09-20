@@ -101,6 +101,16 @@ impl ReleaseTaskRunner {
             Some(fail_messages.join("; "))
         };
 
+        // 没有聚合结果变化时不重复写库和打印 INFO，避免后台调度器在等待设备
+        // 返回期间持续刷屏；真正的状态、分组或错误变化仍会正常记录。
+        if release.status == new_status.as_ref()
+            && release.release_group == aggregated_group
+            && release.error_message == error_text
+            && release.stages == Some(summary.clone())
+        {
+            return Ok(());
+        }
+
         info!(
             "刷新发布单状态: release_id={}, previous_status={}, new_status={}, aggregated_group={}, success={}, fail={}, running={}",
             release_id,

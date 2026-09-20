@@ -37,10 +37,9 @@ GITEA_TIMEOUT = 20
 
 LOCAL_DIRS = [
     "tmp",
-    "gitea/wparse__models",
-    "gitea/wparse__infra",
-    "gitea/wfusion__models",
-    "gitea/wfusion__infra",
+    # 本地 Gitea 仓库统一位于该根目录，清理时连根目录一并删除，
+    # 避免仓库已删完但空的 gitea 目录残留。
+    "gitea",
 ]
 
 REMOTE_REPOS = [
@@ -56,6 +55,7 @@ DROP_TABLES = [
     'public.operation_log',
     'public.performance_results',
     'public.performance_tasks',
+    'public.release_restore_jobs',
     'public.release_targets',
     'public.releases',
     'public.sandbox_runs',

@@ -5,6 +5,7 @@ pub use sea_orm_migration::prelude::*;
 pub mod entity;
 mod m20250101_000001_create_tables;
 mod m20260917_000002_create_release_restore_jobs;
+mod m20260920_000001_add_active_restore_system_index;
 
 pub use entity::*;
 
@@ -16,6 +17,7 @@ impl MigratorTrait for Migrator {
         vec![
             Box::new(m20250101_000001_create_tables::Migration),
             Box::new(m20260917_000002_create_release_restore_jobs::Migration),
+            Box::new(m20260920_000001_add_active_restore_system_index::Migration),
         ]
     }
 }

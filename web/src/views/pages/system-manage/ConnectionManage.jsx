@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Modal, Input, message, Card, Row, Col, Tag, Empty, Spin, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +29,7 @@ function ConnectionManage() {
   const [refreshingMap, setRefreshingMap] = useState({});
   const [refreshErrorMap, setRefreshErrorMap] = useState({});
   const [hoveredStatusId, setHoveredStatusId] = useState(null);
+  const entryStatusRefreshStarted = useRef(false);
 
   /**
    * 加载连接列表
@@ -52,13 +53,53 @@ function ConnectionManage() {
     }
   }, [keyword]);
 
+  /**
+   * 获取当前系统下的全部已接入设备。
+   * 进入连接管理页面时不能只刷新当前列表页，否则设备数量超过页大小时会遗漏设备。
+   */
+  const fetchAllConnections = useCallback(async () => {
+    const pageSize = 100;
+    const firstPage = await fetchConnections({ page: 1, pageSize });
+    const effectivePageSize = firstPage.pageSize || pageSize;
+    const totalPages = Math.ceil((firstPage.total || 0) / effectivePageSize);
+
+    if (totalPages <= 1) {
+      return firstPage.items || [];
+    }
+
+    const remainingPages = await Promise.all(
+      Array.from({ length: totalPages - 1 }, (_, index) =>
+        fetchConnections({ page: index + 2, pageSize: effectivePageSize }),
+      ),
+    );
+
+    return [firstPage.items || [], ...remainingPages.map((page) => page.items || [])].flat();
+  }, []);
+
+  /** 进入页面时主动刷新全部已接入设备，再加载最新状态。 */
+  const refreshAllConnectionStatuses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await fetchAllConnections();
+      await Promise.allSettled(items.map((item) => refreshConnectionStatus(item.id)));
+      await loadConnections();
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchAllConnections, loadConnections]);
+
   useEffect(() => {
-    // 使用防抖，避免频繁请求
+    // 首次进入页面先刷新所有设备；搜索条件变化时只重新查询列表。
     const timer = setTimeout(() => {
-      loadConnections();
+      if (!entryStatusRefreshStarted.current) {
+        entryStatusRefreshStarted.current = true;
+        refreshAllConnectionStatuses();
+      } else {
+        loadConnections();
+      }
     }, 300);
     return () => clearTimeout(timer);
-  }, [loadConnections]);
+  }, [loadConnections, refreshAllConnectionStatuses]);
 
   /**
    * 打开新增弹窗

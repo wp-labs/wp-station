@@ -13,7 +13,7 @@ use crate::constants::release::{
 use crate::db::{
     Device, ReleaseStatus, ReleaseTarget, ReleaseTargetStatus, ReleaseTargetUpdate,
     find_devices_by_ids, find_due_release_targets, find_release_by_id,
-    find_release_targets_by_release, find_restore_job_by_target_release,
+    find_release_targets_by_release, find_restore_job_by_target_release, find_running_release_ids,
     update_device_runtime_state, update_release_group, update_release_status,
     update_release_target,
 };
@@ -76,31 +76,38 @@ impl ReleaseTaskRunner {
     async fn tick(&self) -> Result<bool> {
         let now = Utc::now();
         let targets = find_due_release_targets(now, MAX_BATCH_SIZE).await?;
-        if targets.is_empty() {
-            return Ok(false);
-        }
-
-        let device_ids: Vec<i32> = targets.iter().map(|t| t.device_id).collect();
-        let devices = find_devices_by_ids(&device_ids).await?;
-        let device_map: HashMap<i32, Device> = devices.into_iter().map(|d| (d.id, d)).collect();
-
+        // 全量发布的 infra 目标会以 PENDING 且 next_poll_at=NULL 等待 models
+        // 完成，不能把它当成每轮都需要处理的到期任务，否则会形成忙循环。
+        let had_actionable_targets = targets
+            .iter()
+            .any(|target| target.status != ReleaseTargetStatus::PENDING.as_ref());
         let mut touched_releases = HashSet::new();
-        for target in targets {
-            let device = device_map.get(&target.device_id);
-            match self.process_target(&target, device).await {
-                Ok(need_refresh) => {
-                    if need_refresh {
-                        touched_releases.insert(target.release_id);
+        if !targets.is_empty() {
+            let device_ids: Vec<i32> = targets.iter().map(|t| t.device_id).collect();
+            let devices = find_devices_by_ids(&device_ids).await?;
+            let device_map: HashMap<i32, Device> = devices.into_iter().map(|d| (d.id, d)).collect();
+
+            for target in targets {
+                let device = device_map.get(&target.device_id);
+                match self.process_target(&target, device).await {
+                    Ok(need_refresh) => {
+                        if need_refresh {
+                            touched_releases.insert(target.release_id);
+                        }
                     }
-                }
-                Err(err) => {
-                    warn!(
-                        "处理发布子任务失败: target_id={}, release_id={}, error={}",
-                        target.id, target.release_id, err
-                    );
+                    Err(err) => {
+                        warn!(
+                            "处理发布子任务失败: target_id={}, release_id={}, error={}",
+                            target.id, target.release_id, err
+                        );
+                    }
                 }
             }
         }
+
+        // 即使当前没有到期目标，也要检查运行中的全量发布，避免服务重启后
+        // models 已完成但 infra 仍停留在 PENDING 时无人推进。
+        touched_releases.extend(find_running_release_ids().await?);
 
         for release_id in touched_releases {
             if let Err(err) = self.advance_full_publish(release_id).await {
@@ -117,7 +124,7 @@ impl ReleaseTaskRunner {
             }
         }
 
-        Ok(true)
+        Ok(had_actionable_targets)
     }
 
     /// 全量发布固定按 models → infra 执行，只有 models 的所有设备成功后才放行 infra。
@@ -207,7 +214,8 @@ impl ReleaseTaskRunner {
         };
 
         match status {
-            ReleaseTargetStatus::PENDING => Ok(true),
+            // PENDING 由全量发布编排器根据 models 阶段推进，不在设备轮询循环中处理。
+            ReleaseTargetStatus::PENDING => Ok(false),
             ReleaseTargetStatus::QUEUED => self.handle_deploy(target, device, false).await,
             ReleaseTargetStatus::ROLLBACK_PENDING => self.handle_deploy(target, device, true).await,
             ReleaseTargetStatus::RUNNING => self.poll_target(target, device, false).await,

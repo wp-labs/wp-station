@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DatePicker, Dropdown, Input, Modal, Table, Select, Checkbox, Spin, Radio } from 'antd';
 import { useNavigate } from 'react-router-dom';
@@ -23,26 +23,37 @@ import ValidateResultModal from '@/components/ValidateResultModal';
 import ProjectImportResult from '@/views/components/ProjectImportResult';
 
 const IMPORTABLE_FOLDER_NAMES = ['conf', 'connectors', 'models', 'topology'];
-const RELEASE_STATUS_POLL_INTERVAL_MS = 3000;
+const RELEASE_STATUS_POLL_INTERVAL_MS = 1000;
 const RELEASE_STATUS_POLL_TIMEOUT_MS = 60000;
+const RELEASE_EXPECTED_DURATION_SECONDS = 10;
+const RESTORE_STATUS_POLL_INTERVAL_MS = 1000;
+const RESTORE_EXPECTED_DURATION_SECONDS = 30;
 const TERMINAL_RELEASE_STATUSES = new Set(['PASS', 'FAIL', 'PARTIAL_FAIL']);
 
-/** 等待普通发布记录进入终态；轮询超时只代表仍在执行，不直接判定发布失败。 */
-async function waitForReleaseTerminalStatus(releaseId, system) {
+/** 等待普通发布记录进入终态；首次立即查询，后续每秒查询一次。 */
+async function waitForReleaseTerminalStatus(releaseId, system, onProgress) {
   const deadline = Date.now() + RELEASE_STATUS_POLL_TIMEOUT_MS;
+  const startedAt = Date.now();
   let latestRelease = null;
   let lastError = null;
 
   while (Date.now() < deadline) {
-    const remaining = deadline - Date.now();
-    await new Promise((resolve) => window.setTimeout(
-      resolve,
-      Math.min(RELEASE_STATUS_POLL_INTERVAL_MS, Math.max(remaining, 0)),
-    ));
-
     try {
       latestRelease = await fetchReleaseDetail(releaseId, system);
-      const status = String(latestRelease?.status || '').toUpperCase();
+      const status = String(latestRelease?.status || 'QUEUED').toUpperCase();
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      const progress = TERMINAL_RELEASE_STATUSES.has(status)
+        ? 100
+        : Math.min(
+            95,
+            Math.max(5, Math.round((elapsedSeconds / RELEASE_EXPECTED_DURATION_SECONDS) * 90)),
+          );
+      onProgress?.({
+        status,
+        progress,
+        elapsedSeconds,
+        expectedSeconds: RELEASE_EXPECTED_DURATION_SECONDS,
+      });
       if (TERMINAL_RELEASE_STATUSES.has(status)) {
         return { status, release: latestRelease, timedOut: false };
       }
@@ -50,8 +61,21 @@ async function waitForReleaseTerminalStatus(releaseId, system) {
       // 单次查询失败不终止发布，继续在 1 分钟窗口内等待下一次状态查询。
       lastError = error;
     }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((resolve) => window.setTimeout(
+      resolve,
+      Math.min(RELEASE_STATUS_POLL_INTERVAL_MS, remaining),
+    ));
   }
 
+  onProgress?.({
+    status: 'TIMEOUT',
+    progress: 95,
+    elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+    expectedSeconds: RELEASE_EXPECTED_DURATION_SECONDS,
+  });
   return {
     status: 'TIMEOUT',
     release: latestRelease,
@@ -102,6 +126,9 @@ function SystemReleasePage() {
   const [exportingArchive, setExportingArchive] = useState(false);
   const [restoringReleaseId, setRestoringReleaseId] = useState(null);
   const [restoreProgress, setRestoreProgress] = useState(null);
+  const [publishProgress, setPublishProgress] = useState(null);
+  const [publishSubmitting, setPublishSubmitting] = useState(false);
+  const publishSubmitLockRef = useRef(false);
 
   const getRestoreGroups = (releaseRecord) => (
     Array.isArray(releaseRecord?.restoreGroups) ? releaseRecord.restoreGroups : []
@@ -111,6 +138,45 @@ function SystemReleasePage() {
     if (group === 'models') return t('systemRelease.groupModels');
     if (group === 'infra') return t('systemRelease.groupInfraAlt');
     return t('systemRelease.groupAll');
+  };
+
+  /** 将还原调度器返回的阶段转换为用户可读文案。 */
+  const getRestoreProgressPhaseLabel = (phase) => {
+    const phaseMap = {
+      QUEUED: 'restorePhaseQueued',
+      PREPARING: 'restorePhasePreparing',
+      TAG_READY: 'restorePhaseTagReady',
+      MODELS_RUNNING: 'restorePhaseModelsRunning',
+      MODELS_SUCCESS: 'restorePhaseModelsSuccess',
+      MODELS_FAILED: 'restorePhaseModelsFailed',
+      INFRA_RUNNING: 'restorePhaseInfraRunning',
+      INFRA_SUCCESS: 'restorePhaseInfraSuccess',
+      INFRA_FAILED: 'restorePhaseInfraFailed',
+      PROMOTING: 'restorePhasePromoting',
+      PROMOTE_PENDING: 'restorePhasePromotePending',
+      ROLLBACK_RUNNING: 'restorePhaseRollbackRunning',
+      ROLLBACK_FAILED: 'restorePhaseRollbackFailed',
+      PREPARE_FAILED: 'restorePhasePrepareFailed',
+      COMPLETED: 'restorePhaseCompleted',
+    };
+    const key = phaseMap[String(phase || '').toUpperCase()];
+    return key ? t(`systemRelease.${key}`) : phase || '—';
+  };
+
+  /** 将发布轮询返回的状态转换为用户可读文案。 */
+  const getPublishProgressStatusLabel = (status) => {
+    const statusMap = {
+      WAIT: 'statusWait',
+      INIT: 'statusInit',
+      QUEUED: 'statusQueued',
+      RUNNING: 'statusRunning',
+      PASS: 'statusPass',
+      FAIL: 'statusFail',
+      PARTIAL_FAIL: 'statusPartialFail',
+      TIMEOUT: 'statusTimeout',
+    };
+    const key = statusMap[String(status || '').toUpperCase()];
+    return key ? t(`systemRelease.${key}`) : status || '—';
   };
 
   const getAvailablePublishGroups = (releaseRecord) => {
@@ -134,6 +200,7 @@ function SystemReleasePage() {
   };
   const availablePublishGroups = getAvailablePublishGroups(currentRelease);
   const restoreProgressVisible = publishMode === 'restore' && Boolean(restoreProgress);
+  const activeProgress = restoreProgressVisible ? restoreProgress : publishProgress;
 
   const closePublishModal = () => {
     setPublishModalVisible(false);
@@ -143,7 +210,11 @@ function SystemReleasePage() {
     setPublishReleaseGroup('models');
     setPublishMode('publish');
     setRestoreProgress(null);
+    setPublishProgress(null);
     setRestoringReleaseId(null);
+    if (!publishSubmitLockRef.current) {
+      setPublishSubmitting(false);
+    }
   };
 
   const getErrorMessage = (error, fallback) => {
@@ -300,6 +371,7 @@ function SystemReleasePage() {
    * 同时加载在线机器列表供用户多选
    */
   const handlePublish = async (releaseRecord) => {
+    if (publishSubmitLockRef.current) return;
     const availableGroups = getAvailablePublishGroups(releaseRecord);
     if (availableGroups.length === 0) {
       Modal.warning({
@@ -330,7 +402,12 @@ function SystemReleasePage() {
    * 确认发布
    */
   const handleConfirmPublish = async () => {
-    if (!currentRelease || restoreProgressVisible) return;
+    if (
+      publishSubmitLockRef.current
+      || publishSubmitting
+      || !currentRelease
+      || restoreProgressVisible
+    ) return;
     const isRestore = publishMode === 'restore';
     const releaseVersion = currentRelease.version;
     if (!isRestore && availablePublishGroups.length === 0) {
@@ -350,6 +427,18 @@ function SystemReleasePage() {
       return;
     }
 
+    // 先加同步锁再发请求，避免用户连续点击造成重复发布记录。
+    publishSubmitLockRef.current = true;
+    setPublishSubmitting(true);
+    setPublishProgress({
+      status: 'QUEUED',
+      progress: 5,
+      elapsedSeconds: 0,
+      expectedSeconds: isRestore
+        ? RESTORE_EXPECTED_DURATION_SECONDS
+        : RELEASE_EXPECTED_DURATION_SECONDS,
+    });
+
     if (isRestore) {
       setRestoringReleaseId(currentRelease.id);
       setRestoreProgress({
@@ -358,6 +447,7 @@ function SystemReleasePage() {
         phase: 'QUEUED',
         progress: 5,
         elapsedSeconds: 0,
+        expectedSeconds: RESTORE_EXPECTED_DURATION_SECONDS,
         errorMessage: '',
       });
     }
@@ -388,6 +478,7 @@ function SystemReleasePage() {
           phase: result?.phase || 'QUEUED',
           progress: 5,
           elapsedSeconds: 0,
+          expectedSeconds: RESTORE_EXPECTED_DURATION_SECONDS,
           errorMessage: '',
         });
         for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -396,26 +487,34 @@ function SystemReleasePage() {
           const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
           const terminal = !['QUEUED', 'RUNNING'].includes(status);
           const progress = status === 'PASS'
-            ? 100
-            : terminal
               ? 100
-              : Math.min(95, Math.max(5, Math.round((elapsedSeconds / 30) * 90)));
+              : terminal
+                ? 100
+                : Math.min(
+                    95,
+                    Math.max(5, Math.round((elapsedSeconds / RESTORE_EXPECTED_DURATION_SECONDS) * 90)),
+                  );
           setRestoreProgress({
             jobId: result.job_id,
             status,
             phase: job?.phase || 'RUNNING',
             progress,
             elapsedSeconds,
+            expectedSeconds: RESTORE_EXPECTED_DURATION_SECONDS,
             errorMessage: job?.error_message || '',
           });
           if (terminal) break;
-          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+          await new Promise((resolve) => window.setTimeout(resolve, RESTORE_STATUS_POLL_INTERVAL_MS));
         }
         if (String(job?.status || '').toUpperCase() !== 'PASS') {
           throw new Error(job?.error_message || t('systemRelease.restoreFailedMessage'));
         }
       } else {
-        const publishStatus = await waitForReleaseTerminalStatus(currentRelease.id, currentSystem);
+        const publishStatus = await waitForReleaseTerminalStatus(
+          currentRelease.id,
+          currentSystem,
+          setPublishProgress,
+        );
         if (publishStatus.timedOut) {
           closePublishModal();
           loadReleases();
@@ -466,6 +565,8 @@ function SystemReleasePage() {
       });
     } finally {
       if (isRestore) setRestoringReleaseId(null);
+      publishSubmitLockRef.current = false;
+      setPublishSubmitting(false);
     }
   };
 
@@ -622,6 +723,7 @@ function SystemReleasePage() {
   };
 
   const handleRestore = async (releaseRecord) => {
+    if (publishSubmitLockRef.current) return;
     setCurrentRelease(releaseRecord);
     setSelectedConnectionIds([]);
     setPublishNote('');
@@ -810,7 +912,7 @@ function SystemReleasePage() {
         const statusUpper = String(releaseRecord.status || '').toUpperCase();
         const availableGroups = getAvailablePublishGroups(releaseRecord);
         const publishHidden = statusUpper === 'PASS' && availableGroups.length === 0;
-        const publishDisabled = statusUpper === 'RUNNING';
+        const publishDisabled = statusUpper === 'RUNNING' || publishSubmitting;
         const restoreDisabled = restoringReleaseId === releaseRecord.id;
         return (
           <>
@@ -1029,12 +1131,14 @@ function SystemReleasePage() {
       <Modal
         title={restoreProgressVisible
           ? t('systemRelease.restorePublishingTitle')
+          : publishSubmitting
+            ? t('systemRelease.publishSubmittingTitle')
           : publishMode === 'restore'
             ? t('systemRelease.restoreConfirmTitle', { version: currentRelease?.version })
           : t('systemRelease.confirmPublish')}
         open={publishModalVisible}
-        onCancel={closePublishModal}
-        footer={restoreProgressVisible ? (
+        onCancel={publishSubmitting ? undefined : closePublishModal}
+        footer={publishSubmitting ? (
           <button
             key="close"
             type="button"
@@ -1057,16 +1161,30 @@ function SystemReleasePage() {
             type="button"
             className="btn primary"
             onClick={handleConfirmPublish}
+            disabled={publishSubmitting || loadingConnections}
           >
-            {publishMode === 'restore' ? t('systemRelease.restoreAndPublish') : t('common.confirm')}
+            {publishSubmitting
+              ? t('systemRelease.publishing')
+              : publishMode === 'restore'
+                ? t('systemRelease.restoreAndPublish')
+                : t('common.confirm')}
           </button>,
         ]}
         width={520}
       >
-        {restoreProgressVisible ? (
+        {publishSubmitting ? (
           <div style={{ padding: '8px 0 12px' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <Spin size="small" />
+            </div>
             <p style={{ margin: '0 0 18px', fontSize: '14px', lineHeight: '1.6' }}>
-              {t('systemRelease.restorePublishingMessage')}
+              {restoreProgressVisible
+                ? t('systemRelease.restorePublishingMessage', {
+                    seconds: activeProgress?.expectedSeconds || RESTORE_EXPECTED_DURATION_SECONDS,
+                  })
+                : t('systemRelease.publishSubmittingMessage', {
+                    seconds: activeProgress?.expectedSeconds || RELEASE_EXPECTED_DURATION_SECONDS,
+                  })}
             </p>
             <div style={{ marginBottom: '14px', fontSize: '13px', color: '#667085' }}>
               {t('systemRelease.restoreProgressVersion', {
@@ -1084,7 +1202,7 @@ function SystemReleasePage() {
             >
               <div
                 style={{
-                  width: `${restoreProgress.progress}%`,
+                  width: `${activeProgress?.progress || 5}%`,
                   height: '100%',
                   borderRadius: '999px',
                   background: '#275efe',
@@ -1103,17 +1221,24 @@ function SystemReleasePage() {
               }}
             >
               <span>
-                {t('systemRelease.restoreProgressPhase')}: {restoreProgress.phase || '—'}
+                {t('systemRelease.publishProgressStatus')}: {getPublishProgressStatusLabel(activeProgress?.status)}
               </span>
-              <strong style={{ color: '#275efe' }}>{restoreProgress.progress}%</strong>
+              <strong style={{ color: '#275efe' }}>{activeProgress?.progress || 5}%</strong>
             </div>
+            {restoreProgressVisible && (
+              <div style={{ marginTop: '8px', fontSize: '13px', color: '#667085' }}>
+                {t('systemRelease.restoreProgressPhase')}: {getRestoreProgressPhaseLabel(activeProgress?.phase)}
+              </div>
+            )}
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#98a2b3' }}>
-              {t('systemRelease.restoreProgressElapsed', {
-                seconds: restoreProgress.elapsedSeconds || 0,
+              {t('systemRelease.publishProgressElapsed', {
+                seconds: activeProgress?.elapsedSeconds || 0,
               })}
             </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#98a2b3' }}>
-              {t('systemRelease.restoreProgressWaiting')}
+              {t('systemRelease.publishProgressExpected', {
+                seconds: activeProgress?.expectedSeconds || RELEASE_EXPECTED_DURATION_SECONDS,
+              })}
             </div>
           </div>
         ) : (
