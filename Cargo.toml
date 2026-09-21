@@ -45,7 +45,7 @@ wp-parse-api = "0.11"
 wp-data-fmt = "0.9"
 
 # Tree-sitter 支持（用于代码格式化）
-tree-sitter = "0.26.6"
+tree-sitter = "0.27.0"
 tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
 
 # PostgreSQL 数据库支持 - SeaORM
