@@ -5779,7 +5779,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -6174,7 +6174,7 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 [[package]]
 name = "tree-sitter-wpl"
 version = "0.0.1"
-source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#5369e4446bcd0b0a3d0157e7b8d3e069caf6d622"
+source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#f12646b15a8cd1f6ece3d8ab2599f418c4864b2d"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -7387,7 +7387,7 @@ dependencies = [
 
 [[package]]
 name = "wp-station"
-version = "0.2.8"
+version = "0.2.6"
 dependencies = [
  "actix-files",
  "actix-web",
