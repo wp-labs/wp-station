@@ -7,8 +7,8 @@ use wp_station::server::rules::{
 use wp_station::utils::SystemKind;
 use wp_station::utils::pagination::PageQuery;
 use wp_station::utils::{
-    read_knowledge_files, read_rule_content, unload_knowledge, write_knowdb_config,
-    write_knowledge_files, write_rule_content, write_wpl_sample_content,
+    layout_for_system, read_knowledge_files, read_rule_content, unload_knowledge,
+    write_knowdb_config, write_knowledge_files, write_rule_content, write_wpl_sample_content,
 };
 fn cleanup_knowledge(file: &str) {
     remove_project_path(format!("models/knowledge/{file}"));
@@ -299,17 +299,30 @@ async fn test_delete_rule_file_logic_for_standard_rule() {
 }
 
 #[tokio::test]
-async fn test_wfusion_global_rule_cannot_be_deleted() {
+async fn test_wfusion_global_rule_can_be_deleted() {
     setup_db().await;
-    let error = delete_rule_file_logic(
+    let layout = layout_for_system(SystemKind::Wfusion).as_repo_layout();
+    write_rule_content(
+        &layout,
+        RuleType::Rule,
+        "_global.wfl",
+        "rule global_rule {}",
+    )
+    .expect("write global rule");
+
+    delete_rule_file_logic(
         SystemKind::Wfusion,
         RuleType::Rule,
         "_global.wfl".to_string(),
     )
     .await
-    .expect_err("global rule must be protected");
+    .expect("global rule should be deletable");
 
-    assert!(error.to_string().contains("全局规则文件不允许删除"));
+    assert!(
+        read_rule_content(&layout, RuleType::Rule, "_global.wfl")
+            .expect("query deleted global rule")
+            .is_none()
+    );
 }
 
 #[tokio::test]

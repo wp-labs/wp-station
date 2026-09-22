@@ -188,6 +188,53 @@ max = 10
     assert_eq!(first_alert["dip"], "192.168.1.10");
     assert_eq!(first_alert["__wfu_rule_name"], "rat_propagation");
 
+    // WFusion source 使用固定 stream_tag 时，原始事件不需要携带 `_stream`；
+    // 同时验证真实 SDM 事件依赖的嵌套对象和 epoch-millis 时间字段能够进入引擎。
+    let nested_event_req = test::TestRequest::post()
+        .uri("/api/debug/wfusion-editor/parse")
+        .set_json(serde_json::json!({
+            "events_ndjson": "{\"meta\":{\"source_record\":{\"log_type\":\"fw_botnet_log\"}},\"observation\":{\"assertion\":{\"title\":\"僵尸网络\"}},\"occur_time\":1788949272000,\"event_id\":\"event-1\"}",
+            "wfs": "window sdm_event {\n    stream_tag = \"sdm_event\"\n    time = occur_time\n    over = 10m\n    fields {\n        occur_time: time\n        event_id: chars\n        meta: object\n        observation: object\n    }\n}\n\nwindow sdm_alert {\n    over = 0\n    fields {\n        alert_name: chars\n        log_type: chars\n        event_ms: digit\n    }\n}",
+            "wfl": "use \"../schemas/sdm_event.wfs\"\n\nrule nested_event {\n    events {\n        s : sdm_event && s.meta.source_record.log_type == \"fw_botnet_log\"\n    }\n    on each s -> score(1.0)\n    entity(alert, s.event_id)\n    yield sdm_alert (\n        alert_name = s.observation.assertion.title,\n        log_type = s.meta.source_record.log_type,\n        event_ms = time_to_ms(s.occur_time)\n    )\n}"
+        }))
+        .to_request();
+    let nested_event_resp = test::call_service(&app, nested_event_req).await;
+    assert_eq!(nested_event_resp.status(), StatusCode::OK);
+    let nested_event_body: serde_json::Value = test::read_body_json(nested_event_resp).await;
+    assert_eq!(
+        nested_event_body["success"], true,
+        "unexpected nested event response: {nested_event_body}"
+    );
+    assert_eq!(
+        nested_event_body["summary"]["match_count"], 1,
+        "nested event did not match: {nested_event_body}"
+    );
+    assert_eq!(nested_event_body["alerts"][0]["alert_name"], "僵尸网络");
+    assert_eq!(nested_event_body["alerts"][0]["log_type"], "fw_botnet_log");
+    assert_eq!(
+        nested_event_body["alerts"][0]["event_ms"].as_f64(),
+        Some(1788949272000.0)
+    );
+    assert_eq!(
+        nested_event_body["yield_results"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        nested_event_body["yield_results"][0]["yield_target"],
+        "sdm_alert"
+    );
+    assert_eq!(
+        nested_event_body["yield_results"][0]["rule_name"],
+        "nested_event"
+    );
+    assert_eq!(
+        nested_event_body["yield_results"][0]["records"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
     let wfusion_invalid_req = test::TestRequest::post()
         .uri("/api/debug/wfusion-editor/parse")
         .set_json(serde_json::json!({

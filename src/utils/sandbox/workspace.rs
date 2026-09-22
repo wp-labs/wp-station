@@ -207,7 +207,7 @@ const WFUSION_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 2] = [
         kind: SandboxOverrideKind::PatchWfusionConfig,
     },
     SandboxOverrideSpec {
-        relative_path: "topology/sources",
+        relative_path: "source-overlay.toml",
         kind: SandboxOverrideKind::RewriteWfusionSource,
     },
 ];
@@ -235,8 +235,10 @@ impl SandboxOverrideSpec {
                 "保留当前 wfusion.toml，仅关闭 admin_api/auth/tls 以适配沙盒".to_string()
             }
             SandboxOverrideKind::RewriteWfusionSource => format!(
-                "仅保留沙盒 TCP 输入: connect={}, addr=0.0.0.0, port=\"{}\", framing=len, data_format=arrow_framed",
-                WFUSION_RUNTIME_SOURCE_CONNECTOR, WFUSION_RUNTIME_TCP_PORT
+                "生成 source-overlay.toml，TCP 输入: connect={}, key={}, addr=127.0.0.1, port={}, framing=len, data_format=arrow_framed",
+                WFUSION_RUNTIME_SOURCE_CONNECTOR,
+                WFUSION_RUNTIME_SOURCE_KEY,
+                WFUSION_RUNTIME_TCP_PORT
             ),
         }
     }
@@ -595,7 +597,12 @@ fn rewrite_wfusion_business_sink_runtime(target_dir: &Path) -> Result<(), AppErr
     collect_toml_files(target_dir, &mut files)?;
     for file in files {
         let content = fs::read_to_string(&file).map_err(AppError::internal)?;
-        let patched = patch_wfusion_business_sink_runtime(&content)?;
+        let fallback_file = file
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(|stem| format!("{stem}.json"))
+            .unwrap_or_else(|| "output.json".to_string());
+        let patched = patch_wfusion_business_sink_runtime(&content, &fallback_file)?;
         fs::write(&file, patched).map_err(AppError::internal)?;
     }
     Ok(())
@@ -817,24 +824,58 @@ fn relative_path_from_dir(from_dir: &Path, target: &Path) -> PathBuf {
     relative
 }
 
-/// 重写 wfusion source 目录，仅保留沙盒 TCP 输入源。
+/// 生成 wfusion source overlay，仅保留沙盒 TCP 输入源。
 fn rewrite_wfusion_source_runtime(project_dir: &Path) -> Result<(), AppError> {
-    let sources_dir = project_dir.join(DIR_TOPOLOGY).join(DIR_SOURCES);
-    if sources_dir.exists() {
-        fs::remove_dir_all(&sources_dir).map_err(AppError::internal)?;
-    }
-    fs::create_dir_all(&sources_dir).map_err(AppError::internal)?;
-
     let stream =
         detect_wfusion_scenario_stream(project_dir).unwrap_or_else(|| "conn_events".to_string());
     let source_content = format!(
-        "connect = \"{connector}\"\nkey = \"{key}\"\nstream = \"{stream}\"\naddr = \"0.0.0.0\"\nport = \"{port}\"\nframing = \"len\"\ndata_format = \"arrow_framed\"\nmode = \"daemon\"\nsources_dir = \"topology/sources\"\nsinks = \"topology/sinks\"\n",
+        "connect = \"{connector}\"\nkey = \"{key}\"\nenable = true\ndata_format = \"arrow_framed\"\nstream_tag = \"{stream}\"\nparams = {{ addr = \"127.0.0.1\", port = {port}, framing = \"len\" }}\n",
         connector = WFUSION_RUNTIME_SOURCE_CONNECTOR,
         key = WFUSION_RUNTIME_SOURCE_KEY,
         stream = stream,
         port = WFUSION_RUNTIME_TCP_PORT,
     );
-    fs::write(sources_dir.join("sandbox.toml"), source_content).map_err(AppError::internal)
+
+    // 同步更新项目内的 sources，保证 wfadm check 看到的配置与 daemon overlay 一致。
+    let project_sources_dir = project_dir.join(DIR_TOPOLOGY).join(DIR_SOURCES);
+    if project_sources_dir.exists() {
+        fs::remove_dir_all(&project_sources_dir).map_err(AppError::internal)?;
+    }
+    fs::create_dir_all(&project_sources_dir).map_err(AppError::internal)?;
+    fs::write(project_sources_dir.join("sandbox.toml"), &source_content)
+        .map_err(AppError::internal)?;
+
+    // wfusion 新版运行时通过 --overlay 指向独立 sources 目录；这样不会依赖
+    // 配置文件中旧的 sources_dir，也不会让沙盒修改生产 topology/sources 的语义。
+    let overlay_sources_dir = project_dir
+        .parent()
+        .ok_or_else(|| AppError::internal("wfusion 沙盒项目缺少根目录".to_string()))?
+        .join("sources");
+    if overlay_sources_dir.exists() {
+        fs::remove_dir_all(&overlay_sources_dir).map_err(AppError::internal)?;
+    }
+    fs::create_dir_all(&overlay_sources_dir).map_err(AppError::internal)?;
+    fs::write(overlay_sources_dir.join("tcp.toml"), &source_content)
+        .map_err(AppError::internal)?;
+
+    let overlay_path = wfusion_source_overlay_path(project_dir);
+    let overlay_sources_value = overlay_sources_dir
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    fs::write(
+        overlay_path,
+        format!("sources_dir = \"{overlay_sources_value}\"\n"),
+    )
+    .map_err(AppError::internal)
+}
+
+/// 返回 wfusion 沙盒 daemon 使用的 source overlay 路径。
+pub fn wfusion_source_overlay_path(project_dir: &Path) -> PathBuf {
+    project_dir
+        .parent()
+        .unwrap_or(project_dir)
+        .join("source-overlay.toml")
 }
 
 /// 从首个场景文件中提取 `traffic { stream xxx gen ... }` 的流名称，供 wfusion source 复写复用。
@@ -899,9 +940,14 @@ pub(crate) fn sandbox_runtime_override_log_lines(
     let mut lines: Vec<String> = specs
         .iter()
         .map(|spec| {
+            let target = if matches!(spec.kind, SandboxOverrideKind::RewriteWfusionSource) {
+                wfusion_source_overlay_path(&workspace.project_dir)
+            } else {
+                workspace.project_dir.join(spec.relative_path)
+            };
             format!(
                 "{} -> {}",
-                workspace.display_relative(&workspace.project_dir.join(spec.relative_path)),
+                workspace.display_relative(&target),
                 spec.summary()
             )
         })
@@ -1324,7 +1370,10 @@ fn patch_wpgen_output_runtime(
 }
 
 /// 在保留原配置主体的前提下，将 wfusion 业务 sink 改写为本地 file_json 输出。
-fn patch_wfusion_business_sink_runtime(content: &str) -> Result<String, AppError> {
+fn patch_wfusion_business_sink_runtime(
+    content: &str,
+    fallback_file: &str,
+) -> Result<String, AppError> {
     let mut lines = Vec::new();
     let mut in_sink = false;
     let mut in_sink_params = false;
@@ -1332,6 +1381,7 @@ fn patch_wfusion_business_sink_runtime(content: &str) -> Result<String, AppError
     let mut found_sink_params = false;
     let mut patched_connect = false;
     let mut rewritten_params = false;
+    let output_file = find_wfusion_sink_file(content).unwrap_or_else(|| fallback_file.to_string());
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -1355,7 +1405,12 @@ fn patch_wfusion_business_sink_runtime(content: &str) -> Result<String, AppError
             found_sink_params |= in_sink_params;
             if in_sink_params {
                 lines.push(line.to_string());
-                lines.push("file = \"alert.json\"".to_string());
+                lines.push("base = \"./data/out_dat/\"".to_string());
+                lines.push(format!(
+                    "file = \"{}\"",
+                    escape_toml_basic_string(&output_file)
+                ));
+                lines.push("sync = true".to_string());
                 rewritten_params = true;
                 continue;
             }
@@ -1393,6 +1448,35 @@ fn patch_wfusion_business_sink_runtime(content: &str) -> Result<String, AppError
         output.push('\n');
     }
     Ok(output)
+}
+
+/// 从业务 sink 的参数区保留原始输出文件名，避免多个 yield 覆盖到同一个文件。
+fn find_wfusion_sink_file(content: &str) -> Option<String> {
+    let mut in_sink_params = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
+        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_array_section {
+            in_sink_params = false;
+            continue;
+        }
+        if is_section {
+            in_sink_params = trimmed == "[sink_group.sinks.params]";
+            continue;
+        }
+        if in_sink_params {
+            if let Some(file) = parse_toml_string_assignment(trimmed, "file") {
+                return Some(file);
+            }
+        }
+    }
+    None
+}
+
+fn escape_toml_basic_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// 解析形如 `key = "value"` 的 TOML 字符串赋值。
@@ -1510,9 +1594,16 @@ fn parse_sandbox_task_timestamp(task_id: &str) -> Option<i64> {
 
 /// 删除历史工作区中的 project 目录，保留所有阶段日志供长期回看。
 fn prune_workspace_runtime_artifacts(workspace_dir: &Path) -> Result<(), AppError> {
-    let project_dir = workspace_dir.join("project");
-    if project_dir.exists() {
-        fs::remove_dir_all(&project_dir).map_err(AppError::internal)?;
+    for path in [
+        workspace_dir.join("project"),
+        workspace_dir.join("sources"),
+        workspace_dir.join("source-overlay.toml"),
+    ] {
+        if path.is_dir() {
+            fs::remove_dir_all(&path).map_err(AppError::internal)?;
+        } else if path.exists() {
+            fs::remove_file(&path).map_err(AppError::internal)?;
+        }
     }
     Ok(())
 }

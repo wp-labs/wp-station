@@ -184,6 +184,7 @@
     "summaryErrors": "Runtime Errors",
     "diagnostics": "Diagnostics",
     "alerts": "Alerts",
+    "yieldLabel": "yield {{target}}",
     "noAlerts": "No alert output produced",
     "stage": {
       "wfs_parse": "WFS Parse",

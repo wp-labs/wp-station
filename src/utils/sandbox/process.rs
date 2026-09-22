@@ -1,6 +1,6 @@
 //! 沙盒命令执行与进程管理。
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ use tokio::time::sleep;
 use crate::constants::sandbox::WFUSION_RUNTIME_TCP_PORT;
 use crate::error::AppError;
 use crate::utils::SystemKind;
+use crate::utils::sandbox::wfusion_source_overlay_path;
 
 /// 命令查找的优先搜索路径，沙盒环境中的 toolchain 安装目录。
 const TOOLCHAIN_SEARCH_PATHS: [&str; 2] = ["/app", "/app/toolchain"];
@@ -111,7 +112,11 @@ pub async fn spawn_daemon(
     let mut cmd = Command::new(&binary);
     let command_line = match system {
         SystemKind::Wparse => format!("{} daemon", binary.display()),
-        SystemKind::Wfusion => format!("{} daemon --work-dir .", binary.display()),
+        SystemKind::Wfusion => format!(
+            "{} daemon -c conf/wfusion.toml --overlay {}",
+            binary.display(),
+            wfusion_source_overlay_path(project_dir).display()
+        ),
     };
     let log_file = File::create(log_path).map_err(AppError::internal)?;
     writeln!(&log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
@@ -123,7 +128,16 @@ pub async fn spawn_daemon(
         .stdout(stdout)
         .stderr(stderr);
     if matches!(system, SystemKind::Wfusion) {
-        cmd.args(["--work-dir", "."]);
+        let overlay_path = wfusion_source_overlay_path(project_dir);
+        if !overlay_path.is_file() {
+            return Err(AppError::validation(format!(
+                "wfusion 沙盒缺少 source overlay: {}",
+                overlay_path.display()
+            )));
+        }
+        cmd.args(["-c", "conf/wfusion.toml"])
+            .arg("--overlay")
+            .arg(overlay_path);
     }
 
     let child = cmd.spawn().map_err(|err| {
@@ -248,8 +262,30 @@ async fn run_generator_wfusion(
     let mut final_exit_code: Option<i32> = None;
 
     for scenario in scenarios {
+        run_wfgen_lint(binary, project_dir, &log_file, scenario, timeout).await?;
+
+        if is_sdm_event_sample(scenario) {
+            let (code, commands) = run_sdm_event_sample(
+                binary,
+                project_dir,
+                &log_file,
+                scenario,
+                &runtime_addr,
+                timeout,
+            )
+            .await?;
+            command_lines.extend(commands);
+            if code.unwrap_or(0) != 0 && final_exit_code.is_none() {
+                final_exit_code = code;
+            }
+            if final_exit_code.is_none() {
+                final_exit_code = code;
+            }
+            continue;
+        }
+
         let command_line = format!(
-            "{} gen --scenario {} --send --addr 127.0.0.1:{} --no-oracle",
+            "{} gen --scenario {} --send --addr 127.0.0.1:{}",
             binary.display(),
             scenario.display(),
             WFUSION_RUNTIME_TCP_PORT
@@ -270,8 +306,7 @@ async fn run_generator_wfusion(
             .arg(scenario)
             .arg("--send")
             .arg("--addr")
-            .arg(&runtime_addr)
-            .arg("--no-oracle");
+            .arg(&runtime_addr);
         cmd.current_dir(project_dir).stdout(stdout).stderr(stderr);
 
         let mut child = cmd.spawn().map_err(|err| {
@@ -305,6 +340,230 @@ async fn run_generator_wfusion(
         log_path: log_path.to_path_buf(),
         command_lines,
     })
+}
+
+/// 判断是否为当前自包含的五条样例场景。
+fn is_sdm_event_sample(scenario: &Path) -> bool {
+    scenario.file_stem().and_then(|stem| stem.to_str()) == Some("sdm_event")
+}
+
+/// 生成 `sdm_event` 后过滤背景流，再把五条注入样例发送给 wfusion。
+///
+/// `wfadm check` 要求 WFG 保留合法的 `background` 块，不能直接删除该块。
+/// 因此先用完整场景生成 JSONL，再按生成器写入的 `hit_event_id_*` 标记过滤掉
+/// 背景事件，最后调用 `wfgen send` 发送过滤后的五条数据。
+async fn run_sdm_event_sample(
+    binary: &Path,
+    project_dir: &Path,
+    mut log_file: &File,
+    scenario: &Path,
+    runtime_addr: &str,
+    timeout: Duration,
+) -> Result<(Option<i32>, Vec<String>), AppError> {
+    let output_dir = project_dir.join(".wfgen-sandbox-output");
+    fs::create_dir_all(&output_dir).map_err(AppError::internal)?;
+    let stem = scenario
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("sdm_event");
+    let generated_path = output_dir.join(format!("{stem}.jsonl"));
+    let filtered_path = output_dir.join(format!("{stem}.injected.jsonl"));
+    let generation_log_path = output_dir.join(format!("{stem}.generation.log"));
+
+    let generate_command = format!(
+        "{} gen --scenario {} --out {}",
+        binary.display(),
+        scenario.display(),
+        output_dir.display()
+    );
+    writeln!(log_file, "--- 场景: {}", scenario.display()).map_err(AppError::internal)?;
+    writeln!(log_file, "执行命令: {generate_command}").map_err(AppError::internal)?;
+    writeln!(log_file).map_err(AppError::internal)?;
+
+    let generation_log = File::create(&generation_log_path).map_err(AppError::internal)?;
+    let stdout = generation_log.try_clone().map_err(AppError::internal)?;
+    let stderr = generation_log.try_clone().map_err(AppError::internal)?;
+    let mut generate = Command::new(binary);
+    generate
+        .arg("gen")
+        .arg("--scenario")
+        .arg(scenario)
+        .arg("--out")
+        .arg(&output_dir)
+        .current_dir(project_dir)
+        .stdout(stdout)
+        .stderr(stderr);
+    let mut child = generate.spawn().map_err(|err| {
+        AppError::internal(format!(
+            "执行 wfgen 生成阶段失败: {}。请确认可执行文件 {} 是否可用",
+            err,
+            binary.display()
+        ))
+    })?;
+    let generation_status = tokio::time::timeout(timeout, child.wait())
+        .await
+        .map_err(|_| AppError::internal("wfgen 生成阶段运行超时"))?
+        .map_err(AppError::internal)?;
+    if !generation_status.success() {
+        append_file_to_log(&generation_log_path, log_file)?;
+        return Err(AppError::validation(format!(
+            "wfgen 生成阶段失败: {}",
+            scenario.display()
+        )));
+    }
+
+    let (total, injected) = filter_sdm_event_injected_events(&generated_path, &filtered_path)?;
+    let input_path = if injected > 0 && injected < total {
+        writeln!(
+            log_file,
+            "已过滤背景事件: 共生成{}条，保留{}条注入样例",
+            total, injected
+        )
+        .map_err(AppError::internal)?;
+        filtered_path
+    } else {
+        generated_path
+    };
+    let send_command = format!(
+        "{} send --scenario {} --input {} --addr {}",
+        binary.display(),
+        scenario.display(),
+        input_path.display(),
+        runtime_addr
+    );
+    writeln!(log_file, "执行命令: {send_command}").map_err(AppError::internal)?;
+    writeln!(log_file).map_err(AppError::internal)?;
+
+    let stdout = log_file.try_clone().map_err(AppError::internal)?;
+    let stderr = log_file.try_clone().map_err(AppError::internal)?;
+    let mut send = Command::new(binary);
+    send.arg("send")
+        .arg("--scenario")
+        .arg(scenario)
+        .arg("--input")
+        .arg(&input_path)
+        .arg("--addr")
+        .arg(runtime_addr)
+        .current_dir(project_dir)
+        .stdout(stdout)
+        .stderr(stderr);
+    let mut child = send.spawn().map_err(|err| {
+        AppError::internal(format!(
+            "执行 wfgen 发送阶段失败: {}。请确认可执行文件 {} 是否可用",
+            err,
+            binary.display()
+        ))
+    })?;
+    let send_status = tokio::time::timeout(timeout, child.wait())
+        .await
+        .map_err(|_| AppError::internal("wfgen 发送阶段运行超时"))?
+        .map_err(AppError::internal)?;
+    if !send_status.success() {
+        return Err(AppError::validation(format!(
+            "wfgen 发送阶段失败: {}",
+            scenario.display()
+        )));
+    }
+
+    writeln!(log_file).map_err(AppError::internal)?;
+    Ok((send_status.code(), vec![generate_command, send_command]))
+}
+
+/// 过滤 wfgen 为自包含样例生成的背景事件。
+fn filter_sdm_event_injected_events(
+    generated_path: &Path,
+    filtered_path: &Path,
+) -> Result<(usize, usize), AppError> {
+    let content = fs::read_to_string(generated_path).map_err(|err| {
+        AppError::internal(format!(
+            "读取 wfgen 生成文件 {} 失败: {}",
+            generated_path.display(),
+            err
+        ))
+    })?;
+    let mut total = 0usize;
+    let mut injected_lines = Vec::new();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        total += 1;
+        let event_id = serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|event| {
+                event
+                    .get("event_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            });
+        if event_id
+            .as_deref()
+            .is_some_and(|value| value.starts_with("hit_event_id_"))
+        {
+            injected_lines.push(line);
+        }
+    }
+
+    if total == 0 {
+        return Err(AppError::validation(format!(
+            "wfgen 生成文件为空: {}",
+            generated_path.display()
+        )));
+    }
+    let mut filtered = injected_lines.join("\n");
+    if !filtered.is_empty() {
+        filtered.push('\n');
+    }
+    fs::write(filtered_path, filtered).map_err(AppError::internal)?;
+    Ok((total, injected_lines.len()))
+}
+
+fn append_file_to_log(path: &Path, mut log_file: &File) -> Result<(), AppError> {
+    let content = fs::read_to_string(path).unwrap_or_default();
+    if !content.is_empty() {
+        writeln!(log_file, "{content}").map_err(AppError::internal)?;
+    }
+    Ok(())
+}
+
+/// 发送场景前先执行 wfgen lint，避免把场景编译错误延迟到运行时才暴露。
+async fn run_wfgen_lint(
+    binary: &Path,
+    project_dir: &Path,
+    mut log_file: &File,
+    scenario: &Path,
+    timeout: Duration,
+) -> Result<(), AppError> {
+    let command_line = format!("{} lint {}", binary.display(), scenario.display());
+    writeln!(log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
+    writeln!(log_file).map_err(AppError::internal)?;
+
+    let stdout = log_file.try_clone().map_err(AppError::internal)?;
+    let stderr = log_file.try_clone().map_err(AppError::internal)?;
+    let mut child = Command::new(binary);
+    child
+        .arg("lint")
+        .arg(scenario)
+        .current_dir(project_dir)
+        .stdout(stdout)
+        .stderr(stderr);
+
+    let mut child = child.spawn().map_err(|err| {
+        AppError::internal(format!(
+            "执行 wfgen lint 失败: {}。请确认可执行文件 {} 可用",
+            err,
+            binary.display()
+        ))
+    })?;
+    let status = tokio::time::timeout(timeout, child.wait())
+        .await
+        .map_err(|_| AppError::internal(format!("{} lint 运行超时", binary.display())))?
+        .map_err(AppError::internal)?;
+    if !status.success() {
+        return Err(AppError::validation(format!(
+            "wfgen lint 失败: {}",
+            scenario.display()
+        )));
+    }
+
+    Ok(())
 }
 
 /// 运行 `<cmd> --version`，返回 stdout/stderr 中非空内容，优先返回 stdout。

@@ -439,7 +439,7 @@ pub(super) async fn stage_run_wpgen(
     let generator_cmd = sandbox::generator_command(system);
     let log_path = workspace.log_path(&format!("{generator_cmd}.log"));
     sleep(Duration::from_millis(DAEMON_READY_BEFORE_WPGEN_WAIT_MS)).await;
-    let output = sandbox::run_generator(
+    let output = match sandbox::run_generator(
         system,
         &workspace.project_dir,
         &log_path,
@@ -447,7 +447,15 @@ pub(super) async fn stage_run_wpgen(
         Duration::from_millis(resources.options.wpgen_timeout_ms),
     )
     .await
-    .map_err(to_stage_error)?;
+    {
+        Ok(output) => output,
+        Err(err) => {
+            if log_path.is_file() {
+                set_stage_log_path(task, SandboxStage::RunWpgen, &log_path, Some(&workspace)).await;
+            }
+            return Err(to_stage_error(err));
+        }
+    };
     set_stage_log_path(
         task,
         SandboxStage::RunWpgen,
@@ -572,7 +580,10 @@ pub(super) async fn stage_analyse_runtime_output(
             ));
         }
         if system == crate::utils::SystemKind::Wfusion && analysis.metrics.output_count == 0 {
-            details.push("未观察到 alert.json 业务告警输出，请检查场景是否命中规则".to_string());
+            details.push(
+                "未观察到 WFusion 业务告警输出，请检查 sdm_alert.json 或 alert.json 是否生成，以及场景是否命中规则"
+                    .to_string(),
+            );
         }
         let summary = if details.is_empty() {
             "结果检查失败，请点击查看详情".to_string()

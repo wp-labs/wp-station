@@ -9,7 +9,7 @@ use std::io::BufRead;
 use std::path::Path;
 
 use crate::error::AppError;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use wf_engine::alert::OutputRecord;
 use wf_engine::match_engine::{
     CepStateMachine, CloseOutput, CloseReason, EngineHashMap, Event, JoinRow, RuleExecutor,
@@ -86,6 +86,7 @@ impl WindowLookup for NullWindowLookup {
 struct ReplayEngine {
     machine: CepStateMachine,
     executor: RuleExecutor,
+    time_field: Option<String>,
     conv_plan: Option<wf_lang::plan::ConvPlan>,
 }
 
@@ -124,13 +125,14 @@ fn replay_with_plans<R: BufRead>(
             let machine = CepStateMachine::with_limits(
                 plan.name.clone(),
                 plan.match_plan.clone(),
-                time_field,
+                time_field.clone(),
                 limits,
             );
             let executor = RuleExecutor::new(plan.clone());
             ReplayEngine {
                 machine,
                 executor,
+                time_field,
                 conv_plan: plan.conv_plan.clone(),
             }
         })
@@ -280,14 +282,23 @@ fn resolve_event_routes(
         .get("_stream")
         .and_then(|value| value.as_str())
         .unwrap_or("");
-    if stream_name.is_empty() {
-        return routes;
-    }
-
-    let windows = stream_to_windows
-        .get(stream_name)
-        .cloned()
-        .unwrap_or_default();
+    let windows = if stream_name.is_empty() {
+        // 固定 stream_tag 的 source 不要求输入 JSON 再携带路由字段。
+        // 编辑器回放直接接收 source 的原始 NDJSON，因此没有 `_stream` 时，
+        // 将事件投递到所有带 stream_tag 的输入窗口；带 `_stream` 的旧样例
+        // 仍然只投递到对应窗口。
+        stream_to_windows
+            .values()
+            .flat_map(|windows| windows.iter().cloned())
+            .collect::<HashSet<_>>()
+    } else {
+        stream_to_windows
+            .get(stream_name)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<HashSet<_>>()
+    };
     for window in windows {
         let binds = window_to_binds.get(&window).cloned().unwrap_or_default();
         for (_engine_idx, bind_alias) in binds {
@@ -379,16 +390,38 @@ fn route_event_once(
 ) {
     let consumers = routes.get(route_key).cloned().unwrap_or_default();
     for consumer in consumers {
-        let step = engines[consumer.engine_idx].machine.advance_with(
-            &consumer.bind_alias,
-            event,
-            Some(lookup),
-        );
+        let engine = &mut engines[consumer.engine_idx];
+        if engine
+            .executor
+            .plan()
+            .each_plan
+            .as_ref()
+            .is_some_and(|each| each.alias == consumer.bind_alias)
+        {
+            let event_time_nanos = event_time_nanos(event, engine.time_field.as_deref());
+            let result = engine.executor.execute_each_with_joins(
+                event,
+                event_time_nanos,
+                lookup,
+                &[],
+                Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+            );
+            match result {
+                Ok(Some(record)) => handle_output_record(record, queue, alerts, match_count),
+                Ok(None) => {}
+                Err(_error) => {
+                    let _ = color;
+                    *error_count += 1;
+                }
+            }
+            continue;
+        }
+
+        let step = engine
+            .machine
+            .advance_with(&consumer.bind_alias, event, Some(lookup));
         if let StepResult::Matched(ctx) = step {
-            match engines[consumer.engine_idx]
-                .executor
-                .execute_match_with_joins(&ctx, lookup)
-            {
+            match engine.executor.execute_match_with_joins(&ctx, lookup) {
                 Ok(Some(record)) => handle_output_record(record, queue, alerts, match_count),
                 Ok(None) => {}
                 Err(_error) => {
@@ -429,6 +462,16 @@ fn output_record_to_event(record: &OutputRecord) -> Event {
     Event { fields }
 }
 
+fn event_time_nanos(event: &Event, time_field: Option<&str>) -> i64 {
+    time_field
+        .and_then(|field| event.fields.get(field))
+        .and_then(|value| match value {
+            Value::Number(value) => Some(*value as i64),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 fn json_to_event_with_time_fields(
     json: &serde_json::Value,
     time_fields: &HashSet<String>,
@@ -443,22 +486,40 @@ fn json_to_event_with_time_fields(
                 continue;
             }
 
-            let value = match value {
-                serde_json::Value::Number(number) => {
-                    if let Some(float) = number.as_f64() {
-                        Value::Number(float)
-                    } else {
-                        continue;
-                    }
-                }
-                serde_json::Value::String(string) => Value::Str(string.clone().into()),
-                serde_json::Value::Bool(boolean) => Value::Bool(*boolean),
-                _ => continue,
-            };
-            fields.insert(key.clone().into(), value);
+            if let Some(value) = json_value_to_engine_value(value) {
+                fields.insert(key.clone().into(), value);
+            }
         }
     }
     Event { fields }
+}
+
+/// 将 NDJSON 中的 JSON 值转换为规则引擎值。
+///
+/// WFusion 的标准化事件把 `meta`、`observation`、资产对象和证据数组保留为
+/// 结构化字段；只转换标量会让 WFL 的嵌套路径访问静默变成空值，最终表现为
+/// “解析成功但没有告警”。空值沿用运行时事件桥的语义直接丢弃。
+fn json_value_to_engine_value(value: &serde_json::Value) -> Option<Value> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::Bool(value) => Some(Value::Bool(*value)),
+        serde_json::Value::Number(value) => value.as_f64().map(Value::Number),
+        serde_json::Value::String(value) => Some(Value::Str(value.clone().into())),
+        serde_json::Value::Array(values) => Some(Value::Array(
+            values
+                .iter()
+                .filter_map(json_value_to_engine_value)
+                .collect(),
+        )),
+        serde_json::Value::Object(values) => Some(Value::Object(
+            values
+                .iter()
+                .filter_map(|(key, value)| {
+                    json_value_to_engine_value(value).map(|value| (key.clone().into(), value))
+                })
+                .collect(),
+        )),
+    }
 }
 
 fn collect_known_time_fields(schemas: &[WindowSchema]) -> HashSet<String> {
@@ -470,12 +531,17 @@ fn collect_known_time_fields(schemas: &[WindowSchema]) -> HashSet<String> {
 
 fn parse_json_timestamp_nanos(value: &serde_json::Value) -> Option<i64> {
     match value {
-        serde_json::Value::Number(number) => number.as_f64().map(|float| float as i64),
+        serde_json::Value::Number(number) => number
+            .as_f64()
+            .and_then(wf_engine::normalize_epoch_timestamp_float_nanos),
         serde_json::Value::String(string) => {
             if let Ok(datetime) = DateTime::parse_from_rfc3339(string) {
                 return datetime.timestamp_nanos_opt();
             }
-            string.parse::<i64>().ok()
+            string
+                .parse::<f64>()
+                .ok()
+                .and_then(wf_engine::normalize_epoch_timestamp_float_nanos)
         }
         _ => None,
     }

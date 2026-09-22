@@ -184,6 +184,7 @@
     "summaryErrors": "运行错误",
     "diagnostics": "诊断",
     "alerts": "Alerts",
+    "yieldLabel": "yield {{target}}",
     "noAlerts": "未产生 alert 输出",
     "stage": {
       "wfs_parse": "WFS 解析",

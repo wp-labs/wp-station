@@ -4,8 +4,7 @@
 //! 只补缺失文件，不覆盖用户已有内容。
 
 use crate::constants::project::{
-    DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_RULES, DIR_RUNTIME, DIR_TOPOLOGY,
-    FILE_WFUSION_GLOBAL_RULE,
+    DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_RUNTIME, DIR_TOPOLOGY,
 };
 use crate::error::AppError;
 use crate::server::Setting;
@@ -65,33 +64,7 @@ pub fn init_default_configs_to_models_for_system(
             }],
         ),
     };
-    result?;
-
-    // 全局规则是 WFusion 规则编辑器的固定入口，已有项目也必须补齐，但绝不覆盖现有内容。
-    if matches!(system, SystemKind::Wfusion) {
-        let global_rule = resolve_project_root(models_root)
-            .join(DIR_MODELS)
-            .join(DIR_RULES)
-            .join(FILE_WFUSION_GLOBAL_RULE);
-        if let Some(parent) = global_rule.parent() {
-            fs::create_dir_all(parent).map_err(AppError::internal)?;
-        }
-        if !global_rule.exists() {
-            let default_path = "wfusion/models/rules/_global.wfl";
-            let content = runtime_default_configs_dir()
-                .map(|root| root.join(default_path))
-                .filter(|path| path.is_file())
-                .map(fs::read)
-                .transpose()
-                .map_err(AppError::internal)?
-                .or_else(|| DefaultConfigs::get(default_path).map(|file| file.data.into_owned()))
-                .unwrap_or_default();
-            fs::write(&global_rule, content).map_err(AppError::internal)?;
-            info!("补齐 WFusion 全局规则文件: path={}", global_rule.display());
-        }
-    }
-
-    Ok(())
+    result
 }
 
 /// 按系统将默认 infra 配置补齐到指定 infra 仓库，仅补缺失文件。

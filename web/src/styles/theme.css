@@ -5348,6 +5348,38 @@ mark.diff-highlight {
   scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
 }
 
+.wfusion-rule-editor__result-body--json {
+  overflow: visible;
+}
+
+.wfusion-rule-editor__result-body--json .wfusion-rule-editor__result,
+.wfusion-rule-editor__result-body--json .wfusion-rule-editor__yield-result {
+  height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+/* JSON 结果按内容自然撑开，滚动交给页面本身，避免代码块被截在小窗口里。 */
+.wfusion-rule-editor__result-body--json,
+.wfusion-rule-editor__result-body--json .wfusion-rule-editor__yield-body,
+.wfusion-rule-editor__result-body--json .code-block {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+.wfusion-rule-editor__result-body--json .code-block {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+
+.wfusion-rule-editor__result-body--json .code-block code {
+  white-space: inherit !important;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+
 .wfusion-rule-editor__result-body::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -5388,28 +5420,170 @@ mark.diff-highlight {
   min-height: 0;
 }
 
-.wfusion-rule-editor__result-header {
+.wfusion-rule-editor__rule-buttons {
+  display: flex;
+  width: 100%;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.wfusion-rule-editor__rule-button {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(280px, 100%);
+  min-height: 34px;
+  padding: 7px 12px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #475467;
+  cursor: pointer;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.wfusion-rule-editor__rule-button:hover,
+.wfusion-rule-editor__rule-button.is-active {
+  border-color: #275efe;
+  background: #dfe7ff;
+  color: #1746c7;
+  font-weight: 600;
+}
+
+/* 每个 yield 独立成块，避免多个输出类型混在同一张字段表里。 */
+.wfusion-rule-editor__yield-result {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.wfusion-rule-editor__yield-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px 0;
+}
+
+.wfusion-rule-editor__yield-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wfusion-rule-editor__yield-title h4 {
+  margin: 0;
+  overflow: hidden;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wfusion-rule-editor__yield-title span {
+  flex-shrink: 0;
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.wfusion-rule-editor__yield-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+
+/* JSON 结果完整展开，避免代码块和结果容器各自出现滚动条。 */
+.wfusion-rule-editor__yield-body--json {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.wfusion-rule-editor__yield-body--json .code-block {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.wfusion-rule-editor__table-value {
+  min-width: 0;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.wfusion-rule-editor__table-value.is-json {
+  overflow: visible;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f6f8fb 100%);
+  white-space: normal;
+}
+
+.wfusion-rule-editor__table-value.is-json pre {
+  margin: 0;
+  color: #344054;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.wfusion-rule-editor__yield-body .json-result-scroll {
+  padding: 0;
+}
+
+.wfusion-rule-editor__result-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+}
+
+.wfusion-rule-editor__result-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 16px;
   min-width: 0;
-  flex-wrap: wrap;
 }
 
 .wfusion-rule-editor__result-title {
   min-width: 0;
 }
 
+.wfusion-rule-editor__result-mode {
+  flex: 0 0 auto;
+}
+
 .wfusion-rule-editor__result-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 14px;
+  justify-content: flex-end;
+  gap: 16px;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   flex-wrap: wrap;
-  margin-left: 24px;
 }
 
 .wfusion-rule-editor__inline-stats {
@@ -5568,12 +5742,16 @@ mark.diff-highlight {
   }
 
   .wfusion-rule-editor__result-header {
-    align-items: flex-start;
+    align-items: stretch;
   }
 
   .wfusion-rule-editor__result-toolbar {
-    justify-content: flex-start;
+    justify-content: flex-end;
     margin-left: 0;
+  }
+
+  .wfusion-rule-editor__rule-buttons {
+    flex-basis: 100%;
   }
 
   .wfusion-rule-editor__inline-stats {
@@ -5600,9 +5778,20 @@ mark.diff-highlight {
     align-items: stretch;
   }
 
+  .wfusion-rule-editor__result-heading {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
   .wfusion-rule-editor__editor-actions,
-  .wfusion-rule-editor__result-toolbar {
+  .wfusion-rule-editor__result-toolbar,
+  .wfusion-rule-editor__rule-buttons {
     width: 100%;
+  }
+
+  .wfusion-rule-editor__rule-button {
+    flex: 1 1 140px;
+    max-width: none;
   }
 
   .wfusion-rule-editor__editor-actions .btn {
@@ -5614,5 +5803,11 @@ mark.diff-highlight {
     height: 320px !important;
     min-height: 320px !important;
     max-height: 320px !important;
+  }
+
+  .wfusion-rule-editor__result-body--json {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
 }

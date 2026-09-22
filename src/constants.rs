@@ -37,7 +37,6 @@ pub mod project {
     pub const FILE_WFUSION: &str = "wfusion.toml";
     pub const FILE_WPGEN: &str = "wpgen.toml";
     pub const FILE_WINDOWS: &str = "windows.toml";
-    pub const FILE_WFUSION_GLOBAL_RULE: &str = "_global.wfl";
     pub const FILE_KNOWDB: &str = "knowdb.toml";
     pub const FILE_WPL_PARSE: &str = "parse.wpl";
     pub const FILE_WPL_SAMPLE: &str = "sample.dat";
@@ -207,7 +206,8 @@ file = "all.json"
     pub const RUNTIME_PROTOCOL: &str = "udp";
     pub const RUNTIME_HEADER_MODE: &str = "keep";
     pub const WFUSION_RUNTIME_TCP_PORT: u16 = 9800;
-    pub const WFUSION_RUNTIME_SOURCE_KEY: &str = "sandbox_tcp";
+    /// 与 wfgen --send 生成的 source overlay 保持一致，便于 wfusion 按 TCP source 接收 Arrow 帧。
+    pub const WFUSION_RUNTIME_SOURCE_KEY: &str = "auth_tcp";
     pub const WFUSION_RUNTIME_SOURCE_CONNECTOR: &str = "tcp_src";
 
     /// daemon 启动后额外等待一小段时间，再拉起 wpgen，减少端口刚就绪时的竞态。

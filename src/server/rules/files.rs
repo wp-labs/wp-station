@@ -7,7 +7,7 @@
 //! - 普通规则保存
 
 use crate::constants::project::{
-    FILE_KNOWDB, FILE_WFUSION_GLOBAL_RULE, FILE_WPL_PARSE, FILE_WPL_SAMPLE,
+    FILE_KNOWDB, FILE_WPL_PARSE, FILE_WPL_SAMPLE,
 };
 use crate::db::RuleType;
 use crate::error::AppError;
@@ -229,18 +229,6 @@ pub async fn delete_rule_file_logic(
 ) -> Result<(), AppError> {
     info!("删除规则文件: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
-
-    if matches!(system, SystemKind::Wfusion)
-        && matches!(rule_type, RuleType::Rule)
-        && file
-            .trim()
-            .trim_matches('/')
-            .rsplit('/')
-            .next()
-            .is_some_and(|name| name.eq_ignore_ascii_case(FILE_WFUSION_GLOBAL_RULE))
-    {
-        return Err(AppError::validation("WFusion 全局规则文件不允许删除"));
-    }
 
     let normalized_file = if matches!(rule_type, RuleType::Wpl) {
         let (base_name, _) = split_wpl_virtual_file(&file);

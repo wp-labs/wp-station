@@ -38,15 +38,6 @@ const INTEGRATION_OVERVIEW_KEY = 'integration-overview';
 const WFUSION_WINDOWS_FILE = 'windows.toml';
 const WFUSION_GLOBAL_RULE_FILE = '_global.wfl';
 
-const isWfusionGlobalRuleFile = (type, file) =>
-  type === RuleType.RULE &&
-  String(file || '')
-    .trim()
-    .split('/')
-    .filter(Boolean)
-    .pop()
-    ?.toLowerCase() === WFUSION_GLOBAL_RULE_FILE;
-
 const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
     return '';
@@ -2450,10 +2441,6 @@ function RuleManagePage() {
                     })
                   : omlTree.map((node) => {
                       if (node.kind === 'file') {
-                        const isProtectedGlobalRule = isWfusionGlobalRuleFile(
-                          activeTreeRuleType,
-                          node.file.value,
-                        );
                         return (
                           <div
                             key={node.file.value}
@@ -2470,7 +2457,7 @@ function RuleManagePage() {
                               style={{
                                 textAlign: 'left',
                                 paddingRight:
-                                  hoveredRepoFile === node.file.value && !isProtectedGlobalRule
+                                  hoveredRepoFile === node.file.value
                                     ? '28px'
                                     : '12px',
                                 position: 'relative',
@@ -2478,39 +2465,37 @@ function RuleManagePage() {
                             >
                               {node.file.label}
                             </button>
-                            {!isProtectedGlobalRule ? (
-                              <button
-                                type="button"
-                                className="repo-file-delete"
-                                style={{
-                                  position: 'absolute',
-                                  right: '4px',
-                                  minWidth: 20,
-                                  width: 20,
-                                  height: 20,
-                                  borderRadius: '50%',
-                                  border: 'none',
-                                  backgroundColor: '#ff4d4f',
-                                  color: '#fff',
-                                  fontSize: 16,
-                                  padding: 0,
-                                  cursor: 'pointer',
-                                  display:
-                                    hoveredRepoFile === node.file.value ? 'inline-flex' : 'none',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  confirmDeleteTreeRule(
-                                    activeTreeRuleType || RuleType.OML,
-                                    node.file.value,
-                                  );
-                                }}
-                              >
-                                -
-                              </button>
-                            ) : null}
+                            <button
+                              type="button"
+                              className="repo-file-delete"
+                              style={{
+                                position: 'absolute',
+                                right: '4px',
+                                minWidth: 20,
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                border: 'none',
+                                backgroundColor: '#ff4d4f',
+                                color: '#fff',
+                                fontSize: 16,
+                                padding: 0,
+                                cursor: 'pointer',
+                                display:
+                                  hoveredRepoFile === node.file.value ? 'inline-flex' : 'none',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                confirmDeleteTreeRule(
+                                  activeTreeRuleType || RuleType.OML,
+                                  node.file.value,
+                                );
+                              }}
+                            >
+                              -
+                            </button>
                           </div>
                         );
                       }

@@ -17,4 +17,6 @@ pub use self::process::{
     spawn_daemon,
 };
 pub(crate) use self::workspace::sandbox_runtime_override_log_lines;
-pub use self::workspace::{SandboxWorkspace, collect_output_checks};
+pub use self::workspace::{
+    SandboxWorkspace, collect_output_checks, wfusion_source_overlay_path,
+};

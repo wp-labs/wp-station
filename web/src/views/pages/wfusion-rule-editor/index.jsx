@@ -517,34 +517,68 @@ const renderResultError = (t, result) => {
   );
 };
 
-function WfusionResultContent({ t, result, viewMode, showEmpty }) {
+const normalizeYieldResults = (result) => {
+  if (Array.isArray(result?.yield_results) && result.yield_results.length > 0) {
+    return result.yield_results.map((item, index) => ({
+      ruleName: item?.rule_name || '',
+      yieldTarget: item?.yield_target || `yield_${index + 1}`,
+      records: Array.isArray(item?.records) ? item.records : [],
+    })).filter((item) => item.yieldTarget !== 'fw_botnet_feed');
+  }
+
+  // 兼容旧响应：旧接口只有扁平 alerts，统一作为一个结果块展示。
   const alerts = Array.isArray(result?.alerts) ? result.alerts : [];
-  const resultRows = filterAlertRows(buildAlertTableRows(alerts), showEmpty);
-  const resultJson = prettyJson(showEmpty ? alerts : pruneEmptyValues(alerts));
+  return alerts.length > 0
+    ? [{ ruleName: '', yieldTarget: 'alerts', records: alerts }]
+    : [];
+};
+
+const getYieldResultKey = (item) => `${item.ruleName || 'output'}::${item.yieldTarget}`;
+
+const getActiveYieldResult = (results, selectedKey) =>
+  results.find((item) => getYieldResultKey(item) === selectedKey) || results[0] || null;
+
+function WfusionYieldResult({
+  t,
+  yieldTarget,
+  records,
+  viewMode,
+  showEmpty,
+}) {
+  const resultRows = filterAlertRows(buildAlertTableRows(records), showEmpty);
+  const jsonValue = records.length === 1 ? records[0] : records;
+  const resultJson = prettyJson(showEmpty ? jsonValue : pruneEmptyValues(jsonValue));
   const resultColumns = [
     { title: t('simulateDebug.table.no'), dataIndex: 'no', key: 'no', width: 70 },
     { title: t('simulateDebug.table.meta'), dataIndex: 'meta', key: 'meta', width: 140 },
     { title: t('simulateDebug.table.name'), dataIndex: 'name', key: 'name', width: 220 },
-    { title: t('simulateDebug.table.value'), dataIndex: 'value', key: 'value' },
+    {
+      title: t('simulateDebug.table.value'),
+      dataIndex: 'value',
+      key: 'value',
+      render: (value, record) => (
+        <div
+          className={`wfusion-rule-editor__table-value ${
+            record.meta === 'json' || record.meta === 'array' ? 'is-json' : ''
+          }`}
+          title={record.meta === 'json' || record.meta === 'array' ? value : undefined}
+        >
+          {record.meta === 'json' || record.meta === 'array' ? <pre>{value}</pre> : value}
+        </div>
+      ),
+    },
   ];
 
-  if (!result) {
-    return (
-      <div className="wfusion-rule-editor__empty">
-        {t('wfusionRuleEditor.noResult')}
-      </div>
-    );
-  }
-
-  if (result.success === false) {
-    return renderResultError(t, result);
-  }
-
   return (
-    <div className="wfusion-rule-editor__result">
+    <section className="wfusion-rule-editor__yield-result">
+      <div className="wfusion-rule-editor__yield-header">
+        <div className="wfusion-rule-editor__yield-title">
+          <h4>{t('wfusionRuleEditor.yieldLabel', { target: yieldTarget })}</h4>
+        </div>
+      </div>
       {viewMode === 'table' ? (
-        alerts.length > 0 ? (
-          <div style={{ paddingBottom: '10px' }}>
+        records.length > 0 ? (
+          <div className="wfusion-rule-editor__yield-body">
             <Table
               size="small"
               columns={resultColumns}
@@ -552,7 +586,6 @@ function WfusionResultContent({ t, result, viewMode, showEmpty }) {
               pagination={false}
               rowKey="key"
               className="data-table compact"
-              scroll={{ y: 460, scrollToFirstRowOnChange: true }}
             />
           </div>
         ) : (
@@ -560,8 +593,8 @@ function WfusionResultContent({ t, result, viewMode, showEmpty }) {
             {t('wfusionRuleEditor.noAlerts')}
           </div>
         )
-      ) : alerts.length > 0 ? (
-        <div className="json-result-scroll">
+      ) : records.length > 0 ? (
+        <div className="wfusion-rule-editor__yield-body wfusion-rule-editor__yield-body--json">
           <SyntaxHighlighter
             className="code-block"
             language="json"
@@ -571,8 +604,20 @@ function WfusionResultContent({ t, result, viewMode, showEmpty }) {
               background: '#0f172a',
               width: '100%',
               minWidth: 0,
+              maxWidth: '100%',
+              overflow: 'visible',
+              borderRadius: 12,
+              padding: '16px 18px',
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'anywhere',
             }}
-            codeTagProps={{ style: { background: 'transparent' } }}
+            codeTagProps={{
+              style: {
+                background: 'transparent',
+                whiteSpace: 'inherit',
+                overflowWrap: 'inherit',
+              },
+            }}
             wrapLines
             lineProps={{ style: { background: 'transparent' } }}
             wrapLongLines
@@ -585,6 +630,51 @@ function WfusionResultContent({ t, result, viewMode, showEmpty }) {
           {t('wfusionRuleEditor.noAlerts')}
         </div>
       )}
+    </section>
+  );
+}
+
+function WfusionResultContent({
+  t,
+  result,
+  viewMode,
+  showEmpty,
+  selectedYieldKey,
+}) {
+  if (!result) {
+    return (
+      <div className="wfusion-rule-editor__empty">
+        {t('wfusionRuleEditor.noResult')}
+      </div>
+    );
+  }
+
+  if (result.success === false) {
+    return renderResultError(t, result);
+  }
+
+  const yieldResults = normalizeYieldResults(result);
+  if (yieldResults.length === 0) {
+    return (
+      <div className="wfusion-rule-editor__empty">
+        {t('wfusionRuleEditor.noAlerts')}
+      </div>
+    );
+  }
+
+  const selectedResult = getActiveYieldResult(yieldResults, selectedYieldKey);
+  const activeYieldKey = getYieldResultKey(selectedResult);
+
+  return (
+    <div className="wfusion-rule-editor__result">
+      <WfusionYieldResult
+        key={activeYieldKey}
+        t={t}
+        yieldTarget={selectedResult.yieldTarget}
+        records={selectedResult.records}
+        viewMode={viewMode}
+        showEmpty={showEmpty}
+      />
     </div>
   );
 }
@@ -616,6 +706,7 @@ export function WfusionRuleEditorContent() {
   });
   const [activeRuleEditor, setActiveRuleEditor] = useState('wfs');
   const [resultViewMode, setResultViewMode] = useState('table');
+  const [selectedYieldKey, setSelectedYieldKey] = useState('');
   const [showEmpty, setShowEmpty] = useState(true);
   const [loading, setLoading] = useState(false);
 
@@ -632,6 +723,11 @@ export function WfusionRuleEditorContent() {
   const result = isExamplesMode
     ? exampleDraft.result
     : wflWorkspace.activeInstance?.parseResult || null;
+  const resultYieldResults = result?.success ? normalizeYieldResults(result) : [];
+  const activeResultYield = getActiveYieldResult(resultYieldResults, selectedYieldKey);
+  const activeResultYieldKey = activeResultYield
+    ? getYieldResultKey(activeResultYield)
+    : '';
 
   const setEventsNdjson = (value) => {
     if (isExamplesMode) {
@@ -824,7 +920,6 @@ export function WfusionRuleEditorContent() {
 
   const activeRuleCode = activeRuleEditor === 'wfs' ? wfsCode : wflCode;
   const activeRuleLanguage = activeRuleEditor === 'wfs' ? 'wfs' : 'wfl';
-  const resultSummary = result?.success ? result?.summary || null : null;
   const activeRuleWorkspace = activeRuleEditor === 'wfs' ? wfsWorkspace : wflWorkspace;
 
   const handleActiveRuleChange = (value) => {
@@ -1028,57 +1123,71 @@ export function WfusionRuleEditorContent() {
         <div className="split-col wfusion-rule-editor__result-col">
           <div className="panel-block panel-block--stretch panel-block--scrollable wfusion-rule-editor__result-panel">
             <div className="wfusion-rule-editor__result-header">
-              <div className="wfusion-rule-editor__result-title">
-                <h3>{t('simulateDebug.parseResult.title')}</h3>
-              </div>
-              <div className="wfusion-rule-editor__result-toolbar">
-                <div className="mode-toggle">
-                  <button
-                    type="button"
-                    className={`toggle-btn ${resultViewMode === 'table' ? 'is-active' : ''}`}
-                    onClick={() => setResultViewMode('table')}
-                  >
-                    {t('simulateDebug.parseResult.tableMode')}
-                  </button>
-                  <button
-                    type="button"
-                    className={`toggle-btn ${resultViewMode === 'json' ? 'is-active' : ''}`}
-                    onClick={() => setResultViewMode('json')}
-                  >
-                    {t('simulateDebug.parseResult.jsonMode')}
-                  </button>
+              <div className="wfusion-rule-editor__result-heading">
+                <div className="wfusion-rule-editor__result-title">
+                  <h3>{t('simulateDebug.parseResult.title')}</h3>
                 </div>
-                {resultSummary ? (
-                  <div className="wfusion-rule-editor__inline-stats wfusion-rule-editor__inline-stats--header">
-                    <span className="wfusion-rule-editor__inline-stat">
-                      {t('wfusionRuleEditor.summaryEvents')}
-                      <strong>{resultSummary.event_count}</strong>
-                    </span>
-                    <span className="wfusion-rule-editor__inline-stat">
-                      {t('wfusionRuleEditor.summaryMatches')}
-                      <strong>{resultSummary.match_count}</strong>
-                    </span>
+                <div className="wfusion-rule-editor__result-toolbar">
+                  <div className="mode-toggle wfusion-rule-editor__result-mode">
+                    <button
+                      type="button"
+                      className={`toggle-btn ${resultViewMode === 'table' ? 'is-active' : ''}`}
+                      onClick={() => setResultViewMode('table')}
+                    >
+                      {t('simulateDebug.parseResult.tableMode')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${resultViewMode === 'json' ? 'is-active' : ''}`}
+                      onClick={() => setResultViewMode('json')}
+                    >
+                      {t('simulateDebug.parseResult.jsonMode')}
+                    </button>
                   </div>
-                ) : null}
-                <label className="switch">
-                  <input
-                    type="checkbox"
-                    checked={showEmpty}
-                    onChange={(e) => setShowEmpty(e.target.checked)}
-                  />
-                  <span className="switch-slider"></span>
-                  <span className="switch-label">
-                    {t('simulateDebug.parseResult.showEmpty')}
-                  </span>
-                </label>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={showEmpty}
+                      onChange={(e) => setShowEmpty(e.target.checked)}
+                    />
+                    <span className="switch-slider"></span>
+                    <span className="switch-label">
+                      {t('simulateDebug.parseResult.showEmpty')}
+                    </span>
+                  </label>
+                </div>
               </div>
+              {resultYieldResults.length > 0 ? (
+                <div className="wfusion-rule-editor__rule-buttons">
+                  {resultYieldResults.map((item, index) => {
+                    const key = getYieldResultKey(item);
+                    return (
+                      <button
+                        key={`${key}-${index}`}
+                        type="button"
+                        className={`wfusion-rule-editor__rule-button ${
+                          activeResultYieldKey === key ? 'is-active' : ''
+                        }`}
+                        onClick={() => setSelectedYieldKey(key)}
+                      >
+                        {item.ruleName || item.yieldTarget}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
-            <div className="wfusion-rule-editor__result-body">
+            <div
+              className={`wfusion-rule-editor__result-body ${
+                resultViewMode === 'json' ? 'wfusion-rule-editor__result-body--json' : ''
+              }`}
+            >
               <WfusionResultContent
                 t={t}
                 result={result}
                 viewMode={resultViewMode}
                 showEmpty={showEmpty}
+                selectedYieldKey={selectedYieldKey}
               />
             </div>
           </div>

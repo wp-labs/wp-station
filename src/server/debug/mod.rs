@@ -152,6 +152,18 @@ pub struct DebugWfusionRuleEditorSummary {
     pub error_count: u64,
 }
 
+/// 单个 `yield` 目标的试跑结果。
+///
+/// 同一个规则和目标可能因为多条事件或多次命中产生多条记录，因此按
+/// “规则名 + yield 目标”分组后仍保留 `records` 数组，前端可以为每个 yield
+/// 独立展示表格和 JSON。
+#[derive(Serialize)]
+pub struct DebugWfusionRuleEditorYieldResult {
+    pub rule_name: String,
+    pub yield_target: String,
+    pub records: Vec<serde_json::Value>,
+}
+
 /// WFusion 规则编辑器解析响应。
 #[derive(Serialize)]
 pub struct DebugWfusionRuleEditorParseResponse {
@@ -162,6 +174,8 @@ pub struct DebugWfusionRuleEditorParseResponse {
     pub summary: Option<DebugWfusionRuleEditorSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alerts: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub yield_results: Vec<DebugWfusionRuleEditorYieldResult>,
 }
 
 /// 将 WFusion 内部告警导出为更接近最终 sink 输出的 JSON。
@@ -177,6 +191,46 @@ fn export_wfusion_alert_json(alert: OutputRecord) -> serde_json::Value {
 
     exported_json
         .unwrap_or_else(|| serde_json::to_value(&alert).unwrap_or_else(|_| serde_json::json!({})))
+}
+
+/// 规范化编辑器里的 WFS `use` 路径。
+///
+/// 编辑器请求体已经把多个 WFS 文件合并成了一个 `wfs` 文本，WFL 的 `use`
+/// 只用于声明所引用的 schema 名称，并不会再从磁盘加载这些文件。因此生产规则
+/// 中的 `../schemas/sdm_event.wfs` 在试跑时应转换为 `sdm_event.wfs`，同时保留
+/// 原始编辑器内容不变，避免用户为了调试而修改生产规则。
+fn normalize_wfusion_wfl_schema_imports(source: &str) -> String {
+    let mut normalized = String::with_capacity(source.len());
+    for segment in source.split_inclusive('\n') {
+        let (line, newline) = if let Some(line) = segment.strip_suffix('\n') {
+            (line, "\n")
+        } else {
+            (segment, "")
+        };
+        let line_without_indent = line.trim_start();
+        let indent_len = line.len() - line_without_indent.len();
+
+        if let Some(import_path) = line_without_indent
+            .strip_prefix("use \"")
+            .and_then(|rest| rest.find('"').map(|end| &rest[..end]))
+            && import_path.ends_with(".wfs")
+            && (import_path.contains('/') || import_path.contains('\\'))
+        {
+            let file_name = import_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(import_path);
+            let rest_start = "use \"".len() + import_path.len();
+            normalized.push_str(&line[..indent_len]);
+            normalized.push_str("use \"");
+            normalized.push_str(file_name);
+            normalized.push_str(&line_without_indent[rest_start..]);
+        } else {
+            normalized.push_str(line);
+        }
+        normalized.push_str(newline);
+    }
+    normalized
 }
 
 /// 解析日志并返回字段列表
@@ -238,6 +292,7 @@ pub fn debug_wfusion_rule_editor_parse_logic(
 ) -> DebugWfusionRuleEditorParseResponse {
     let wfs_path = Path::new("schemas/editor.wfs");
     let wfl_path = Path::new("rules/editor.wfl");
+    let normalized_wfl = normalize_wfusion_wfl_schema_imports(&req.wfl);
     let schemas = match wf_lang::parse_wfs(&req.wfs) {
         Ok(schemas) => schemas,
         Err(err) => {
@@ -253,7 +308,7 @@ pub fn debug_wfusion_rule_editor_parse_logic(
         }
     };
 
-    let wfl_ast = match wf_lang::parse_wfl_with_diagnostics(&req.wfl, wfl_path) {
+    let wfl_ast = match wf_lang::parse_wfl_with_diagnostics(&normalized_wfl, wfl_path) {
         Ok(wfl_ast) => wfl_ast,
         Err(err) => {
             return build_rule_editor_failure(
@@ -268,30 +323,34 @@ pub fn debug_wfusion_rule_editor_parse_logic(
         }
     };
 
-    let errors = wf_lang::check_wfl(&wfl_ast, &schemas);
-    let warnings = wf_lang::lint_wfl(&wfl_ast, &schemas);
-    let diagnostics = errors
+    let check_diagnostics = wf_lang::check_wfl(&wfl_ast, &schemas);
+    let lint_diagnostics = wf_lang::lint_wfl(&wfl_ast, &schemas);
+    let diagnostics = check_diagnostics
         .iter()
-        .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &req.wfl, wfl_path))
+        .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &normalized_wfl, wfl_path))
         .chain(
-            warnings
+            lint_diagnostics
                 .iter()
-                .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &req.wfl, wfl_path)),
+                .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &normalized_wfl, wfl_path)),
         )
         .collect::<Vec<_>>();
 
-    if !errors.is_empty() {
+    if check_diagnostics
+        .iter()
+        .any(|diag| diag.severity == Severity::Error)
+    {
         return DebugWfusionRuleEditorParseResponse {
             success: false,
             stage: "wfl_check".to_string(),
             diagnostics,
             summary: None,
             alerts: vec![],
+            yield_results: vec![],
         };
     }
 
     let reader = BufReader::new(req.events_ndjson.as_bytes());
-    let replay_result = match replay_wfusion_events(&req.wfl, &schemas, reader, false) {
+    let replay_result = match replay_wfusion_events(&normalized_wfl, &schemas, reader, false) {
         Ok(result) => result,
         Err(err) => {
             return build_rule_editor_failure(
@@ -307,11 +366,27 @@ pub fn debug_wfusion_rule_editor_parse_logic(
         }
     };
 
-    let alerts = replay_result
-        .alerts
-        .into_iter()
-        .map(export_wfusion_alert_json)
-        .collect::<Vec<_>>();
+    let mut alerts = Vec::new();
+    let mut yield_results: Vec<DebugWfusionRuleEditorYieldResult> = Vec::new();
+    for alert in replay_result.alerts {
+        let rule_name = alert.rule_name.to_string();
+        let yield_target = alert.yield_target.to_string();
+        let exported = export_wfusion_alert_json(alert);
+        alerts.push(exported.clone());
+
+        if let Some(result) = yield_results
+            .iter_mut()
+            .find(|result| result.rule_name == rule_name && result.yield_target == yield_target)
+        {
+            result.records.push(exported);
+        } else {
+            yield_results.push(DebugWfusionRuleEditorYieldResult {
+                rule_name,
+                yield_target,
+                records: vec![exported],
+            });
+        }
+    }
 
     DebugWfusionRuleEditorParseResponse {
         success: true,
@@ -323,6 +398,7 @@ pub fn debug_wfusion_rule_editor_parse_logic(
             error_count: replay_result.error_count,
         }),
         alerts,
+        yield_results,
     }
 }
 
@@ -432,6 +508,7 @@ fn build_rule_editor_failure(
         diagnostics,
         summary: None,
         alerts: vec![],
+        yield_results: vec![],
     }
 }
 

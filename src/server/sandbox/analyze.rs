@@ -1,6 +1,7 @@
 //! 沙盒运行结果分析逻辑。
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
@@ -117,7 +118,7 @@ pub fn analyse_runtime_output(
     };
     let success_output_path = match system {
         SystemKind::Wparse => project_dir.join("data/out_dat/all.json"),
-        SystemKind::Wfusion => project_dir.join("data/out_dat/alert.json"),
+        SystemKind::Wfusion => resolve_wfusion_success_output_path(project_dir),
     };
     let monitor_output_path = project_dir.join("data/out_dat/metrics.ndjson");
     let output_count = count_file_lines(&success_output_path).map_err(|err| {
@@ -168,15 +169,19 @@ pub fn analyse_runtime_output(
         }
         log_lines.push(String::new());
     }
-    log_lines.push(format!(
-        "$ cat {} | wc -l",
-        success_output_path
-            .strip_prefix(project_dir)
-            .unwrap_or(&success_output_path)
-            .display()
-    ));
-    log_lines.push(format!("结果: {} 行（成功输出数据）", metrics.output_count));
-    log_lines.push(String::new());
+    // WFusion 的业务 sink 已在 output_checks 中逐个展示，避免再次重复打印主告警文件。
+    // WParse 没有按业务 sink 拆分的输出检查，仍保留 all.json 的成功输出摘要。
+    if matches!(system, SystemKind::Wparse) {
+        log_lines.push(format!(
+            "$ cat {} | wc -l",
+            success_output_path
+                .strip_prefix(project_dir)
+                .unwrap_or(&success_output_path)
+                .display()
+        ));
+        log_lines.push(format!("结果: {} 行（成功输出数据）", metrics.output_count));
+        log_lines.push(String::new());
+    }
     if matches!(system, SystemKind::Wfusion) {
         log_lines.push("$ cat data/out_dat/metrics.ndjson | wc -l".to_string());
         log_lines.push(format!("结果: {} 行（监控输出数据）", monitor_count));
@@ -296,7 +301,141 @@ fn collect_wfusion_output_checks(project_dir: &Path) -> Result<Vec<OutputFileSta
             affects_pass: true,
         });
     }
+
+    let business_outputs = collect_wfusion_business_outputs(project_dir)?;
+    if business_outputs.is_empty() {
+        // 兼容没有 business.d 配置的旧沙盒：至少保留主业务输出检查。
+        let relative = resolve_wfusion_success_output_path(project_dir)
+            .strip_prefix(project_dir)
+            .unwrap_or_else(|_| Path::new("data/out_dat/sdm_alert.json"))
+            .to_string_lossy()
+            .to_string();
+        let line_count = count_file_lines(&project_dir.join(&relative))
+            .map_err(|err| StageError::new(err.to_string()))?;
+        results.push(OutputFileStatus {
+            relative_path: relative,
+            is_empty: line_count == 0,
+            line_count,
+            meaning: "成功输出数据".to_string(),
+            affects_pass: false,
+        });
+        return Ok(results);
+    }
+
+    for relative in business_outputs {
+        let path = project_dir.join(&relative);
+        let line_count = count_file_lines(&path).map_err(|err| StageError::new(err.to_string()))?;
+        results.push(OutputFileStatus {
+            relative_path: relative,
+            is_empty: line_count == 0,
+            line_count,
+            meaning: "业务输出数据".to_string(),
+            // 业务输出本身是预期结果，是否有业务产出由 metrics.output_count 判断，
+            // 不能因为业务文件非空就被误判为“异常输出”。
+            affects_pass: false,
+        });
+    }
     Ok(results)
+}
+
+/// 根据沙盒实际生效的 business sink 配置收集所有 JSON 输出文件。
+///
+/// 不写死 `sdm_alert.json`，这样 `sdm_alert_entity.json`、`sdm_evidence.json` 等
+/// 多个 yield 输出也会在分析日志中逐个执行 `cat ... | wc -l`。
+fn collect_wfusion_business_outputs(project_dir: &Path) -> Result<Vec<String>, StageError> {
+    let sink_dir = project_dir.join("topology/sinks/business.d");
+    let mut files = Vec::new();
+    collect_toml_files(&sink_dir, &mut files)
+        .map_err(|err| StageError::new(format!("扫描 wfusion business sink 失败: {err}")))?;
+    files.sort();
+
+    let mut outputs = Vec::new();
+    for file in files {
+        let content = fs::read_to_string(&file).map_err(|err| {
+            StageError::new(format!("读取 wfusion business sink {} 失败: {err}", file.display()))
+        })?;
+        let Some(output_file) = find_sink_output_file(&content) else {
+            continue;
+        };
+        let Some(file_name) = Path::new(&output_file).file_name() else {
+            continue;
+        };
+        let relative = Path::new("data/out_dat")
+            .join(file_name)
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        if !outputs.iter().any(|item| item == &relative) {
+            outputs.push(relative);
+        }
+    }
+    outputs.sort();
+    Ok(outputs)
+}
+
+fn collect_toml_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_toml_files(&path, files)?;
+        } else if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// 读取业务 sink 参数区中的 `file = "..."` 配置。
+fn find_sink_output_file(content: &str) -> Option<String> {
+    let mut in_sink_params = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
+        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_array_section {
+            in_sink_params = false;
+            continue;
+        }
+        if is_section {
+            in_sink_params = trimmed == "[sink_group.sinks.params]";
+            continue;
+        }
+        if in_sink_params {
+            let Some(value) = trimmed.strip_prefix("file") else {
+                continue;
+            };
+            let Some(value) = value.trim_start().strip_prefix('=') else {
+                continue;
+            };
+            let value = value.trim_start().strip_prefix('"')?;
+            let end = value.find('"')?;
+            return Some(value[..end].to_string());
+        }
+    }
+    None
+}
+
+/// 解析 WFusion 沙盒的主业务告警文件。
+///
+/// 生产规则通常按 yield 输出 `sdm_alert.json`；旧的默认示例仍使用
+/// `alert.json`，因此保留后者作为兼容回退。
+fn resolve_wfusion_success_output_path(project_dir: &Path) -> std::path::PathBuf {
+    let output_dir = project_dir.join("data/out_dat");
+    for file_name in ["sdm_alert.json", "alert.json"] {
+        let path = output_dir.join(file_name);
+        if path.is_file() {
+            return path;
+        }
+    }
+    output_dir.join("sdm_alert.json")
 }
 
 fn daemon_name(system: SystemKind) -> &'static str {
