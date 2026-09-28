@@ -40,7 +40,7 @@ wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/w
 wpl           = { package = "wp-lang",       version = "0.5" }
 wp_primitives = { package = "wp-primitives", version = "0.2" }
 wp-knowledge  = "0.15"
-wp-model-core = "0.9"
+wp-model-core = "0.10"
 wp-parse-api = "0.11"
 wp-data-fmt = "0.9"
 
