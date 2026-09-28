@@ -41,7 +41,7 @@ wpl           = { package = "wp-lang",       version = "0.5" }
 wp_primitives = { package = "wp-primitives", version = "0.2" }
 wp-knowledge  = "0.15"
 wp-model-core = "0.9"
-wp-parse-api = "0.11"
+wp-parse-api = "0.12"
 wp-data-fmt = "0.9"
 
 # Tree-sitter 支持（用于代码格式化）
