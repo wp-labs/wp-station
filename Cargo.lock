@@ -6848,7 +6848,7 @@ dependencies = [
  "arrow",
  "chrono",
  "num-bigint",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -6897,7 +6897,7 @@ dependencies = [
  "toml",
  "winnow 1.0.4",
  "wp-connector-api",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -6935,7 +6935,7 @@ dependencies = [
  "wp-knowledge",
  "wp-lang",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-primitives",
  "wp-specs",
 ]
@@ -6956,7 +6956,7 @@ dependencies = [
  "smallvec",
  "smol_str",
  "toml",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-source-types",
 ]
 
@@ -6971,7 +6971,7 @@ dependencies = [
  "orion-error",
  "serde_json",
  "wp-connector-api",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7004,9 +7004,9 @@ dependencies = [
  "wp-conf-base",
  "wp-connector-api",
  "wp-connector-utils",
- "wp-data-fmt",
+ "wp-data-fmt 0.9.0",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7019,7 +7019,20 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
- "wp-model-core",
+ "wp-model-core 0.9.0",
+]
+
+[[package]]
+name = "wp-data-fmt"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "269a7ef534f5724a08579789950778a0055cf4856c88bbb14a7b147a8286efd6"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "wp-model-core 0.10.1",
 ]
 
 [[package]]
@@ -7037,7 +7050,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "smol_str",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7105,13 +7118,13 @@ dependencies = [
  "wp-config",
  "wp-connector-api",
  "wp-core-connectors",
- "wp-data-fmt",
+ "wp-data-fmt 0.9.0",
  "wp-data-utils",
  "wp-error",
  "wp-knowledge",
  "wp-lang",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-oml",
  "wp-parse-api",
  "wp-primitives",
@@ -7170,7 +7183,7 @@ dependencies = [
  "tokio",
  "toml",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7206,10 +7219,10 @@ dependencies = [
  "url",
  "wildmatch",
  "winnow 1.0.4",
- "wp-data-fmt",
+ "wp-data-fmt 0.9.0",
  "wp-error",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-parse-api",
  "wp-primitives",
  "wp-source-types",
@@ -7244,6 +7257,21 @@ name = "wp-model-core"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33dfbf7eff94eb2db465f98b19b2da8789909c1272f3f7f84761bd3be7ca21f3"
+dependencies = [
+ "bytes",
+ "chrono",
+ "num-bigint",
+ "serde",
+ "serde_derive",
+ "smol_str",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "wp-model-core"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84b11c54ccf20d7ead77a93d72b9d1ba3381b4c11c64e125c7bee26f3939244f"
 dependencies = [
  "bytes",
  "chrono",
@@ -7299,13 +7327,13 @@ dependencies = [
  "wildmatch",
  "winnow 1.0.4",
  "wp-condition",
- "wp-data-fmt",
+ "wp-data-fmt 0.9.0",
  "wp-data-utils",
  "wp-error",
  "wp-knowledge",
  "wp-lang",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-primitives",
  "wp-specs",
 ]
@@ -7322,7 +7350,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "thiserror 2.0.19",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7371,7 +7399,7 @@ dependencies = [
  "serde",
  "smallvec",
  "smol_str",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
@@ -7387,7 +7415,7 @@ dependencies = [
 
 [[package]]
 name = "wp-station"
-version = "0.2.8"
+version = "0.2.6"
 dependencies = [
  "actix-files",
  "actix-web",
@@ -7423,11 +7451,11 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-wpl",
  "urlencoding",
- "wp-data-fmt",
+ "wp-data-fmt 0.10.0",
  "wp-data-utils",
  "wp-knowledge",
  "wp-lang",
- "wp-model-core",
+ "wp-model-core 0.9.0",
  "wp-oml",
  "wp-parse-api",
  "wp-primitives",
@@ -7472,7 +7500,7 @@ dependencies = [
  "toml",
  "wildmatch",
  "wp-log",
- "wp-model-core",
+ "wp-model-core 0.9.0",
 ]
 
 [[package]]
