@@ -10,12 +10,14 @@
   "preset"
   "test"
   "scenario"
+  "let"
 ] @keyword
 
 [
   "if"
   "then"
   "else"
+  "case"
 ] @keyword.control
 
 [
@@ -37,19 +39,23 @@
   "input"
   "expect"
   "options"
-  "traffic"
+  "background"
+  "inject"
+  "replay"
   "stream"
   "gen"
-  "injection"
   "near_miss"
   "miss"
-  "precision"
-  "recall"
-  "fpr"
-  "latency_p95"
-  "seq"
   "use"
   "not"
+  "without"
+  "spread"
+  "zipf"
+  "as"
+  "from"
+  "x"
+  "row"
+  "tick"
   "hits"
   "hit"
   "field"
@@ -59,6 +65,7 @@
   "close_reason"
   "fixed"
   "within"
+  "accu"
 ] @keyword
 
 [
@@ -79,6 +86,7 @@
 [
   "+"
   "-"
+  "!"
   "*"
   "/"
   "%"
@@ -89,6 +97,7 @@
 "|" @operator
 "|>" @keyword.operator
 "->" @keyword.operator
+"=>" @operator
 
 [ "(" ")" "{" "}" "[" "]" ] @punctuation.bracket
 [ "<" ">" ] @punctuation.bracket
@@ -100,20 +109,24 @@
 (string) @string
 (number) @number
 (duration) @number
-(percentage) @number
+(json_number) @number
 (rate) @number
+(json_null) @constant.builtin
 (version_tag) @constant
 (variable) @variable.special
 (derive_reference) @variable.special
 (close_reason_ref) @variable.builtin
 
 (rule_declaration name: (identifier) @function.definition)
+(let_declaration name: (identifier) @variable)
 (pattern_declaration name: (identifier) @function.definition)
-(yield_preset_declaration name: (identifier) @type.definition)
+(preset_declaration name: (identifier) @type.definition)
 (test_block name: (identifier) @function.definition)
 (scenario_declaration name: (identifier) @function.definition)
 (test_block rule: (identifier) @function)
 (pattern_invocation pattern: (identifier) @function)
+(case_pattern_value (identifier) @constant (#eq? @constant "_"))
+"_" @constant
 
 (event_declaration
   alias: (identifier) @variable
@@ -121,16 +134,23 @@
 
 (match_params (field_reference) @variable.parameter)
 
-(traffic_stream stream: (identifier) @type)
-(injection_case rule: (identifier) @function)
-(injection_case stream: (identifier) @type)
-(seq_block entity: (identifier) @variable)
-(scenario_expect_statement rule: (identifier) @function)
+(background_stream stream: (identifier) @type)
+(inject_case rule: (identifier) @function)
+(inject_case stream: (identifier) @type)
+(entity_distribution window: (identifier) @type)
+(entity_distribution field: (identifier) @property)
+(zipf_argument key: (identifier) @property)
+(join_block window: (identifier) @type)
+(join_block key: (identifier) @property)
+(replay_statement window: (identifier) @type)
+(entity_selector field: (identifier) @property)
+(file_source file: (string) @string)
+(json_pair key: (json_string) @property)
 
 (each_clause alias: (identifier) @variable)
 (join_clause window: (identifier) @type)
 (yield_target target: (identifier) @type)
-(yield_clause preset: (preset_ref base: (identifier) @type))
+(yield_preset_ref preset: (identifier) @type)
 (entity_clause type: (identifier) @type)
 (entity_clause type: (string) @type)
 
@@ -229,6 +249,7 @@
 (function_call function: (identifier) @function.builtin (#eq? @function.builtin "trunc"))
 (function_call function: (identifier) @function.builtin (#eq? @function.builtin "is_finite"))
 (function_call function: (identifier) @function.builtin (#eq? @function.builtin "external"))
+(function_call function: (identifier) @function.builtin (#eq? @function.builtin "time_to_ms"))
 
 (function_call
   object: (identifier) @type
@@ -237,6 +258,10 @@
 
 (field_reference
   object: (identifier) @variable
+  field: (identifier) @property)
+
+(field_reference
+  object: (field_reference)
   field: (identifier) @property)
 
 (named_argument name: (yield_field (identifier) @property))

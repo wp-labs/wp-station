@@ -41,8 +41,10 @@ pub struct GeneratorOutput {
     pub exit_code: Option<i32>,
     /// 输出日志文件路径。
     pub log_path: PathBuf,
-    /// 实际执行的所有命令，供阶段日志展示。
+    /// 实际执行的所有命令，供阶段日志和诊断详情使用。
     pub command_lines: Vec<String>,
+    /// 本次 wfgen 实际处理的场景数量。
+    pub scenario_count: usize,
 }
 
 impl DaemonProcess {
@@ -243,6 +245,7 @@ async fn run_generator_wparse(
         exit_code: status.code(),
         log_path: log_path.to_path_buf(),
         command_lines: vec![command_line],
+        scenario_count: 1,
     })
 }
 
@@ -339,6 +342,7 @@ async fn run_generator_wfusion(
         exit_code: final_exit_code,
         log_path: log_path.to_path_buf(),
         command_lines,
+        scenario_count: scenarios.len(),
     })
 }
 

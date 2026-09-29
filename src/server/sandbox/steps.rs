@@ -485,13 +485,11 @@ pub(super) async fn stage_run_wpgen(
             output.command_lines.join("\n")
         ),
         crate::utils::SystemKind::Wfusion => {
-            let cmds = output.command_lines.join("\n");
             format!(
-                "wfusion 启动稳定等待{}ms后，wfgen 已启动（{}个场景），已生成并发送{}条消息。命令:\n{}",
+                "wfusion 启动稳定等待{}ms后，wfgen 已启动（{}个场景），已生成并发送{}条消息。",
                 DAEMON_READY_BEFORE_WPGEN_WAIT_MS,
-                output.command_lines.len(),
+                output.scenario_count,
                 count,
-                cmds,
             )
         }
     })
