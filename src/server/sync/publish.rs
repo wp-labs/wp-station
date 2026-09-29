@@ -114,19 +114,15 @@ fn push_and_tag_single_repo(
         .list_tags()
         .map_err(|e| AppError::internal(format!("读取标签失败: {}", e)))?;
     if !tags.iter().any(|tag| tag == version) {
-        gitea_client
-            .create_push_tag(project_path, version)
+        local_repo
+            .create_tag(version)
             .map_err(|e| AppError::internal(format!("创建 tag 失败: {}", e)))?;
-        info!(
-            "Tag 创建并推送成功: repo={}, version={}",
-            repo_label, version
-        );
-    } else {
-        info!(
-            "Tag 已存在，跳过创建: repo={}, version={}",
-            repo_label, version
-        );
     }
+    // 本地已存在 tag 也必须推送，避免它曾被单独创建或被远端删除后漏掉远端发布标签。
+    local_repo
+        .push_tag(version)
+        .map_err(|e| AppError::internal(format!("推送 tag 失败: {}", e)))?;
+    info!("Tag 推送成功: repo={}, version={}", repo_label, version);
 
     Ok(())
 }

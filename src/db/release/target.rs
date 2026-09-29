@@ -3,10 +3,16 @@
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
 use chrono::{DateTime, Utc};
-use sea_orm::{Condition, QueryOrder, QuerySelect, Set, entity::prelude::*};
+use sea_orm::{
+    Condition, DbBackend, QueryOrder, QuerySelect, Set, TransactionTrait, entity::prelude::*,
+    sea_query::Expr,
+};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
-use wp_station_migrations::entity::release_target::{ActiveModel, Column, Entity, Model};
+use wp_station_migrations::entity::{
+    release,
+    release_target::{ActiveModel, Column, Entity, Model},
+};
 
 pub type ReleaseTarget = Model;
 
@@ -72,43 +78,116 @@ pub struct ReleaseTargetUpdate {
 }
 
 /// 批量创建 release target 记录
-pub async fn create_release_targets(targets: Vec<NewReleaseTarget>) -> DbResult<Vec<i32>> {
+pub async fn create_release_targets(mut targets: Vec<NewReleaseTarget>) -> DbResult<Vec<i32>> {
     info!("创建 release target 记录: count={}", targets.len());
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let pool = get_pool();
     let db = pool.inner();
+    let backend = db.get_database_backend();
+    let release_ids = targets
+        .iter()
+        .map(|target| target.release_id)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
-    let mut ids = Vec::with_capacity(targets.len());
-    for target in targets {
-        let now = Utc::now();
-        let active_model = ActiveModel {
-            release_id: Set(target.release_id),
-            device_id: Set(target.device_id),
-            release_group: Set(target.release_group),
-            status: Set(target.status.as_ref().to_string()),
-            stage_trace: Set(target.stage_trace),
-            remote_job_id: Set(target.remote_job_id),
-            rollback_job_id: Set(target.rollback_job_id),
-            current_config_version: Set(target.current_config_version),
-            target_config_version: Set(target.target_config_version),
-            client_version: Set(target.client_version),
-            error_message: Set(target.error_message),
-            next_poll_at: Set(target.next_poll_at),
-            poll_attempts: Set(target.poll_attempts),
-            attempt_no: Set(target.attempt_no),
-            operation: Set(target.operation),
-            previous_group_version: Set(target.previous_group_version),
-            request_summary: Set(target.request_summary),
-            response_status: Set(target.response_status),
-            response_summary: Set(target.response_summary),
-            created_at: Set(now),
-            updated_at: Set(now),
-            completed_at: Set(None),
-            ..Default::default()
-        };
+    let ids = db
+        .transaction::<_, Vec<i32>, sea_orm::DbErr>(|txn| {
+            Box::pin(async move {
+                // 同一 release 的写入先锁住主表行，再读取 attempt_no，避免并发请求分配到相同序号。
+                for release_id in &release_ids {
+                    if backend == DbBackend::Postgres {
+                        release::Entity::find_by_id(*release_id)
+                            .lock_exclusive()
+                            .one(txn)
+                            .await?;
+                    } else {
+                        // SQLite 没有 SELECT FOR UPDATE；无内容变化的 UPDATE 用于先取得写锁。
+                        release::Entity::update_many()
+                            .filter(release::Column::Id.eq(*release_id))
+                            .col_expr(release::Column::Id, Expr::col(release::Column::Id).into())
+                            .exec(txn)
+                            .await?;
+                    }
+                }
 
-        let inserted = Entity::insert(active_model).exec(db).await?;
-        ids.push(inserted.last_insert_id);
-    }
+                let existing = Entity::find()
+                    .filter(Column::ReleaseId.is_in(release_ids))
+                    .all(txn)
+                    .await?;
+                let mut latest_attempts: std::collections::HashMap<
+                    (i32, i32, String, String),
+                    i32,
+                > = std::collections::HashMap::new();
+                for target in existing {
+                    let key = (
+                        target.release_id,
+                        target.device_id,
+                        target.release_group,
+                        target.operation,
+                    );
+                    latest_attempts
+                        .entry(key)
+                        .and_modify(|attempt| *attempt = (*attempt).max(target.attempt_no))
+                        .or_insert(target.attempt_no);
+                }
+
+                for target in &mut targets {
+                    let key = (
+                        target.release_id,
+                        target.device_id,
+                        target.release_group.clone(),
+                        target.operation.clone(),
+                    );
+                    let latest = latest_attempts.entry(key).or_insert(0);
+                    target.attempt_no = target.attempt_no.max(latest.saturating_add(1));
+                    *latest = target.attempt_no;
+                }
+
+                let mut ids = Vec::with_capacity(targets.len());
+                for target in targets {
+                    let now = Utc::now();
+                    let active_model = ActiveModel {
+                        release_id: Set(target.release_id),
+                        device_id: Set(target.device_id),
+                        release_group: Set(target.release_group),
+                        status: Set(target.status.as_ref().to_string()),
+                        stage_trace: Set(target.stage_trace),
+                        remote_job_id: Set(target.remote_job_id),
+                        rollback_job_id: Set(target.rollback_job_id),
+                        current_config_version: Set(target.current_config_version),
+                        target_config_version: Set(target.target_config_version),
+                        client_version: Set(target.client_version),
+                        error_message: Set(target.error_message),
+                        next_poll_at: Set(target.next_poll_at),
+                        poll_attempts: Set(target.poll_attempts),
+                        attempt_no: Set(target.attempt_no),
+                        operation: Set(target.operation),
+                        previous_group_version: Set(target.previous_group_version),
+                        request_summary: Set(target.request_summary),
+                        response_status: Set(target.response_status),
+                        response_summary: Set(target.response_summary),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        completed_at: Set(None),
+                        ..Default::default()
+                    };
+
+                    let inserted = Entity::insert(active_model).exec(txn).await?;
+                    ids.push(inserted.last_insert_id);
+                }
+
+                Ok(ids)
+            })
+        })
+        .await
+        .map_err(|error| match error {
+            sea_orm::TransactionError::Connection(error)
+            | sea_orm::TransactionError::Transaction(error) => error,
+        })?;
 
     Ok(ids)
 }

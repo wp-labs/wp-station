@@ -430,7 +430,9 @@ pub(super) fn latest_target_per_device_group(targets: Vec<ReleaseTarget>) -> Vec
     for target in targets {
         let key = (target.device_id, target.release_group.clone());
         match latest.get(&key) {
-            Some(existing) if existing.created_at >= target.created_at => {}
+            Some(existing)
+                if existing.created_at > target.created_at
+                    || (existing.created_at == target.created_at && existing.id > target.id) => {}
             _ => {
                 latest.insert(key, target);
             }
