@@ -98,6 +98,17 @@ function TaskDetailContent({ task, displayWaitSeconds, onFillClick }) {
     <div style={{ padding: '4px 0' }}>
       {contextHolder}
 
+      <div style={{ marginBottom: 12 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('assistTask.taskId')}
+        </Text>
+        <div>
+          <Text code copyable={{ text: task.task_id }}>
+            {task.task_id}
+          </Text>
+        </div>
+      </div>
+
       {task.status === 'error' && task.error_message && (
         <div style={{ marginBottom: 12 }}>
           <Text type="danger">{task.error_message}</Text>
@@ -337,20 +348,47 @@ function AssistTaskCenter() {
     return {
       key: task.task_id,
       label: (
-        <Space>
-          {typeIcon}
-          <Text strong style={{ fontSize: 13 }}>
-            {typeLabel}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {timeLabel}
-          </Text>
-          {(task.status === 'pending' || task.status === 'processing') && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              · {t('assistTask.waited')} {formatWaitTime(localWaitSeconds[task.task_id] ?? task.wait_seconds)}
+        <div style={{ minWidth: 0, width: '100%' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              minWidth: 0,
+              marginBottom: 4,
+            }}
+          >
+            <span style={{ flexShrink: 0 }}>{typeIcon}</span>
+            <Text strong style={{ fontSize: 14, flexShrink: 0 }}>
+              {typeLabel}
             </Text>
-          )}
-        </Space>
+            <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>
+              {timeLabel}
+            </Text>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexWrap: 'wrap',
+              minWidth: 0,
+            }}
+          >
+            {(task.status === 'pending' || task.status === 'processing') && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('assistTask.waited')} {formatWaitTime(localWaitSeconds[task.task_id] ?? task.wait_seconds)}
+              </Text>
+            )}
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, minWidth: 0, flex: 1 }}
+              ellipsis={{ tooltip: task.task_id }}
+            >
+              {task.task_id}
+            </Text>
+          </div>
+        </div>
       ),
       extra: headerExtra,
       children: (
@@ -392,7 +430,8 @@ function AssistTaskCenter() {
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         footer={null}
-        width={640}
+        width={920}
+        style={{ maxWidth: 'calc(100vw - 48px)' }}
         styles={{ body: { maxHeight: '60vh', overflowY: 'auto' } }}
       >
         {allTasks.length === 0 ? (

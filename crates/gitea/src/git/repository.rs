@@ -32,6 +32,25 @@ pub struct GitRepository {
 }
 
 impl GitRepository {
+    fn should_ignore_repo_path(path: &Path) -> bool {
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.eq_ignore_ascii_case("README.md"))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+
+        path.components().any(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .map(|name| name == ".run")
+                .unwrap_or(false)
+        })
+    }
+
     /// 创建一个新的GitRepository实例，使用用户名密码认证
     ///
     /// # 参数
@@ -162,10 +181,17 @@ impl GitRepository {
     pub fn add_all(&self) -> Result<(), GitError> {
         // 获取索引
         let mut index = self.raw_repo().index()?;
+        let mut filter = |path: &Path, _matched: &[u8]| {
+            if Self::should_ignore_repo_path(path) {
+                1
+            } else {
+                0
+            }
+        };
 
-        // 使用git add .模式添加所有文件
-        // 空字符串表示当前目录（.）
-        index.add_all(&["*"], git2::IndexAddOption::DEFAULT, None)?;
+        // 先添加新增/修改文件，再同步已跟踪文件的删除状态，效果等价于 `git add -A`。
+        index.add_all(&["*"], git2::IndexAddOption::DEFAULT, Some(&mut filter))?;
+        index.update_all(&["*"], Some(&mut filter))?;
 
         // 写入索引
         index.write()?;
@@ -257,6 +283,16 @@ impl GitRepository {
         Ok(())
     }
 
+    /// 拉取远端全部标签，不改变当前分支指向和工作区内容。
+    pub fn fetch_tags(&self) -> Result<(), GitError> {
+        let mut remote = self.raw_repo().find_remote(DEFAULT_ORIGIN)?;
+        let callbacks = self.configure_remote_callbacks()?;
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+        remote.fetch(&["refs/tags/*:refs/tags/*"], Some(&mut fetch_options), None)?;
+        Ok(())
+    }
+
     /// 推送到远程仓库
     ///
     /// # 参数
@@ -320,15 +356,21 @@ impl GitRepository {
     /// * `Err(GitError)` - 获取状态失败时返回错误
     pub fn status(&self) -> Result<Vec<FileStatus>, GitError> {
         let mut opts = StatusOptions::new();
-        opts.show(git2::StatusShow::IndexAndWorkdir);
+        opts.show(git2::StatusShow::IndexAndWorkdir)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true);
 
         let statuses = self.raw_repo().statuses(Some(&mut opts))?;
 
         let mut result = Vec::new();
         for entry in statuses.iter() {
             if let Some(path) = entry.path() {
+                let path = Path::new(path);
+                if Self::should_ignore_repo_path(path) {
+                    continue;
+                }
                 result.push(FileStatus {
-                    path: path.to_string(),
+                    path: path.to_string_lossy().to_string(),
                     status: entry.status(),
                 });
             }
@@ -834,7 +876,7 @@ impl GitRepository {
         Ok(diff_text)
     }
 
-    /// 查看最新标签与 HEAD 的差异，返回结构化的差异数据
+    /// 查看最新标签与当前工作区（含 index）之间的差异，返回结构化的差异数据
     ///
     /// # 返回值
     /// * `Ok(DiffResult)` - 返回结构化的差异数据，包含每个文件的差异信息
@@ -850,15 +892,14 @@ impl GitRepository {
         let tag_commit = tag_ref.peel_to_commit()?;
         let tag_tree = tag_commit.tree()?;
 
-        // 获取HEAD指向的提交
-        let head_commit = self.repo.head()?.peel_to_commit()?;
-        let head_tree = head_commit.tree()?;
-
-        // 创建 diff 对象
+        // 对比最新标签与当前工作区（同时纳入 index），用于草稿页展示“当前工作区 vs 上一个已发布版本”。
         let mut diff_opts = git2::DiffOptions::new();
+        diff_opts
+            .include_untracked(true)
+            .recurse_untracked_dirs(true);
         let diff =
             self.repo
-                .diff_tree_to_tree(Some(&tag_tree), Some(&head_tree), Some(&mut diff_opts))?;
+                .diff_tree_to_workdir_with_index(Some(&tag_tree), Some(&mut diff_opts))?;
 
         // 获取统计信息
         let stats = diff.stats()?;

@@ -1,0 +1,39 @@
+mode = "daemon"
+sources_dir = "topology/sources"
+sinks = "topology/sinks"
+windows = "models/windows.toml"
+
+[runtime]
+executor_parallelism = 1
+rule_exec_timeout = "30s"
+schemas = "models/schemas/*/*.wfs"
+rules = "models/rules/*/*.wfl"
+
+[admin_api]
+enabled = true
+bind = "127.0.0.1:19080"
+
+[admin_api.auth]
+mode = "bearer_token"
+token_file = "/data/.wfusion/admin_api.token"
+
+[admin_api.tls]
+enabled = true
+cert_file = "/data/.wfusion/tls/server.crt"
+key_file = "/data/.wfusion/tls/server.key"
+
+[project_remote]
+enabled = true
+
+[project_remote.models]
+repo = "http://wp-station-gitea:3000/gitea/wfusion__models.git"
+init_version = "1.0.0"
+
+[project_remote.infra]
+repo = "http://wp-station-gitea:3000/gitea/wfusion__infra.git"
+init_version = "1.0.0"
+
+[logging]
+level = "info"
+format = "plain"
+file = "data/wfusion.log"

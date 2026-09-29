@@ -4,12 +4,21 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { login } from '@/services/auth';
 
+const CAPTCHA_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateCaptcha(length = 4) {
+  return Array.from(
+    { length },
+    () => CAPTCHA_CHARACTERS[Math.floor(Math.random() * CAPTCHA_CHARACTERS.length)],
+  ).join('');
+}
+
 /**
  * 登录页面
  * 功能：
- * 1. 提供用户名、密码和验证码输入（均为可选）
+ * 1. 提供必填的用户名、密码和可留空的本地验证码
  * 2. 调用登录 API 进行身份验证
- * 3. 登录成功后跳转到连接管理页
+ * 3. 登录成功后跳转到规则管理主页
  * 对应原型：pages/views/login.html
  */
 function LoginPage() {
@@ -17,6 +26,7 @@ function LoginPage() {
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [captchaCode, setCaptchaCode] = useState(() => generateCaptcha());
 
   /**
    * 添加登录页面背景样式
@@ -33,12 +43,25 @@ function LoginPage() {
    * @param {Object} formValues - 表单值
    * @param {string} formValues.username - 用户名
    * @param {string} formValues.password - 密码
-   * @param {string} formValues.captcha - 验证码（暂不校验）
+   * @param {string} formValues.captcha - 本地验证码，允许留空
    */
   const handleFinish = async (formValues) => {
+    const captchaInput = formValues.captcha?.trim();
+    if (captchaInput && captchaInput.toUpperCase() !== captchaCode) {
+      form.setFields([
+        {
+          name: 'captcha',
+          value: '',
+          errors: [t('login.captchaInvalid')],
+        },
+      ]);
+      setCaptchaCode(generateCaptcha());
+      return;
+    }
+
     setLoading(true);
     try {
-      // 调用登录 API（验证码暂不传递给后端）
+      // 验证码只在浏览器本地校验，不传递给后端。
       const result = await login({
         username: formValues.username?.trim(),
         password: formValues.password,
@@ -110,20 +133,33 @@ function LoginPage() {
         </div>
 
         <div className="form-group">
-          <label htmlFor="captcha">验证码</label>
-          <Form.Item
-            name="captcha"
-            noStyle
-          >
-            <Input
-              id="captcha"
-              className="form-input"
-              placeholder="请输入验证码（可选）"
-              autoComplete="off"
-              onKeyPress={handleKeyPress}
+          <label htmlFor="captcha">{t('login.captcha')}</label>
+          <div className="captcha-group">
+            <Form.Item name="captcha" className="captcha-input" style={{ marginBottom: 0 }}>
+              <Input
+                id="captcha"
+                className="form-input"
+                placeholder={t('login.captchaPlaceholder')}
+                autoComplete="off"
+                maxLength={4}
+                onKeyPress={handleKeyPress}
+                disabled={loading}
+              />
+            </Form.Item>
+            <button
+              type="button"
+              className="captcha-display"
+              title={t('login.captchaTitle')}
+              aria-label={t('login.captchaTitle')}
+              onClick={() => {
+                setCaptchaCode(generateCaptcha());
+                form.setFieldValue('captcha', '');
+              }}
               disabled={loading}
-            />
-          </Form.Item>
+            >
+              {captchaCode}
+            </button>
+          </div>
         </div>
 
         <button type="submit" className="login-btn" disabled={loading}>

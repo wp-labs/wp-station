@@ -1,4 +1,5 @@
 pub mod assist_logic_test;
+pub mod project_logic_test;
 pub mod release_logic_test;
 pub mod rules_test;
 pub mod setting_test;

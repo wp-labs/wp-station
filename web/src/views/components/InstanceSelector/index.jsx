@@ -18,6 +18,7 @@ import styles from './InstanceSelector.module.css';
  * @param {Function} props.onRename - 重命名实例的回调函数
  * @param {boolean} props.showAddButton - 是否展示“添加实例”按钮
  * @param {number} props.collapseThreshold - 启用自动折叠：实例列表超出可用宽度时改为下拉（仅 inline 生效）
+ * @param {boolean} props.disableMotion - 是否关闭标签位移与过渡动画
  */
 function InstanceSelector({
   instances = [],
@@ -31,6 +32,8 @@ function InstanceSelector({
   inlineMaxWidth,
   showAddButton = true,
   collapseThreshold = 0,
+  forceSelect = false,
+  disableMotion = false,
 }) {
   const { t } = useTranslation();
   const { modal } = AntdApp.useApp();
@@ -197,7 +200,9 @@ function InstanceSelector({
     return (
       <div
         key={instance.id}
-        className={`${styles.instanceTab} ${isActive ? styles.active : ''}`}
+        className={`${styles.instanceTab} ${isActive ? styles.active : ''} ${
+          disableMotion ? styles.motionless : ''
+        }`}
         onClick={() => handleSwitch(index)}
       >
         {statusIcon && (
@@ -255,7 +260,7 @@ function InstanceSelector({
   const instanceSelect = (
     <Select
       size="small"
-      className={styles.inlineSelect}
+      className={`${styles.inlineSelect} ${forceSelect ? styles.inlineSelectForced : ''}`}
       value={activeIndex}
       open={selectOpen}
       onOpenChange={setSelectOpen}
@@ -351,8 +356,11 @@ function InstanceSelector({
   if (inline) {
     return (
       <>
-        <div ref={wrapperRef} className={styles.inlineWrap}>
-          {shouldCollapse ? instanceSelect : instanceList}
+        <div
+          ref={wrapperRef}
+          className={`${styles.inlineWrap} ${forceSelect ? styles.inlineWrapForced : ''}`}
+        >
+          {forceSelect ? instanceSelect : shouldCollapse ? instanceSelect : instanceList}
           {shouldAutoCollapse ? measureList : null}
         </div>
         {addButton}

@@ -1,0 +1,13 @@
+{
+  "language_id": "wfs",
+  "display_name": "WFS",
+  "mode": "tree-sitter",
+  "rust_crate": "tree-sitter-wfl",
+  "file_extensions": ["wfs"],
+  "theme_prefix": "cm-wf",
+  "runtime_wasm_file_name": "tree-sitter.wasm",
+  "parser_wasm_file_name": "tree-sitter-wfs.wasm",
+  "parser_wasm": "editor/wasm/tree-sitter-wfs.wasm",
+  "highlights_query": "queries/wfs/highlights.scm",
+  "completion_bundle": "completions/wfs/completion.bundle.json"
+}

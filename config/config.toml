@@ -8,28 +8,36 @@ host = "0.0.0.0"
 port = 8081
 
 [database]
-host = "localhost"
-port = 5432
-name = "wp-station"
-username = "postgres"
-password = "123456"
-max_connections = 10
-min_connections = 2
-connect_timeout = 30
-idle_timeout = 600
-ssl_mode = "prefer"
+# 默认示例使用 SQLite，本地持久化到数据目录
+url = "sqlite://db/station.db"
+# PostgreSQL 配置
+# host = "localhost"
+# port = 5432
+# name = "wp-station"
+# username = "postgres"
+# password = "123456"
+# max_connections = 10
+# min_connections = 2
+# connect_timeout = 30
+# idle_timeout = 600
+# ssl_mode = "prefer"
 
 [gitea]
-base_url = "http://localhost:3000"
+base_url = "http://127.0.0.1:3000"
 username = "gitea"
-password = "123456"
+password = "12345678"
+# 启动时双仓库同步策略：gitea / local
+# gitea: 容器内不存在时，以 Gitea 为准覆盖本地
+# local: 当本地仓库存在，以本地为准覆盖 Gitea
+repo_startup_strategy = "local"
 
 [assist]
-# base_url = "http://117.72.103.91:8888"
-base_url = "http://127.0.0.1:8888"
+base_url = "https://analyze.warpparse.ai"
+callback_base_url = "https://analyze.warpparse.ai"
 
-[warparse]
-ca_file = "./tls/CA.crt"
+[admin_api]
+enabled = true
+ca_file = "tls/CA.crt"
 
 [features]
 data_collect_url = "http://159.75.67.240:18080/"

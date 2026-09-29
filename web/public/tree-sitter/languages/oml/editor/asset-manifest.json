@@ -1,0 +1,13 @@
+{
+  "language_id": "oml",
+  "display_name": "OML",
+  "mode": "tree-sitter",
+  "rust_crate": "tree-sitter-oml",
+  "file_extensions": ["oml"],
+  "theme_prefix": "cm-oml",
+  "runtime_wasm_file_name": "tree-sitter.wasm",
+  "parser_wasm_file_name": "tree-sitter-oml.wasm",
+  "parser_wasm": "editor/wasm/tree-sitter-oml.wasm",
+  "highlights_query": "queries/highlights.scm",
+  "completion_bundle": "completions/completion.bundle.json"
+}

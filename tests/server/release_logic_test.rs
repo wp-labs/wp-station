@@ -4,6 +4,7 @@ use wp_station::server::release::{
     ReleaseListQuery, create_release_logic, get_release_detail_logic, list_releases_logic,
     validate_release_logic,
 };
+use wp_station::utils::SystemKind;
 use wp_station::utils::pagination::PageQuery;
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
 
@@ -20,10 +21,13 @@ async fn test_release_logic_flow() {
     setup_db().await;
     let requested_pipeline = format!("pipeline-{}", rand_suffix());
 
-    let create_resp =
-        create_release_logic(Some(requested_pipeline.clone()), Some("note".to_string()))
-            .await
-            .expect("create release logic");
+    let create_resp = create_release_logic(
+        SystemKind::Wparse,
+        Some(requested_pipeline.clone()),
+        Some("note".to_string()),
+    )
+    .await
+    .expect("create release logic");
     assert!(create_resp.success);
 
     let detail = get_release_detail_logic(create_resp.id)
@@ -32,6 +36,7 @@ async fn test_release_logic_flow() {
     let actual_version = detail.version.clone();
 
     let list_resp = list_releases_logic(ReleaseListQuery {
+        system: SystemKind::Wparse,
         note: None,
         pipeline: None,
         version: Some(actual_version.clone()),

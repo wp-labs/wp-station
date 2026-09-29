@@ -1,4 +1,4 @@
-// 用户管理数据库操作 - 纯函数式
+//! 用户数据访问层。
 
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};

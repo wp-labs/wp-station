@@ -1,4 +1,6 @@
-// 用户管理 API - HTTP 请求处理层
+//! 用户管理 API。
+//!
+//! 提供用户管理、认证和密码相关入口。
 
 use actix_web::{HttpResponse, delete, get, post, put, web};
 
@@ -10,22 +12,22 @@ use crate::server::{
     update_user_logic, update_user_status_logic,
 };
 
-/// 用户管理：获取用户列表（支持关键字/角色/状态筛选 + 分页）
 #[get("/api/users")]
+/// 用户管理：获取用户列表。
 pub async fn list_users(query: web::Query<UserListQuery>) -> Result<HttpResponse, AppError> {
     let resp = list_users_logic(query.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 用户管理：创建用户
 #[post("/api/users")]
+/// 用户管理：创建用户。
 pub async fn create_user(req: web::Json<CreateUserRequest>) -> Result<HttpResponse, AppError> {
     let resp = create_user_logic(req.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 用户管理：编辑用户基本信息
 #[put("/api/users/{id}")]
+/// 用户管理：编辑用户基本信息。
 pub async fn update_user(
     path: web::Path<i32>,
     req: web::Json<UpdateUserRequest>,
@@ -35,8 +37,8 @@ pub async fn update_user(
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 用户管理：更新用户状态（启用 / 禁用）
 #[put("/api/users/{id}/status")]
+/// 用户管理：更新用户状态。
 pub async fn update_user_status(
     path: web::Path<i32>,
     req: web::Json<UpdateUserStatusRequest>,
@@ -46,8 +48,8 @@ pub async fn update_user_status(
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 用户管理：重置用户密码
 #[post("/api/users/{id}/reset-password")]
+/// 用户管理：重置用户密码。
 pub async fn reset_user_password(
     path: web::Path<i32>,
     req: web::Json<ResetPasswordRequest>,
@@ -57,8 +59,8 @@ pub async fn reset_user_password(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 用户管理：修改用户密码
 #[post("/api/users/{id}/change-password")]
+/// 用户管理：修改用户密码。
 pub async fn change_user_password(
     path: web::Path<i32>,
     req: web::Json<ChangePasswordRequest>,
@@ -68,15 +70,15 @@ pub async fn change_user_password(
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 用户登录
 #[post("/api/auth/login")]
+/// 用户登录。
 pub async fn login(req: web::Json<LoginRequest>) -> Result<HttpResponse, AppError> {
     let resp = login_logic(req.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 用户管理：删除用户（软删除）
 #[delete("/api/users/{id}")]
+/// 用户管理：删除用户。
 pub async fn delete_user(path: web::Path<i32>) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
     delete_user_logic(id).await?;

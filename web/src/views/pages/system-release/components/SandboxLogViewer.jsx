@@ -15,9 +15,15 @@ function SandboxLogViewer({
   formatDisplayTime,
   cardStyle,
   cardId,
+  system,
 }) {
+  const isWfusion = system === 'wfusion';
+  const stageKeyFor = (key) =>
+    isWfusion && (key === 'start_daemon' || key === 'run_wpgen') ? `${key}_wfusion` : key;
   const stageName = selectedStageInfo
-    ? t(`sandbox.stage.${selectedStageInfo.stage}`, { defaultValue: selectedStageInfo.stage })
+    ? t(`sandbox.stage.${stageKeyFor(selectedStageInfo.stage)}`, {
+        defaultValue: selectedStageInfo.stage,
+      })
     : t('sandbox.logViewer');
   const statusText = selectedStageInfo
     ? t(`sandbox.stageStatusLabel.${selectedStageInfo.status}`, {
@@ -29,7 +35,8 @@ function SandboxLogViewer({
     <Card
       id={cardId}
       title={t('sandbox.logViewer')}
-      style={{ width: '100%', ...cardStyle }}
+      style={{ width: '100%', minWidth: 0, overflow: 'hidden', ...cardStyle }}
+      bodyStyle={{ minWidth: 0, overflow: 'hidden' }}
       extra={
         <Button
           icon={<ReloadOutlined />}
@@ -40,10 +47,14 @@ function SandboxLogViewer({
         </Button>
       }
     >
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      <Space
+        direction="vertical"
+        size="small"
+        style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}
+      >
         <Text strong>{stageName}</Text>
         {selectedStageInfo && (
-          <Text type="secondary">
+          <Text type="secondary" style={{ overflowWrap: 'anywhere' }}>
             {statusText}
             {selectedStageInfo.duration_ms != null &&
               ` · ${t('sandbox.stageDurationLabel')}: ${formatStageDuration(
@@ -52,16 +63,21 @@ function SandboxLogViewer({
           </Text>
         )}
         {selectedStageInfo?.summary && (
-          <Paragraph style={{ marginBottom: 0 }}>{selectedStageInfo.summary}</Paragraph>
+          <Paragraph style={{ marginBottom: 0, overflowWrap: 'anywhere' }}>
+            {selectedStageInfo.summary}
+          </Paragraph>
         )}
         <div
           style={{
             background: '#0b1020',
             padding: 12,
             borderRadius: 8,
+            width: '100%',
+            minWidth: 0,
             minHeight: 420,
             maxHeight: 640,
             overflowY: 'auto',
+            overflowX: 'hidden',
             color: '#f1f1f1',
             fontFamily: 'Menlo, Consolas, monospace',
             fontSize: 12,
@@ -72,14 +88,27 @@ function SandboxLogViewer({
               <Spin />
             </Space>
           ) : (
-            <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+            <pre
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                margin: 0,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+              }}
+            >
               {stageLog || t('sandbox.noLogContent')}
             </pre>
           )}
         </div>
-        <Space size="small">
+        <Space size="small" style={{ width: '100%', minWidth: 0 }}>
           <Text type="secondary">{t('sandbox.logPath')}</Text>
-          <Text code>{stageLogMeta?.logPath || '-'}</Text>
+          <Text code style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+            {stageLogMeta?.logPath || '-'}
+          </Text>
         </Space>
         <Text type="secondary">
           {stageLogMeta?.fetchedAt

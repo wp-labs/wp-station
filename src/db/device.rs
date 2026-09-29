@@ -1,4 +1,7 @@
-// 设备管理数据库操作 - 纯函数式
+//! 设备数据访问层。
+//!
+//! 只负责设备表 CRUD 和状态字段更新，不处理健康检查或发布调用。
+//! 双系统改造后，`system` 字段在这里完成持久化与过滤。
 
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
@@ -8,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 use wp_station_migrations::entity::device::{ActiveModel, Column, Entity, Model};
 
+use crate::utils::SystemKind;
+
+/// 设备实体模型。
 pub type Device = Model;
 
 /// 设备状态枚举
@@ -26,6 +32,7 @@ pub type Device = Model;
 )]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
+/// 设备在线状态枚举。
 pub enum DeviceStatus {
     #[default]
     Unknown,
@@ -34,8 +41,11 @@ pub enum DeviceStatus {
     Deleted,
 }
 
+/// 创建设备时使用的入库模型。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewDevice {
+    /// 设备所属系统，决定健康检查和发布调用方式。
+    pub system: SystemKind,
     pub name: Option<String>,
     pub ip: String,
     pub port: i32,
@@ -47,6 +57,8 @@ pub struct NewDevice {
 /// 部分更新设备配置（支持字段级别的可选更新）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDevice {
+    /// 允许在编辑时切换系统归属，后续健康检查和发布均按新 system 生效。
+    pub system: Option<SystemKind>,
     pub name: Option<Option<String>>,
     pub ip: Option<String>,
     pub port: Option<i32>,
@@ -72,8 +84,23 @@ pub async fn find_all_devices() -> DbResult<Vec<Device>> {
     Ok(devices)
 }
 
+/// 按系统查询设备，用于发布弹窗和系统维度的设备管理。
+pub async fn find_devices_by_system(system: SystemKind) -> DbResult<Vec<Device>> {
+    let pool = get_pool();
+    let db = pool.inner();
+
+    Entity::find()
+        .filter(Column::System.eq(system.as_ref()))
+        .filter(Column::Status.ne(DeviceStatus::Deleted.as_ref()))
+        .order_by_desc(Column::CreatedAt)
+        .all(db)
+        .await
+        .map_err(Into::into)
+}
+
 /// 分页查询设备列表，支持按关键字搜索（匹配 name/ip/remark）
 pub async fn find_devices_page(
+    system: Option<SystemKind>,
     keyword: Option<&str>,
     page: i64,
     page_size: i64,
@@ -92,6 +119,9 @@ pub async fn find_devices_page(
 
     // 基础条件：过滤已删除的设备
     let mut cond = Condition::all().add(Column::Status.ne(DeviceStatus::Deleted.as_ref()));
+    if let Some(system) = system {
+        cond = cond.add(Column::System.eq(system.as_ref()));
+    }
 
     // 若提供关键字，则按 name/ip/remark 模糊匹配
     if let Some(kw) = keyword
@@ -161,6 +191,7 @@ pub async fn create_device(new_device: NewDevice) -> DbResult<i32> {
 
     let now = Utc::now();
     let active_model = ActiveModel {
+        system: Set(new_device.system.as_ref().to_string()),
         name: Set(new_device.name),
         ip: Set(new_device.ip),
         port: Set(new_device.port),
@@ -169,6 +200,7 @@ pub async fn create_device(new_device: NewDevice) -> DbResult<i32> {
         status: Set(new_device.status.unwrap_or_default().as_ref().to_string()),
         client_version: Set(None),
         config_version: Set(None),
+        health_error: Set(None),
         last_release_id: Set(None),
         last_seen_at: Set(None),
         created_at: Set(now),
@@ -199,11 +231,13 @@ pub async fn update_device(id: i32, device: NewDevice) -> DbResult<()> {
         .ok_or(DbError::not_found("设备"))?;
 
     let mut active_model: ActiveModel = model.into();
+    active_model.system = Set(device.system.as_ref().to_string());
     active_model.name = Set(device.name);
     active_model.ip = Set(device.ip);
     active_model.port = Set(device.port);
     active_model.remark = Set(device.remark);
     active_model.token = Set(device.token);
+    active_model.health_error = Set(None);
     active_model.updated_at = Set(Utc::now());
 
     active_model.update(db).await?;
@@ -212,7 +246,7 @@ pub async fn update_device(id: i32, device: NewDevice) -> DbResult<()> {
     Ok(())
 }
 
-/// 删除设备（软删除）
+/// 软删除设备，保留历史记录供发布和审计链路引用。
 pub async fn delete_device(id: i32) -> DbResult<()> {
     info!("删除设备: id={}", id);
 
@@ -233,7 +267,7 @@ pub async fn delete_device(id: i32) -> DbResult<()> {
     Ok(())
 }
 
-/// 更新设备状态
+/// 仅更新设备在线状态字段。
 pub async fn update_device_status(id: i32, status: DeviceStatus) -> DbResult<()> {
     info!("更新设备状态: id={}, status={}", id, status.as_ref());
 
@@ -251,6 +285,30 @@ pub async fn update_device_status(id: i32, status: DeviceStatus) -> DbResult<()>
     active_model.update(db).await?;
 
     info!("设备状态更新成功: id={}", id);
+    Ok(())
+}
+
+/// 更新设备最近一次健康检查错误；在线或刷新成功时传 `None` 清空。
+pub async fn update_device_health_error(id: i32, error_message: Option<&str>) -> DbResult<()> {
+    debug!(
+        "更新设备健康检查错误: id={}, has_error={}",
+        id,
+        error_message.is_some()
+    );
+
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let model = Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or(DbError::not_found("设备"))?;
+
+    let mut active_model: ActiveModel = model.into();
+    active_model.health_error = Set(error_message.map(|value| value.to_string()));
+    active_model.updated_at = Set(Utc::now());
+    active_model.update(db).await?;
+
     Ok(())
 }
 

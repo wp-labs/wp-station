@@ -1,3 +1,7 @@
+//! 沙盒预发布 API。
+//!
+//! 提供沙盒任务创建、查询、停止和日志查看入口。
+
 use std::str::FromStr;
 
 use actix_web::{HttpResponse, get, post, web};
@@ -39,8 +43,8 @@ fn default_history_limit() -> u32 {
     20
 }
 
-/// 创建沙盒运行任务
 #[post("/api/sandbox/runs")]
+/// 创建沙盒运行任务。
 pub async fn create_sandbox_run(
     state: web::Data<SandboxState>,
     req: web::Json<CreateSandboxRunRequest>,
@@ -49,8 +53,8 @@ pub async fn create_sandbox_run(
     Ok(HttpResponse::Accepted().json(resp))
 }
 
-/// 查询沙盒任务详情
 #[get("/api/sandbox/runs/{task_id}")]
+/// 查询沙盒任务详情。
 pub async fn get_sandbox_run(
     state: web::Data<SandboxState>,
     path: web::Path<SandboxTaskPath>,
@@ -59,8 +63,8 @@ pub async fn get_sandbox_run(
     Ok(HttpResponse::Ok().json(run))
 }
 
-/// 停止沙盒任务
 #[post("/api/sandbox/runs/{task_id}/stop")]
+/// 停止沙盒任务。
 pub async fn stop_sandbox_run(
     state: web::Data<SandboxState>,
     path: web::Path<SandboxTaskPath>,
@@ -69,8 +73,8 @@ pub async fn stop_sandbox_run(
     Ok(HttpResponse::Ok().json(run))
 }
 
-/// 获取指定阶段日志
 #[get("/api/sandbox/runs/{task_id}/logs/{stage}")]
+/// 获取指定阶段日志。
 pub async fn get_sandbox_stage_logs(
     state: web::Data<SandboxState>,
     path: web::Path<SandboxLogPath>,
@@ -81,8 +85,8 @@ pub async fn get_sandbox_stage_logs(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 获取 Release 最近一次沙盒结果
 #[get("/api/releases/{id}/sandbox/latest")]
+/// 获取发布最近一次沙盒结果。
 pub async fn get_latest_sandbox_run(
     state: web::Data<SandboxState>,
     path: web::Path<SandboxReleasePath>,
@@ -91,8 +95,8 @@ pub async fn get_latest_sandbox_run(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 获取指定发布的沙盒历史记录
 #[get("/api/releases/{id}/sandbox/runs")]
+/// 获取指定发布的沙盒历史记录。
 pub async fn list_sandbox_history(
     state: web::Data<SandboxState>,
     path: web::Path<SandboxReleasePath>,

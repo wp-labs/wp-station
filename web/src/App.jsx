@@ -6,8 +6,6 @@ import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import dayjs from 'dayjs';
 import Navigation from '@/views/components/Navigation';
-import RequireAuth from '@/views/components/RequireAuth';
-import LoginPage from '@/views/pages/login';
 import FeaturesPage from '@/views/pages/features';
 import SystemReleasePage from '@/views/pages/system-release';
 import ReleaseDetailPage from '@/views/pages/system-release/detail';
@@ -15,8 +13,11 @@ import PrepublishPage from '@/views/pages/system-release/prepublish';
 import RuleManagePage from '@/views/pages/rule-manage';
 import ConfigManagePage from '@/views/pages/config-manage';
 import SimulateDebugPage from '@/views/pages/simulate-debug';
+import IntegrationOverviewPage from '@/views/pages/integration-overview';
 import SystemManagePage from '@/views/pages/system-manage';
+import WfusionRuleEditorPage from '@/views/pages/wfusion-rule-editor';
 import { AssistTaskProvider } from '@/contexts/AssistTaskContext';
+import { SystemProvider } from '@/contexts/SystemContext';
 import AssistTaskCenter from '@/views/components/AssistTaskCenter';
 
 // 设置 dayjs 为中文语言环境
@@ -78,17 +79,16 @@ function App() {
     <ConfigProvider locale={antdLocale} theme={theme}>
       <AntdApp>
         <Routes>
-          {/* 登录页面不包裹在 Navigation 中 */}
-          <Route path="/login" element={<LoginPage />} />
+          {/* 兼容旧地址，应用不再显示独立登录页。 */}
+          <Route path="/login" element={<Navigate to="/rule-manage" replace />} />
 
-          {/* 其他页面包裹在 Navigation 中 */}
+          {/* 统一使用主导航进入各业务页面。 */}
           <Route
             path="/*"
             element={
-              // AssistTaskProvider 在路由层内部，可安全使用 useNavigate
-              <AssistTaskProvider>
-                <Navigation onLocaleChange={handleLocaleChange}>
-                  <RequireAuth>
+              <SystemProvider>
+                <AssistTaskProvider>
+                  <Navigation onLocaleChange={handleLocaleChange}>
                     <Routes>
                       <Route path="/" element={<Navigate to="/rule-manage" replace />} />
                       <Route path="/features" element={<FeaturesPage />} />
@@ -101,14 +101,15 @@ function App() {
                       <Route path="/rule-manage" element={<RuleManagePage />} />
                       <Route path="/config-manage" element={<ConfigManagePage />} />
                       <Route path="/simulate-debug" element={<SimulateDebugPage />} />
+                      <Route path="/wfusion-rule-editor" element={<WfusionRuleEditorPage />} />
+                      <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
                       <Route path="/system-manage" element={<SystemManagePage />} />
                       <Route path="*" element={<Navigate to="/rule-manage" replace />} />
                     </Routes>
-                    {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
                     <AssistTaskCenter />
-                  </RequireAuth>
-                </Navigation>
-              </AssistTaskProvider>
+                  </Navigation>
+                </AssistTaskProvider>
+              </SystemProvider>
             }
           />
         </Routes>

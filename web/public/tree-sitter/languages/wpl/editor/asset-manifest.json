@@ -1,0 +1,13 @@
+{
+  "language_id": "wpl",
+  "display_name": "WPL",
+  "mode": "tree-sitter",
+  "rust_crate": "tree-sitter-wpl",
+  "file_extensions": ["wpl"],
+  "theme_prefix": "cm-wpl",
+  "runtime_wasm_file_name": "tree-sitter.wasm",
+  "parser_wasm_file_name": "tree-sitter-wpl.wasm",
+  "parser_wasm": "editor/wasm/tree-sitter-wpl.wasm",
+  "highlights_query": "queries/highlights.scm",
+  "completion_bundle": "completions/completion.bundle.json"
+}

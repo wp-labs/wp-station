@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Col, Form, InputNumber, Row, Space, Tag, Typography, message } from 'antd';
 import { ArrowLeftOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +54,7 @@ const STATUS_COLOR = {
   queued: 'default',
   running: 'blue',
   success: 'green',
+  success_not_passed: 'orange',
   failed: 'red',
   stopped: 'default',
   not_started: 'default',
@@ -76,6 +77,8 @@ const EMPTY_STAGE_LOG_META = {
 
 function PrepublishPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const system = searchParams.get('system') || undefined;
   const releaseId = Number(id);
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -108,6 +111,10 @@ function PrepublishPage() {
   const failureStageInfo = stages.find((stage) => stage.status === 'failed');
   const failureSummary = failureStageInfo?.summary;
   const status = runData?.status || 'queued';
+  const displayStatus =
+    runData?.status === 'success' && conclusion?.passed !== true
+      ? 'success_not_passed'
+      : status;
   const baselineVersion =
     releaseInfo?.previous_version ||
     releaseInfo?.baseline_version ||
@@ -115,8 +122,8 @@ function PrepublishPage() {
     t('sandbox.baselineFallback');
   const currentVersion = releaseInfo?.version || '-';
   const statusTag = (
-    <Tag color={STATUS_COLOR[status] || 'default'}>
-      {t(`sandbox.statusLabel.${status}`, { defaultValue: status })}
+    <Tag color={STATUS_COLOR[displayStatus] || 'default'}>
+      {t(`sandbox.statusLabel.${displayStatus}`, { defaultValue: displayStatus })}
     </Tag>
   );
   const queueAlertNeeded = (queuePosition ?? 0) > 0;
@@ -323,6 +330,33 @@ function PrepublishPage() {
   };
 
   useEffect(() => {
+    if (!selectedStageInfo || !runData?.task_id) {
+      return;
+    }
+    if (!selectedStageInfo.log_path) {
+      return;
+    }
+
+    const logPathChanged = stageLogMeta?.logPath !== selectedStageInfo.log_path;
+    const stageFinished =
+      selectedStageInfo.status === 'success' ||
+      selectedStageInfo.status === 'failed' ||
+      selectedStageInfo.status === 'stopped';
+
+    if (logPathChanged || (stageFinished && !stageLog)) {
+      fetchStageLog(selectedStageInfo.stage, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    runData?.task_id,
+    selectedStageInfo?.stage,
+    selectedStageInfo?.status,
+    selectedStageInfo?.log_path,
+    stageLog,
+    stageLogMeta?.logPath,
+  ]);
+
+  useEffect(() => {
     const stageInfo = stages.find((item) => item.stage === selectedStage);
     const shouldAutoRefresh =
       stageInfo &&
@@ -515,7 +549,7 @@ function PrepublishPage() {
           />
         )}
 
-        <Row gutter={[16, 16]}>
+        <Row gutter={[16, 16]} style={{ minWidth: 0, overflow: 'hidden' }}>
           <Col xs={24} lg={8} style={{ display: 'flex' }}>
             <SandboxHistoryList
               history={historyItems}
@@ -579,13 +613,18 @@ function PrepublishPage() {
               formatDisplayTime={formatDisplayTime}
               failureSummary={failureSummary}
               cardStyle={{ width: '100%', height: '100%' }}
+              system={system}
             />
           </Col>
         </Row>
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12} style={{ display: 'flex' }}>
-            <Card title={t('sandbox.executionStages')} style={{ width: '100%' }}>
+        <Row gutter={[16, 16]} wrap style={{ minWidth: 0, overflow: 'hidden' }}>
+          <Col xs={24} lg={12} style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
+            <Card
+              title={t('sandbox.executionStages')}
+              style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}
+              bodyStyle={{ minWidth: 0, overflow: 'hidden' }}
+            >
               <SandboxStageTimeline
                 stages={stages}
                 selectedStage={selectedStage}
@@ -593,11 +632,15 @@ function PrepublishPage() {
                 t={t}
                 formatStageDuration={formatStageDuration}
                 visibleStages={VISIBLE_STAGE_KEYS}
+                system={system}
               />
             </Card>
           </Col>
-          <Col xs={24} lg={12} style={{ display: 'flex' }}>
-            <div ref={stageLogCardRef} style={{ width: '100%' }}>
+          <Col xs={24} lg={12} style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
+            <div
+              ref={stageLogCardRef}
+              style={{ width: '100%', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}
+            >
               <SandboxLogViewer
                 selectedStageInfo={selectedStageInfo}
                 stageLog={stageLog}
@@ -608,6 +651,7 @@ function PrepublishPage() {
                 formatStageDuration={formatStageDuration}
                 formatDisplayTime={formatDisplayTime}
                 cardStyle={{ width: '100%', height: '100%' }}
+                system={system}
                 cardId="sandbox-log-viewer"
               />
             </div>

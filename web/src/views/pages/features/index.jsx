@@ -1,8 +1,5 @@
 import React, { useEffect } from 'react';
-import {
-  DEFAULT_DATA_COLLECT_URL,
-  fetchDataCollectConfig,
-} from '@/services/features';
+import { fetchDataCollectConfig } from '@/services/features';
 
 /**
  * 运行监控跳转页
@@ -16,11 +13,11 @@ function FeaturesPage() {
       try {
         const config = await fetchDataCollectConfig();
         if (active) {
-          window.location.assign(config?.data_collect_url || DEFAULT_DATA_COLLECT_URL);
+          window.location.assign(config?.data_collect_url || config?.default_data_collect_url || '/');
         }
       } catch (_error) {
         if (active) {
-          window.location.assign(DEFAULT_DATA_COLLECT_URL);
+          window.location.assign('/');
         }
       }
     })();

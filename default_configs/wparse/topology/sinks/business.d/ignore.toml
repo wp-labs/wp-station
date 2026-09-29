@@ -1,0 +1,14 @@
+version = "1.0"
+
+[sink_group]
+name = "ignore"
+oml = ["jowto/ignore", "sxf_edr/ignore", "sxf_firewall/ignore", "h3c/ignore", "360/ignore", "qax_firewall/ignore", "tianqing/ignore", "tianqing/ignore_other", "sysmon/ignore", "hongkong/ignore", "chaitin_safeline/ignore", "topas_waf/ignore", "topas_ips/ignore"]
+parallel = 1
+
+[[sink_group.sinks]]
+name = "ignore"
+connect = "file_json_sink"
+
+[sink_group.sinks.params]
+base = "./data/out_dat/"
+file = "ignore.json"

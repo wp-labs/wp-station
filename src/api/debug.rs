@@ -1,24 +1,33 @@
-// 调试功能 API - HTTP 请求处理层
+//! 调试功能 API。
+//!
+//! 提供解析、转换、知识库查询和格式化入口。
 
 use actix_web::{HttpResponse, get, post, web};
 
 use crate::error::AppError;
 use crate::server::{
     DebugKnowledgeQueryRequest, DebugKnowledgeStatusQuery, DebugParseRequest,
-    DebugPerformanceRunRequest, DebugTransformRequest, SharedRecord, debug_examples_logic,
+    DebugTransformRequest, DebugWfusionRuleEditorParseRequest, SharedRecord,
     debug_knowledge_query_logic, debug_knowledge_status_logic, debug_parse_logic,
-    debug_performance_get_logic, debug_performance_run_logic, debug_transform_logic,
-    oml_format_logic, wpl_format_logic,
+    debug_transform_logic, debug_wfusion_rule_editor_parse_logic, load_debug_examples,
+    oml_format_logic, toml_format_logic, wfg_format_logic, wfl_format_logic, wfs_format_logic,
+    wpl_format_logic,
 };
+use crate::utils::SystemKind;
+use serde::Deserialize;
 
-#[derive(serde::Deserialize)]
-pub struct DebugPerformanceGetPath {
-    #[serde(rename = "taskId")]
-    pub task_id: String,
+#[derive(Deserialize)]
+pub struct DebugExamplesQuery {
+    #[serde(default = "default_debug_examples_system")]
+    system: SystemKind,
 }
 
-/// 模拟调试-解析：解析日志
+fn default_debug_examples_system() -> SystemKind {
+    SystemKind::Wparse
+}
+
 #[post("/api/debug/parse")]
+/// 模拟调试：解析日志。
 pub async fn debug_parse(
     shared_record: web::Data<SharedRecord>,
     req: web::Json<DebugParseRequest>,
@@ -34,8 +43,8 @@ pub async fn debug_parse(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 模拟调试-转换：使用最近一次解析结果执行 OML 转换
 #[post("/api/debug/transform")]
+/// 模拟调试：执行 OML 转换。
 pub async fn debug_transform(
     shared_record: web::Data<SharedRecord>,
     req: web::Json<DebugTransformRequest>,
@@ -44,8 +53,8 @@ pub async fn debug_transform(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 模拟调试-知识库：查询知识库状态
 #[get("/api/debug/knowledge/status")]
+/// 模拟调试：查询知识库状态。
 pub async fn debug_knowledge_status(
     _query: web::Query<DebugKnowledgeStatusQuery>,
 ) -> Result<HttpResponse, AppError> {
@@ -55,41 +64,21 @@ pub async fn debug_knowledge_status(
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 模拟调试-知识库：执行 SQL 查询
 #[post("/api/debug/knowledge/query")]
+/// 模拟调试：执行知识库 SQL 查询。
 pub async fn debug_knowledge_query(
     req: web::Json<DebugKnowledgeQueryRequest>,
 ) -> Result<HttpResponse, AppError> {
     // 执行知识库 SQL 查询
-    let resp = debug_knowledge_query_logic(req.table.clone(), req.sql.clone()).await?;
+    let resp =
+        debug_knowledge_query_logic(req.table.clone(), req.source_kind.clone(), req.sql.clone())
+            .await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 模拟调试-性能测试：启动测试任务
-#[post("/api/debug/performance/run")]
-pub async fn debug_performance_run(
-    req: web::Json<DebugPerformanceRunRequest>,
-) -> Result<HttpResponse, AppError> {
-    // 创建并启动性能测试任务
-    let resp = debug_performance_run_logic(req.sample.clone(), req.config.clone()).await?;
-
-    Ok(HttpResponse::Ok().json(resp))
-}
-
-/// 模拟调试-性能测试：查询测试结果
-#[get("/api/debug/performance/{taskId}")]
-pub async fn debug_performance_get(
-    path: web::Path<DebugPerformanceGetPath>,
-) -> Result<HttpResponse, AppError> {
-    // 查询性能测试任务详情及结果
-    let resp = debug_performance_get_logic(path.task_id.clone()).await?;
-
-    Ok(HttpResponse::Ok().json(resp))
-}
-
-/// 模拟调试-格式化：WPL 代码格式化
 #[post("/api/debug/wpl/format")]
+/// 模拟调试：格式化 WPL 代码。
 pub async fn wpl_format(req: String) -> HttpResponse {
     match wpl_format_logic(req) {
         Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
@@ -106,8 +95,8 @@ pub async fn wpl_format(req: String) -> HttpResponse {
     }
 }
 
-/// 模拟调试-格式化：OML 代码格式化
 #[post("/api/debug/oml/format")]
+/// 模拟调试：格式化 OML 代码。
 pub async fn oml_format(req: String) -> HttpResponse {
     match oml_format_logic(req) {
         Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
@@ -124,9 +113,92 @@ pub async fn oml_format(req: String) -> HttpResponse {
     }
 }
 
-/// 模拟调试：获取示例列表
+#[post("/api/debug/wfs/format")]
+/// 模拟调试：格式化 WFS 代码。
+pub async fn wfs_format(req: String) -> HttpResponse {
+    match wfs_format_logic(req) {
+        Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
+            "wfs_code": formatted
+        })),
+        Err(err) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": {
+                "code": "WFS_FORMAT_ERROR",
+                "message": "格式化 WFS 代码失败",
+                "detail": err.to_string()
+            }
+        })),
+    }
+}
+
+#[post("/api/debug/wfl/format")]
+/// 模拟调试：格式化 WFL 代码。
+pub async fn wfl_format(req: String) -> HttpResponse {
+    match wfl_format_logic(req) {
+        Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
+            "wfl_code": formatted
+        })),
+        Err(err) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": {
+                "code": "WFL_FORMAT_ERROR",
+                "message": "格式化 WFL 代码失败",
+                "detail": err.to_string()
+            }
+        })),
+    }
+}
+
+#[post("/api/debug/wfg/format")]
+/// 模拟调试：格式化 WFG 代码。
+pub async fn wfg_format(req: String) -> HttpResponse {
+    match wfg_format_logic(req) {
+        Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
+            "wfg_code": formatted
+        })),
+        Err(err) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": {
+                "code": "WFG_FORMAT_ERROR",
+                "message": "格式化 WFG 代码失败",
+                "detail": err.to_string()
+            }
+        })),
+    }
+}
+
+#[post("/api/debug/toml/format")]
+/// 模拟调试：格式化 TOML 代码。
+pub async fn toml_format(req: String) -> HttpResponse {
+    match toml_format_logic(req) {
+        Ok(formatted) => HttpResponse::Ok().json(serde_json::json!({
+            "toml_code": formatted
+        })),
+        Err(err) => HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "error": {
+                "code": "TOML_FORMAT_ERROR",
+                "message": "格式化 TOML 代码失败",
+                "detail": err.to_string()
+            }
+        })),
+    }
+}
+
 #[get("/api/debug/examples")]
-pub async fn debug_examples() -> HttpResponse {
-    let resp = debug_examples_logic();
+/// 模拟调试：获取示例列表。
+pub async fn debug_examples(
+    query: web::Query<DebugExamplesQuery>,
+) -> Result<HttpResponse, AppError> {
+    let resp = load_debug_examples(query.system)?;
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+#[post("/api/debug/wfusion-editor/parse")]
+/// WFusion 规则编辑器：解析 WFS/WFL 并试跑 NDJSON。
+pub async fn debug_wfusion_rule_editor_parse(
+    req: web::Json<DebugWfusionRuleEditorParseRequest>,
+) -> HttpResponse {
+    let resp = debug_wfusion_rule_editor_parse_logic(req.into_inner());
     HttpResponse::Ok().json(resp)
 }

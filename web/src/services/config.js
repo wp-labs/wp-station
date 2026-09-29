@@ -5,6 +5,7 @@
  */
 
 import httpRequest from './request';
+import { getSharedSystem, resolveSystem } from './system';
 
 // 前端枚举：规则 / 连接类型，与后端 RuleType 枚举保持一致
 export const RuleType = Object.freeze({
@@ -15,8 +16,14 @@ export const RuleType = Object.freeze({
   SINK_CONNECT: 'sink_connect',
   WPL: 'wpl',
   OML: 'oml',
+  WINDOWS: 'windows',
+  SCHEMA: 'schema',
+  RULE: 'rule',
+  SCENARIOS: 'scenarios',
   KNOWLEDGE: 'knowledge',
 });
+
+const KNOWLEDGE_SAVE_TIMEOUT_MS = 60_000;
 
 const uniqueNames = (items) => Array.from(new Set((items || []).filter(Boolean)));
 const uniqueConnectionItems = (items) => {
@@ -33,520 +40,78 @@ const uniqueConnectionItems = (items) => {
   });
 };
 
-const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
-  '00-file-default.toml': 'File',
-  '10-syslog-udp.toml': 'Syslog (UDP)',
-  '11-syslog-tcp.toml': 'Syslog (TCP)',
-  '12-tcp.toml': 'TCP',
-  '30-kafka.toml': 'Kafka',
-  '40-mysql.toml': 'MySQL',
-  '00-blackhole-sink.toml': 'Blackhole',
-  '01-file-prototext.toml': 'File (Prototext)',
-  '02-file-json.toml': 'File (JSON)',
-  '03-file-kv.toml': 'File (KV)',
-  '04-file-raw.toml': 'File (RAW)',
-  '09-file-test.toml': 'Test Rescue',
-  '40-prometheus.toml': 'Prometheus',
-  '50-mysql.toml': 'MySQL',
-  '60-doris.toml': 'Doris',
-  '60-postgres.toml': 'Postgres',
-  '70-victorialogs.toml': 'VictoriaLogs',
-  '80-victoriametrics.toml': 'VictoriaMetrics',
-  '90-elasticsearch.toml': 'Elasticsearch',
-  '100-clickhouse.toml': 'ClickHouse',
-  '101-http.toml': 'HTTP',
-});
-
 const getConnectionDisplayName = (file, displayName) => {
   if (displayName && String(displayName).trim()) {
     return String(displayName).trim();
   }
 
-  return LEGACY_CONNECTION_DISPLAY_NAMES[file] || file?.replace(/\.toml$/i, '') || '';
+  return file?.replace(/\.toml$/i, '') || '';
 };
 
-// Mock 网络延迟时间（毫秒）
-const MOCK_DELAY = 200;
+const configFileMetaCache = new Map();
 
-// Mock 配置内容 - sink 源配置
-const sinkConfigMap = {
-    'business.d/sink.toml': `[[sinks]]
-key = "business_main"
-type = "kafka"
-topic = "business_logs"
-brokers = ["localhost:9092"]`,
-    'infra.d/default.toml': `[[sinks]]
-key = "infra_default"
-type = "file"
-path = "/var/log/infra/default.log"`,
-    'infra.d/error.toml': `[[sinks]]
-key = "infra_error"
-type = "file"
-path = "/var/log/infra/error.log"`,
-    'infra.d/intercept.toml': `[[sinks]]
-key = "infra_intercept"
-type = "file"
-path = "/var/log/infra/intercept.log"`,
-    'infra.d/miss.toml': `[[sinks]]
-key = "infra_miss"
-type = "file"
-path = "/var/log/infra/miss.log"`,
-    'infra.d/monitor.toml': `[[sinks]]
-key = "infra_monitor"
-type = "prometheus"
-endpoint = "http://localhost:9090"`,
-    'infra.d/residue.toml': `[[sinks]]
-key = "infra_residue"
-type = "file"
-path = "/var/log/infra/residue.log"`,
-    'defaults.toml': `# Default sink configuration
-[[sinks]]
-key = "default"
-type = "stdout"`,
-    'privacy.toml': `# Privacy sink configuration
-[[sinks]]
-key = "privacy"
-type = "kafka"
-topic = "privacy_logs"
-brokers = ["localhost:9092"]`,
-};
+const normalizeConfigFileItems = (items = []) =>
+  Array.isArray(items)
+    ? items
+        .map((item) => {
+          const file = typeof item?.file === 'string' ? item.file : '';
+          if (!file) {
+            return null;
+          }
 
-// Mock 配置内容 - knowledge 数据集
-const knowledgeDataMap = {
-    address: {
-      config: `version = 2
+          return {
+            file,
+            displayName:
+              typeof item?.display_name === 'string' && item.display_name.trim()
+                ? item.display_name.trim()
+                : undefined,
+            sortOrder:
+              typeof item?.sort_order === 'number' && item.sort_order >= 0
+                ? item.sort_order
+                : undefined,
+          };
+        })
+        .filter(Boolean)
+    : [];
 
-[[tables]]
-name = "address"
-
-[tables.columns]
-by_header = ["name", "province", "city"]
-
-[tables.expected_rows]
-min = 3`,
-      createSql: `CREATE TABLE IF NOT EXISTS {table} (
-  id      INTEGER PRIMARY KEY,
-  name    TEXT NOT NULL,
-  pinying TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_{table}_name ON {table}(name);`,
-      insertSql: `INSERT INTO {table} (name, pinying) VALUES (?1, ?2);`,
-      data: `id,name,province,city
-1,人民中路,广东,广州
-2,南京东路,上海,上海
-3,世纪大道,上海,浦东`,
+async function fetchConfigFileListResponse(ruleType, keyword, system) {
+  const targetSystem = resolveSystem(system);
+  const keywordParam =
+    typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
+  const response = await httpRequest.get('/config/files', {
+    params: {
+      system: targetSystem,
+      rule_type: ruleType,
+      keyword: keywordParam,
     },
-    example: {
-      config: `version = 2
+  });
 
-[[tables]]
-name = "example"
+  const items = normalizeConfigFileItems(response?.items);
+  const defaultFile =
+    typeof response?.default_file === 'string' && response.default_file.trim()
+      ? response.default_file.trim()
+      : items[0]?.file || '';
 
-[tables.columns]
-by_header = ["id", "value"]
-
-[tables.expected_rows]
-min = 1`,
-      createSql: `CREATE TABLE IF NOT EXISTS {table} (
-  id    INTEGER PRIMARY KEY,
-  value TEXT NOT NULL
-);`,
-      insertSql: `INSERT INTO {table} (id, value) VALUES (?1, ?2);`,
-      data: `id,value
-1,test1
-2,test2`,
-    },
-};
-
-// Mock 配置内容 - oml 富化规则
-const omlModelsMap = {
-  apt: `name : aapt_module_log
-rule : 
-    huawei/aapt_module_log/SCANRESULT
-    huawei/aapt_module_log/ANTIAPT
----
-pos_sn = read(dev_sn);
-access_ip: ip = read(access_ip);
-log_type = read(log_type);
-
-logtype = read(log_type);
-dev_serial_num = read(dev_sn);
-dev_type = read(dev_type);
-log_category = read(log_category);
-collect_ip: ip = read(access_ip);
-collect_time_tmp = Time::now();
-collect_time = pipe @collect_time_tmp | to_timestamp_ms;
-collect_time_date = Time::now_date();
-collect_time_hour = Time::now_hour();
-raw_msg = take(raw_msg);
-data_business_type = read(data_business_type);
-
-dev_name = read(Hostname);
-dev_vendor = read(dev_vendor);
-occur_time = pipe read(TimeStamp) | to_timestamp_zone(8,ms);
-log_version = read(dd);
-log_module = read(ModuleName);
-rfc_severity = read(SeverityHeader);
-log_desc = read(symbol);
-src_system_log_type = match read(option:[type]) {
-    chars(l) => chars(日志信息);
-    chars(s) => chars(安全日志信息);
-    chars(t) => chars(告警信息);
-    chars(d) => chars(debugging信息);
-};
-log_count = read(Count);
-log_content = read(Content);
-log_id = read(SyslogId);
-virtual_system_name = read(VSys);
-policy_name = read(Policy);
-sip = read(SrcIp);
-dip = read(DstIp);
-sport = read(SrcPort);
-dport = read(DstPort);
-src_safe_zone = read(SrcZone);
-dst_safe_zone = read(DstZone);
-user_name = read(User);
-protocol = read(Protocol);
-app_name = read(Application);
-config_file = read(Profile);
-file_name = read(FileName);
-file_type = read(Type);
-file_size = read(Size);
-flow_direction = read(Direction);
-sandbox_type = read(SandboxType);
-sample_submit_time = pipe read(SubTime) | to_timestamp_zone(8,ms);
-scan_result = read(ScanResult);
-severity = match read(option:[RiskLevel]) {
-    chars(high-risk) => chars(4);
-    chars(middle-risk) => chars(3);
-    chars(low-risk) => chars(2);
-};
-file_hash = read(Hash);
-threat_name = read(ThreatName);
-protect_action = read(Action);
-origin_alert_cat_cd = read(ThreatType);
-origin_alert_cat_name = match read(option:[ThreatType]){
-    chars(File Reputation) => chars(恶意文件);
-    chars(Malicious URL) => chars(恶意URL);
-};
-alert_cat_level1_cd = match read(option:[ThreatType]){
-    chars(File Reputation) => chars(105);
-    chars(Malicious URL) => chars(103);
-    _ => read(alert_cat_level1_cd);
-};
-alert_cat_level1_name = match read(option:[ThreatType]){
-    chars(File Reputation) => chars(异常活动);
-    chars(Malicious URL) => chars(内容安全);
-    _ => read(alert_cat_level1_name);
-};
-alert_cat_level2_cd = match read(option:[ThreatType]){
-    chars(File Reputation) => chars(105012);
-    chars(Malicious URL) => chars(103008);
-    _ => read(alert_cat_level2_cd);
-};
-alert_cat_level2_name = match read(option:[ThreatType]){
-    chars(File Reputation) => chars(可疑文件);
-    chars(Malicious URL) => chars(恶意URL);
-    _ => read(alert_cat_level2_name);
-};`,
-    aws: `model adm_aws version "1.0" {
-  router {
-    endpoint = "http://oml-service/aws"
-    timeout_ms = 900
-    retry = 0
+  if (!keywordParam) {
+    configFileMetaCache.set(`${targetSystem}:${ruleType}`, {
+      defaultFile,
+      items,
+    });
   }
 
-  features {
-    account = take(option:[aws_account])
-    region = take(option:[aws_region])
-  }
-}`,
-    nginx: `model adm_nginx version "1.0" {
-  router {
-    endpoint = "http://oml-service/nginx"
-    timeout_ms = 800
-    retry = 0
+  return { items, defaultFile };
+}
+
+async function resolveDefaultConfigFile(ruleType, system) {
+  const cacheKey = `${resolveSystem(system)}:${ruleType}`;
+  const cached = configFileMetaCache.get(cacheKey);
+  if (cached?.defaultFile) {
+    return cached.defaultFile;
   }
 
-  features {
-    request_url = take(option:[request_url])
-    status_code = take(option:[status_code])
-  }
-}`,
-    sysmon: `model adm_sysmon version "1.0" {
-  router {
-    endpoint = "http://oml-service/sysmon"
-    timeout_ms = 800
-    retry = 1
-  }
-
-  features {
-    process_name = take(option:[process_name])
-    parent_pid = take(option:[parent_pid])
-    event_type = take(option:[event_type])
-  }
-}`,
-};
-
-// Mock 配置内容 - wpl 规则文件
-const wplRulesMap = {
-    apt: `package /apt/ {
-    rule apt {
-        (
-            chars\\#,
-            time:TimeStamp,
-            chars:xx,
-            chars:Hostname,
-            chars\\%\\%, 
-            digit:dd, 
-            chars:ModuleName\\/,
-            chars:SeverityHeader\\/,
-            symbol(ANTI-APT)\\(,
-            chars:type\\),
-            chars:Count<[,]>,
-            chars\\:,
-            chars:Content\\(,
-        ),
-        (
-            kv(digit@SyslogId),
-            kv(chars@VSys),
-            kv(chars@Policy),
-            kv(chars@SrcIp),
-            kv(chars@DstIp),
-            kv(digit@SrcPort),
-            kv(digit@DstPort),
-            kv(chars@SrcZone),
-            kv(chars@DstZone),
-            kv(chars@User),
-            kv(chars@Protocol),
-            kv(chars@Application),
-            kv(chars@Profile),
-            kv(chars@Direction),
-            kv(chars@ThreatType),
-            kv(chars@ThreatName),
-            kv(chars@Action),
-            kv(chars@FileType),
-            kv(chars@Hash)\\),
-        )\\,
-    }
-}`,
-    aws: `package /aws/ {
-    rule aws {
-        (
-            chars:type,
-            chars:time,
-            chars:elb,
-            chars:client_host,
-            chars:target_host,
-            float:request_processing_time,
-            float:target_processing_time,
-            float:response_processing_time,
-            digit:elb_status_code,
-            digit:target_status_code,
-            digit:received_bytes,
-            digit:sent_bytes,
-            chars:request | (chars:request_method, chars:request_url, chars:request_protocol),
-            chars:user_agent,
-            chars:ssl_cipher,
-            chars:ssl_protocol,
-            chars:target_group_arn,
-            chars:trace_id,
-            chars:domain_name,
-            chars:chosen_cert_arn,
-            chars:matched_rule_priority,
-            chars:request_creation_time,
-            chars:actions_executed,
-            chars:redirect_url,
-            chars:error_reason,
-            chars:target_port_list,
-            chars:target_status_code_list,
-            chars:classification,
-            chars:classification_reason,
-            chars:traceability_id,
-        )
-    }
-}`,
-    nginx: `package /nginx/ {
-   rule example {
-        (ip:sip,_^2,time/clf:recv_time<[,]>,http/request",http/status,digit,chars",http/agent",_")
-   }
-}`,
-    sysmon: `package /sysmon/ {
-    rule sysmon {
-        (_:pri<<,>>,3*_,chars:dev_ip),(_\\S\\y\\s\\m\\o\\n\\:,
-        json(
-            @Id:id,
-            @Description/ProcessId:process_id,
-            @Level:severity,
-            @Description/CommandLine:cmd_line,
-            @Description/ParentCommandLine:parent_cmd_line,
-            @Description/LogonGuid:logon_guid,
-            @Description/LogonId:logon_id,
-            @Description/Image:process_path,
-            @Description/ParentImage:parent_process_path,
-            @Description/ParentProcessGuid:parent_process_guid,
-            @Description/ParentProcessId:parent_process_id,
-            @Description/ParentUser:parent_process_user,
-            @Description/ProcessGuid:process_guid,
-            @Description/Company:product_company,
-            @Description/Description:process_desc,
-            @Description/FileVersion:file_version,
-            chars@Description/Hashes | (chars:md5_value | (chars:md5, chars:md5_hash)\\=, chars:sha256_hash)\\,
-            @Description/IntegrityLevel:integrity_level,
-            @Description/OriginalFileName:origin_file_name,
-            @Description/Product:product_name,
-            @Description/RuleName:rule_name,
-            @Description/User:user_name,
-            time@Description/UtcTime:occur_time,
-            @Description/TerminalSessionId:terminal_session_id,
-            @Description/CurrentDirectory:current_dir,
-            @Keywords:keywords
-            )| exists_chars(id, 1)
-        )
-    }
-}`,
-};
-
-// Mock 配置内容 - 连接配置（来源）
-const connectionSourceMap = {
-  '00-file-default.toml': `[[connectors]]
-id = "file_src"
-type = "file"
-allow_override = ["base", "file", "encode"]
-[connectors.params]
-base = "data/in_dat"
-file = "gen.dat"
-encode = "text"`,
-  '10-syslog-udp.toml': `[[connectors]]
-id = "syslog_udp_src"
-type = "syslog"
-allow_override = ["addr", "port", "protocol", "tcp_recv_bytes", "header_mode", "prefer_newline"]
-[connectors.params]
-addr = "0.0.0.0"
-port = 1514
-protocol = "udp"
-header_mode = "strip"
-tcp_recv_bytes = 10485760`,
-  '11-syslog-tcp.toml': `[[connectors]]
-id = "syslog_tcp_src"
-type = "syslog"
-allow_override = ["addr", "port", "protocol", "tcp_recv_bytes", "header_mode", "prefer_newline"]
-[connectors.params]
-addr = "127.0.0.1"
-port = 1514
-protocol = "tcp"
-header_mode = "strip"
-tcp_recv_bytes = 10485760`,
-  '30-kafka.toml': `[[connectors]]
-id = "kafka_src"
-type = "kafka"
-allow_override = ["topic", "group_id", "config"]
-[connectors.params]
-brokers = "localhost:9092"
-topic   = ["access_log"]
-group_id = "wparse_default_group"`,
-};
-
-// Mock 配置内容 - 连接配置（输出源）
-const connectionSinkMap = {
-  '00-blackhole-sink.toml': `[[connectors]]
-id = "blackhole_sink"
-type = "blackhole"`,
-  '02-file-json.toml': `[[connectors]]
-id = "file_json_sink"
-type = "file"
-allow_override = ["base","file"]
-[connectors.params]
-fmt  = "json"
-base = "./data/out_dat"
-file = "default.json"`,
-  '30-kafka.toml': `[[connectors]]
-id = "kafka_sink"
-type = "kafka"
-allow_override = ["topic", "config", "num_partitions", "replication", "brokers"]
-
-[connectors.params]
-brokers = "localhost:9092"
-topic = "wparse_output"
-num_partitions = 1
-replication = 1
-#config = ["compression.type=snappy", "acks=all"]`,
-  '40-prometheus.toml': `[[connectors]]
-id = "prometheus_sink"
-type = "prometheus"
-allow_override = ["endpoint", "source_key_format", "sink_key_format"]
-[connectors.params]
-endpoint = "127.0.0.1:35666"
-source_key_format = "(?P<source_type>.)_(?P<access_source>.)"
-sink_key_format = "(?P<rule>.)_(?P<sink_type>.)_sink"`,
-};
-
-const baseContentMap = {
-  parse: `version = "1.0"
-robust = "normal"
-
-[models]
-wpl = "./models/wpl"
-oml = "./models/oml"
-sources = "./models/source"
-sinks = "./models/sink"
-lib_root = "./lib"
-
-[performance]
-parse_workers = 3
-rate_limit_rps = 100000
-
-[rescue]
-path = "./data/rescue"
-
-[log_conf]
-level = "debug,parse=debug,ctrl=warn,oml=info,launch=warn,sink=debug"
-output = "Console"
-# output = "File"
-[log_conf.file]
-path = "./data/logs/"
-
-[stat]
-window_sec = 60
-
-[[stat.pick]]
-key = "pick_stat"
-target = "*"  # 必须保持 *
-fields = ["access_source", "source_type"]
-top_n = 20
-
-[[stat.parse]]
-key = "parse_stat"
-target = "*"  # 必须保持 *
-fields = ["access_ip", "log_desc", "log_type", "rule_name"]  # 控制收集的维度
-top_n = 20
-
-[[stat.sink]]
-key = "sink_stat"
-target = "*"  # 必须保持 *
-fields = ["access_ip", "log_desc", "log_type"]
-top_n = 20`,
-  source: `[[sources]]
-key = "sample_data"
-enable = true
-connect = "file_src"
-tags = ["dev_sn: sample_data_001"]
-params= { base = "./data/in_dat", file = "gen.dat", encode = "text" }
-
-[[sources]]
-key = "kafka_access"
-connect = "kafka_src"
-enable = false
-params= { topic = ["access_log", "error_log"], config = ["auto.offset.reset=earliest", "enable.auto.commit=true"] }
-tags = ["source:kafka", "type:log"]
-
-[[sources]]
-key = "syslog_udp"
-connect = "syslog_udp_src"
-enable = false
-params= { port = 1514, strip_header = true, attach_meta_tags = true }
-tags = ["protocol:syslog", "transport:udp"]`,
-};
+  const response = await fetchConfigFileListResponse(ruleType, undefined, system);
+  return response.defaultFile;
+}
 
 /**
  * 获取规则配置内容
@@ -556,14 +121,19 @@ tags = ["protocol:syslog", "transport:udp"]`,
  * @returns {Promise<Object>} 配置内容
  */
 export async function fetchRuleConfig(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
-  // Source 配置走真实后端：/api/config?rule_type=source&file=wpsrc.toml
+  // Source 配置走真实后端：/api/config?rule_type=source&file=xxx.toml
   if (type === RuleType.SOURCE) {
-    const targetFile = file || 'wpsrc.toml';
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE, system));
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.SOURCE,
           file: targetFile,
         },
@@ -603,6 +173,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -620,12 +191,13 @@ export async function fetchRuleConfig(options) {
     }
   }
 
-  // 解析配置（parse）复用连接配置接口，使用 rule_type=parse, file 固定为 wparse.toml
+  // 解析配置（parse）复用连接配置接口，使用 rule_type=parse
   if (type === RuleType.PARSE) {
-    const targetFile = 'wparse.toml';
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE, system));
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.PARSE,
           file: targetFile,
         },
@@ -664,6 +236,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.SINK,
           file: targetFile,
         },
@@ -680,9 +253,16 @@ export async function fetchRuleConfig(options) {
     }
   }
 
-  // wpl / oml 规则配置走通用规则接口：/api/config/rules
-  if (type === RuleType.WPL || type === RuleType.OML) {
-    const targetFile = file;
+  // wpl / oml / schema / rule 规则配置走通用规则接口：/api/config/rules
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS
+  ) {
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }
@@ -690,6 +270,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config/rules', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -729,6 +310,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config/rules', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -764,35 +346,7 @@ export async function fetchRuleConfig(options) {
     }
   }
 
-  // 模拟网络延迟
-  await new Promise((resolve) => {
-    setTimeout(resolve, MOCK_DELAY);
-  });
-
-  // 连接配置需要根据 file 参数返回具体文件内容
-  if (type === 'connection' && file) {
-    const content = connectionSourceMap[file] || connectionSinkMap[file] || '';
-    return {
-      type,
-      file,
-      content,
-      lastModified: new Date().toISOString(),
-    };
-  }
-
-  const mockContentMap = {
-    ...baseContentMap,
-    wpl: wplRulesMap[file] || wplRulesMap.apt,
-    oml: omlModelsMap[file] || omlModelsMap.apt,
-    sink: sinkConfigMap[file] || sinkConfigMap['defaults.toml'],
-  };
-
-  return {
-    type,
-    file: file || `${type}.toml`,
-    content: mockContentMap[type] || '',
-    lastModified: new Date().toISOString(),
-  };
+  throw new Error(`不支持的配置类型: ${type}`);
 }
 
 /**
@@ -803,10 +357,19 @@ export async function fetchRuleConfig(options) {
  * @returns {Promise<string[]>} 文件或数据集列表
  */
 export async function fetchRuleFiles(options) {
-  const { type, page, pageSize, keyword } = options;
+  const { type, page, pageSize, keyword, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
-  // wpl / oml / knowledge 规则列表走后端：/api/config/rules/files
-  if (type === RuleType.WPL || type === RuleType.OML || type === RuleType.KNOWLEDGE) {
+  // wpl / oml / schema / rule / knowledge 规则列表走后端：/api/config/rules/files
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS ||
+    type === RuleType.KNOWLEDGE
+  ) {
     const currentPage = typeof page === 'number' && page > 0 ? page : 1;
     const defaultPageSize = 15;
     const currentPageSize =
@@ -817,6 +380,7 @@ export async function fetchRuleFiles(options) {
 
     const response = await httpRequest.get('/config/rules/files', {
       params: {
+        system,
         rule_type: type,
         page: currentPage,
         page_size: currentPageSize,
@@ -833,69 +397,43 @@ export async function fetchRuleFiles(options) {
       page: typeof response?.page === 'number' ? response.page : currentPage,
       pageSize:
         typeof response?.page_size === 'number' ? response.page_size : currentPageSize,
+      meta: {
+        wplParseFile: response?.meta?.wpl_parse_file || '',
+        wplSampleFile: response?.meta?.wpl_sample_file || '',
+        knowledgeConfigFile: response?.meta?.knowledge_config_file || '',
+      },
     };
   }
 
-  // sink 连接配置列表走后端：/api/config/files
-  if (type === RuleType.SINK) {
-    const response = await httpRequest.get('/config/files', {
-      params: {
-        rule_type: RuleType.SINK,
-      },
-    });
-
-    const items = Array.isArray(response?.items) ? response.items : [];
-    const seen = new Map();
-    items.forEach((item) => {
-      const file = typeof item?.file === 'string' ? item.file : '';
-      if (!file || seen.has(file)) {
-        return;
-      }
-      const displayName =
-        typeof item?.display_name === 'string' && item.display_name.trim()
-          ? item.display_name.trim()
-          : undefined;
-      seen.set(file, { file, displayName });
-    });
-    const normalizedItems = Array.from(seen.values());
+  if (type === RuleType.SINK || type === RuleType.SOURCE || type === RuleType.PARSE) {
+    const { items, defaultFile } = await fetchConfigFileListResponse(type, keyword, system);
+    const normalizedItems = uniqueConnectionItems(items);
 
     return {
       items: normalizedItems,
       total: normalizedItems.length,
       page: 1,
       pageSize: normalizedItems.length || 1,
+      meta: {
+        defaultFile,
+      },
     };
   }
 
-  await new Promise((resolve) => {
-    setTimeout(resolve, MOCK_DELAY);
-  });
-
-  if (type === RuleType.WPL) {
-    return Object.keys(wplRulesMap);
-  }
-  if (type === RuleType.OML) {
-    return Object.keys(omlModelsMap);
-  }
-  if (type === 'connection') {
-    // 返回连接配置的分组结构
-    return {
-      sources: Object.keys(connectionSourceMap),
-      sinks: Object.keys(connectionSinkMap),
-    };
-  }
-  return [];
+  throw new Error(`不支持的规则类型: ${type}`);
 }
 
 // 创建规则文件（wpl / oml / knowledge）
 export async function createRuleFile(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('创建规则文件时必须提供类型和文件名');
   }
 
   await httpRequest.post('/config/rules/files', {
+    system,
     rule_type: type,
     file,
   });
@@ -903,7 +441,8 @@ export async function createRuleFile(options) {
 
 // 删除规则文件（wpl / oml / knowledge）
 export async function deleteRuleFile(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('删除规则文件时必须提供类型和文件名');
@@ -911,6 +450,7 @@ export async function deleteRuleFile(options) {
 
   await httpRequest.delete('/config/rules/files', {
     params: {
+      system,
       rule_type: type,
       file,
     },
@@ -925,6 +465,7 @@ export async function deleteRuleFile(options) {
  */
 export async function fetchConnectionFiles(options = {}) {
   const { keyword } = options;
+  const system = getSharedSystem();
 
   const keywordParam =
     typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
@@ -932,12 +473,14 @@ export async function fetchConnectionFiles(options = {}) {
   const [sourceResponse, sinkResponse] = await Promise.all([
     httpRequest.get('/config/files', {
       params: {
+        system,
         rule_type: 'source_connect',
         keyword: keywordParam,
       },
     }),
     httpRequest.get('/config/files', {
       params: {
+        system,
         rule_type: 'sink_connect',
         keyword: keywordParam,
       },
@@ -951,12 +494,20 @@ export async function fetchConnectionFiles(options = {}) {
     sourceItems.map((item) => ({
       file: item?.file,
       displayName: getConnectionDisplayName(item?.file, item?.display_name),
+      sortOrder:
+        typeof item?.sort_order === 'number' && item.sort_order >= 0
+          ? item.sort_order
+          : undefined,
     })),
   );
   const sinks = uniqueConnectionItems(
     sinkItems.map((item) => ({
       file: item?.file,
       displayName: getConnectionDisplayName(item?.file, item?.display_name),
+      sortOrder:
+        typeof item?.sort_order === 'number' && item.sort_order >= 0
+          ? item.sort_order
+          : undefined,
     })),
   );
 
@@ -972,15 +523,63 @@ export async function fetchConnectionFiles(options = {}) {
  */
 export async function createConnectionConfigFile(options) {
   const { category, file, displayName } = options;
+  const system = getSharedSystem();
 
   if (!category || !file) {
     throw new Error('创建连接配置文件时必须提供类别和文件名');
   }
 
   await httpRequest.post('/config/files', {
+    system,
     rule_type: category,
     file,
     display_name: displayName || undefined,
+  });
+}
+
+/**
+ * 创建配置文件（例如 sink）
+ * @param {Object} options
+ * @param {string} options.type - 配置类型
+ * @param {string} options.file - 文件名
+ * @param {string} [options.displayName] - 展示名
+ */
+export async function createConfigFile(options) {
+  const { type, file, displayName, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
+
+  if (!type || !file) {
+    throw new Error('创建配置文件时必须提供类型和文件名');
+  }
+
+  await httpRequest.post('/config/files', {
+    system,
+    rule_type: type,
+    file,
+    display_name: displayName || undefined,
+  });
+}
+
+/**
+ * 删除配置文件（例如 sink）
+ * @param {Object} options
+ * @param {string} options.type - 配置类型
+ * @param {string} options.file - 文件名
+ */
+export async function deleteConfigFile(options) {
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
+
+  if (!type || !file) {
+    throw new Error('删除配置文件时必须提供类型和文件名');
+  }
+
+  await httpRequest.delete('/config/files', {
+    params: {
+      system,
+      rule_type: type,
+      file,
+    },
   });
 }
 
@@ -992,6 +591,7 @@ export async function createConnectionConfigFile(options) {
  */
 export async function deleteConnectionConfigFile(options) {
   const { category, file } = options;
+  const system = getSharedSystem();
 
   if (!category || !file) {
     throw new Error('删除连接配置文件时必须提供类别和文件名');
@@ -999,10 +599,94 @@ export async function deleteConnectionConfigFile(options) {
 
   await httpRequest.delete('/config/files', {
     params: {
+      system,
       rule_type: category,
       file,
     },
   });
+}
+
+/**
+ * 获取来源 / 输出配置模板列表
+ * @param {'source'|'sink'} scope
+ */
+export async function fetchConfigTemplates(scope) {
+  if (scope !== RuleType.SOURCE && scope !== RuleType.SINK) {
+    throw new Error('配置模板 scope 仅支持 source 或 sink');
+  }
+
+  const system = getSharedSystem();
+  const response = await httpRequest.get('/config/templates', {
+    params: {
+      system,
+      scope,
+    },
+  });
+
+  return {
+      items: Array.isArray(response?.items)
+      ? response.items.map((item) => ({
+          scope: item?.scope,
+          templateFile: item?.template_file,
+          templateId: item?.template_id,
+          displayName: item?.display_name,
+          connect: item?.connect,
+          connectorType: item?.connector_type,
+          connectorTypeDisplayName: item?.connector_type_display_name,
+          requiredFields: Array.isArray(item?.required_fields) ? item.required_fields : [],
+          insertedFields: Array.isArray(item?.inserted_fields) ? item.inserted_fields : [],
+          omittedFields: Array.isArray(item?.omitted_fields) ? item.omitted_fields : [],
+          fields: Array.isArray(item?.fields)
+            ? item.fields.map((field) => ({
+                name: field?.name,
+                required: Boolean(field?.required),
+                defaultValue: field?.default_value,
+                advanced: Boolean(field?.advanced),
+              }))
+            : [],
+        }))
+      : [],
+  };
+}
+
+/**
+ * 渲染来源 / 输出配置模板片段
+ * @param {Object} options
+ * @param {'source'|'sink'} options.scope
+ * @param {string} options.templateId
+ * @param {string} options.content
+ */
+export async function renderConfigTemplate(options) {
+  const { scope, templateId, content } = options || {};
+
+  if ((scope !== RuleType.SOURCE && scope !== RuleType.SINK) || !templateId) {
+    throw new Error('渲染配置模板时必须提供有效的 scope 和 templateId');
+  }
+
+  const system = getSharedSystem();
+  const response = await httpRequest.post('/config/templates/render', {
+    system,
+    scope,
+    template_id: templateId,
+    content: content || '',
+  });
+
+  return {
+    scope: response?.scope,
+    templateFile: response?.template_file,
+    templateId: response?.template_id,
+    displayName: response?.display_name,
+    connect: response?.connect,
+    connectorType: response?.connector_type,
+    connectorTypeDisplayName: response?.connector_type_display_name,
+    instanceName: response?.instance_name,
+    requiredFields: Array.isArray(response?.required_fields) ? response.required_fields : [],
+    insertedFields: Array.isArray(response?.inserted_fields) ? response.inserted_fields : [],
+    omittedFields: Array.isArray(response?.omitted_fields) ? response.omitted_fields : [],
+    warnings: Array.isArray(response?.warnings) ? response.warnings : [],
+    snippet: response?.snippet || '',
+    content: response?.content || '',
+  };
 }
 
 /**
@@ -1013,7 +697,11 @@ export async function deleteConnectionConfigFile(options) {
  * @returns {Promise<Object>} 校验结果
  */
 export async function validateRuleConfig(options) {
-  const { type, file, content } = options;
+  const { type, file, content, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
   // 所有类型统一走真实后端校验：POST /api/config/rules/validate
 
@@ -1021,9 +709,11 @@ export async function validateRuleConfig(options) {
   let targetFile = file;
   if (!targetFile) {
     if (type === RuleType.SOURCE) {
-      targetFile = 'wpsrc.toml';
+      targetFile = await resolveDefaultConfigFile(RuleType.SOURCE, system);
     } else if (type === RuleType.PARSE) {
-      targetFile = 'wparse.toml';
+      targetFile = await resolveDefaultConfigFile(RuleType.PARSE, system);
+    } else if (type === RuleType.WINDOWS) {
+      targetFile = 'windows.toml';
     } else {
       targetFile = `${type}.toml`;
     }
@@ -1032,6 +722,7 @@ export async function validateRuleConfig(options) {
   const currentContent = content || '';
 
   const response = await httpRequest.post('/config/rules/validate', {
+    system,
     rule_type: type,
     file: targetFile,
     content: currentContent,
@@ -1059,13 +750,18 @@ export async function validateRuleConfig(options) {
  * @returns {Promise<Object>} 保存结果
  */
 export async function saveRuleConfig(options) {
-  const { type, file, content } = options;
+  const { type, file, content, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
   // Source 配置走真实后端保存：POST /api/config
   if (type === RuleType.SOURCE) {
-    const targetFile = file || 'wpsrc.toml';
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE, system));
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.SOURCE,
       file: targetFile,
       content: content || '',
@@ -1087,6 +783,7 @@ export async function saveRuleConfig(options) {
     }
 
     await httpRequest.post('/config', {
+      system,
       rule_type: type,
       file: targetFile,
       content: content || '',
@@ -1102,9 +799,10 @@ export async function saveRuleConfig(options) {
 
   // 解析配置（parse）走真实后端保存：POST /api/config，固定文件 wparse.toml
   if (type === RuleType.PARSE) {
-    const targetFile = 'wparse.toml';
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE, system));
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.PARSE,
       file: targetFile,
       content: content || '',
@@ -1126,6 +824,7 @@ export async function saveRuleConfig(options) {
     }
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.SINK,
       file: targetFile,
       content: content || '',
@@ -1139,14 +838,22 @@ export async function saveRuleConfig(options) {
     };
   }
 
-  // wpl / oml 规则保存走通用规则接口：POST /api/config/rules/save
-  if (type === RuleType.WPL || type === RuleType.OML) {
-    const targetFile = file;
+  // wpl / oml / schema / rule 规则保存走通用规则接口：POST /api/config/rules/save
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS
+  ) {
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }
 
     await httpRequest.post('/config/rules/save', {
+      system,
       rule_type: type,
       file: targetFile,
       content: content || '',
@@ -1160,35 +867,32 @@ export async function saveRuleConfig(options) {
     };
   }
 
-  // 其余类型暂时继续使用 Mock 行为
-  await new Promise((resolve) => {
-    setTimeout(resolve, MOCK_DELAY);
-  });
-
-  const fileSize = content ? content.length : 0;
-
-  return {
-    success: true,
-    fileSize,
-    message: '保存成功',
-  };
+  throw new Error(`不支持的保存类型: ${type}`);
 }
 
 // 保存知识库规则配置（knowledge 类型）
 export async function saveKnowledgeRule(options) {
-  const { file, config, createSql, insertSql, data } = options;
+  const { file, config, createSql, insertSql, data, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!file) {
     throw new Error('当前未选择任何数据集');
   }
 
-  await httpRequest.post('/config/knowledge/save', {
-    file,
-    config: config ?? '',
-    create_sql: createSql ?? '',
-    insert_sql: insertSql ?? '',
-    data: data ?? '',
-  });
+  await httpRequest.post(
+    '/config/knowledge/save',
+    {
+      file,
+      system,
+      config: config ?? '',
+      create_sql: createSql ?? '',
+      insert_sql: insertSql ?? '',
+      data: data ?? '',
+    },
+    {
+      timeout: KNOWLEDGE_SAVE_TIMEOUT_MS,
+    },
+  );
 
   const fileSize = (config || '').length + (createSql || '').length + (insertSql || '').length + (data || '').length;
 
@@ -1199,8 +903,10 @@ export async function saveKnowledgeRule(options) {
   };
 }
 
-export async function fetchKnowdbConfig() {
-  const response = await httpRequest.get('/config/knowledge/knowdb');
+export async function fetchKnowdbConfig(system) {
+  const response = await httpRequest.get('/config/knowledge/knowdb', {
+    params: { system: resolveSystem(system) },
+  });
   return {
     file: response?.file || 'knowdb.toml',
     content: response?.content || '',
@@ -1208,8 +914,9 @@ export async function fetchKnowdbConfig() {
   };
 }
 
-export async function saveKnowdbConfig(content) {
+export async function saveKnowdbConfig(content, system) {
   await httpRequest.post('/config/knowledge/knowdb', {
+    system: resolveSystem(system),
     content: content ?? '',
   });
   return {
@@ -1221,7 +928,7 @@ export async function saveKnowdbConfig(content) {
 
 /**
  * 获取调试页知识库数据源列表。
- * @returns {Promise<string[]>} 知识库表或外部 provider 名称
+ * @returns {Promise<Array<{tagName: string, sourceKind: string, label: string, suggestedSql: string}>>} 知识库表或外部 provider 信息
  */
 export async function fetchDebugKnowledgeDatasets() {
   const response = await httpRequest.get('/debug/knowledge/status');
@@ -1230,8 +937,25 @@ export async function fetchDebugKnowledgeDatasets() {
   }
 
   return response
-    .filter((item) => item?.is_active !== false)
-    .map((item) => item?.tag_name)
+    .filter((item) => item && typeof item === 'object' && item?.is_active !== false)
+    .map((item) => {
+      const tagName = item?.tag_name;
+      if (!tagName) {
+        return null;
+      }
+
+      const sourceKind = String(item?.source_kind || '').trim().toLowerCase();
+      if (sourceKind !== 'provider' && sourceKind !== 'local') {
+        return null;
+      }
+
+      return {
+        tagName,
+        sourceKind,
+        label: String(item?.label || tagName),
+        suggestedSql: String(item?.suggested_sql || ''),
+      };
+    })
     .filter(Boolean);
 }
 
@@ -1261,15 +985,20 @@ const extractBackendErrorMessage = (error, fallbackMessage = '查询失败') => 
 
 /**
  * 执行知识库 SQL 查询
- * @param {string} table - 当前选择的数据源名称，provider 时为 postgres/mysql，本地时为知识库目录名
+ * @param {string|{tagName: string, sourceKind?: string}} table - 当前选择的数据源信息
  * @param {string} sql - SQL 查询语句
  * @returns {Promise<{fields: Array, columns: Array}>} 处理后的查询结果
  */
 export async function executeKnowledgeSql(table, sql) {
+  const tableName =
+    (table && typeof table === 'object' ? table.tagName || table.value : table) || '';
+  const sourceKind =
+    table && typeof table === 'object' ? table.sourceKind || '' : '';
   let response;
   try {
     response = await httpRequest.post('/debug/knowledge/query', {
-      table: table || '',
+      table: tableName,
+      source_kind: sourceKind,
       sql,
     });
   } catch (error) {

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use wp_station::server::Setting;
 use wp_station::server::sandbox::SandboxStage;
-use wp_station::server::sandbox_diagnostics::collect_stage_hits;
+use wp_station::server::sandbox::diagnostics::collect_stage_hits;
 
 fn write_log(path: &PathBuf, content: &str) {
     if let Some(parent) = path.parent() {

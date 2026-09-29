@@ -1,0 +1,18 @@
+extern mod vfm { path = "@{PATH}"; }
+
+mod  envs {
+  env default {
+     ROOT= "./";
+  }
+}
+mod main   : ver_adm {
+
+#[auto_load(entry)]
+  flow _entry : ver.use {
+  }
+
+#[auto_load(exit)]
+  flow _set_ver | ver.syn_file {
+    SYN_FILE= "${ENV_ROOT}/Cargo.toml";
+  }
+}

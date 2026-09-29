@@ -1,7 +1,9 @@
+//! 沙盒运行记录数据访问层。
+
+use crate::constants::sandbox::DEFAULT_HISTORY_LIMIT;
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
 use crate::server::sandbox::{RunOptions, SandboxRun, TaskStatus};
-use crate::utils::common::DEFAULT_HISTORY_LIMIT;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DbErr, EntityTrait, JsonValue, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,

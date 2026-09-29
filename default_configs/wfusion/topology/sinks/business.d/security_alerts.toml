@@ -1,0 +1,25 @@
+version = "1.0"
+
+[sink_group]
+name = "security_alerts_to_multi_sink"
+windows = ["security_alerts"]
+wf_meta_disable = [
+    "__wfu_id",
+    "__wfu_rule_name",
+    "__wfu_score",
+    "__wfu_entity_type",
+    "__wfu_entity_id",
+    "__wfu_origin",
+    "__wfu_close_reason",
+    "__wfu_fired_at",
+    "__wfu_emit_time",
+    "__wfu_summary",
+]
+
+[[sink_group.sinks]]
+connect = "file_json_sink"
+name = "security_alerts_file"
+
+[sink_group.sinks.params]
+base = "./data/out_dat/"
+file = "alert.json"

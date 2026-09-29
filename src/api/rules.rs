@@ -1,7 +1,9 @@
-// 规则配置 API - HTTP 请求处理层
+//! 规则管理 API。
+//!
+//! 负责规则文件、知识库文件和 knowdb 主配置的读写与校验入口。
+//! 当前仍由一套 API 承接两套系统，因此请求必须显式传入 `system`。
 
-use actix_web::{HttpRequest, HttpResponse, delete, get, post, web};
-use urlencoding::decode;
+use actix_web::{HttpResponse, delete, get, post, web};
 
 use crate::error::AppError;
 use crate::server::{
@@ -12,126 +14,114 @@ use crate::server::{
     save_knowledge_rule_logic, save_rule_logic, validate_rule_logic,
 };
 
-/// 配置管理-规则配置：获取规则文件列表
+/// 知识库主配置查询参数。
+#[derive(serde::Deserialize)]
+pub struct KnowdbQuery {
+    pub system: crate::utils::SystemKind,
+}
+
 #[get("/api/config/rules/files")]
+/// 配置管理：获取规则文件列表。
 pub async fn get_rule_files(query: web::Query<RuleFilesQuery>) -> Result<HttpResponse, AppError> {
     let resp = get_rule_files_logic(query.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 配置管理-规则配置：获取规则内容
 #[get("/api/config/rules")]
+/// 配置管理：获取规则内容。
 pub async fn get_rule_content(
     query: web::Query<RuleContentQuery>,
 ) -> Result<HttpResponse, AppError> {
     // 查询规则配置内容
-    let resp = get_rule_content_logic(query.rule_type, query.file.clone()).await?;
+    let resp = get_rule_content_logic(query.system, query.rule_type, query.file.clone()).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }
 
-fn operator_from_request(req: &HttpRequest) -> Option<String> {
-    req.headers().get("x-operator").and_then(|value| {
-        let raw = value.to_str().ok()?.trim();
-        if raw.is_empty() {
-            return None;
-        }
-        decode(raw)
-            .ok()
-            .map(|cow| cow.trim().to_string())
-            .filter(|decoded| !decoded.is_empty())
-    })
-}
-
-/// 配置管理-规则配置：创建规则文件
 #[post("/api/config/rules/files")]
+/// 配置管理：创建规则文件。
 pub async fn create_rule_file(
-    _http_req: HttpRequest,
     req: web::Json<CreateRuleFileRequest>,
 ) -> Result<HttpResponse, AppError> {
-    // 创建新的规则文件
-    create_rule_file_logic(req.rule_type, req.file.clone()).await?;
+    // 规则目录由 server 层根据 system + rule_type 解析。
+    create_rule_file_logic(req.system, req.rule_type, req.file.clone()).await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 配置管理-规则配置：删除规则文件
 #[delete("/api/config/rules/files")]
+/// 配置管理：删除规则文件。
 pub async fn delete_rule_file(
-    http_req: HttpRequest,
     query: web::Query<DeleteRuleFileQuery>,
 ) -> Result<HttpResponse, AppError> {
-    // 删除规则文件
-    let operator = operator_from_request(&http_req);
-    delete_rule_file_logic(query.rule_type, query.file.clone(), operator).await?;
+    // 删除后还需要由 server 层继续处理 Gitea 同步和草稿刷新。
+    delete_rule_file_logic(query.system, query.rule_type, query.file.clone()).await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 配置管理-规则配置：保存规则内容
 #[post("/api/config/rules/save")]
-pub async fn save_rule(
-    http_req: HttpRequest,
-    req: web::Json<SaveRuleRequest>,
-) -> Result<HttpResponse, AppError> {
-    // 保存规则配置
-    let operator = operator_from_request(&http_req);
+/// 配置管理：保存规则内容。
+pub async fn save_rule(req: web::Json<SaveRuleRequest>) -> Result<HttpResponse, AppError> {
+    // 保存链路统一走 server 层，避免在 API 层散落目录和同步逻辑。
     save_rule_logic(
+        req.system,
         req.rule_type,
         req.file.clone(),
         req.content.clone(),
-        operator,
     )
     .await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 配置管理-知识库配置：保存知识库规则
 #[post("/api/config/knowledge/save")]
+/// 配置管理：保存知识库规则。
 pub async fn save_knowledge_rule(
-    http_req: HttpRequest,
     req: web::Json<SaveKnowledgeRuleRequest>,
 ) -> Result<HttpResponse, AppError> {
-    // 保存知识库规则配置（包含 config、create_sql、insert_sql、data）
-    let operator = operator_from_request(&http_req);
+    // 知识库目录结构与普通规则不同，因此独立走专门保存逻辑。
     save_knowledge_rule_logic(
+        req.system,
         req.file.clone(),
         req.config.clone(),
         req.create_sql.clone(),
         req.insert_sql.clone(),
         req.data.clone(),
-        operator,
     )
     .await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 配置管理-知识库配置：获取 knowdb
 #[get("/api/config/knowledge/knowdb")]
-pub async fn get_knowdb_config() -> Result<HttpResponse, AppError> {
-    let resp = get_knowdb_config_logic().await?;
+/// 配置管理：获取 knowdb 配置。
+pub async fn get_knowdb_config(query: web::Query<KnowdbQuery>) -> Result<HttpResponse, AppError> {
+    let resp = get_knowdb_config_logic(query.system).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 
-/// 配置管理-知识库配置：保存 knowdb
 #[post("/api/config/knowledge/knowdb")]
+/// 配置管理：保存 knowdb 配置。
 pub async fn save_knowdb_config(
-    http_req: HttpRequest,
     req: web::Json<SaveKnowdbConfigRequest>,
 ) -> Result<HttpResponse, AppError> {
-    let operator = operator_from_request(&http_req);
-    save_knowdb_config_logic(req.content.clone(), operator).await?;
+    save_knowdb_config_logic(req.system, req.content.clone()).await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-/// 配置管理-规则配置：校验规则
 #[post("/api/config/rules/validate")]
+/// 配置管理：校验规则。
 pub async fn validate_rule(req: web::Json<ValidateRuleRequest>) -> Result<HttpResponse, AppError> {
-    // 校验规则配置是否正确
-    let resp = validate_rule_logic(req.rule_type, req.file.clone()).await?;
+    // 校验入口统一，但内部仍按 system 分发到各自实现。
+    let resp = validate_rule_logic(
+        req.system,
+        req.rule_type,
+        req.file.clone(),
+        req.content.clone(),
+    )
+    .await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

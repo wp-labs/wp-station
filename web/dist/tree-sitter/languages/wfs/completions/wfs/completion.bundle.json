@@ -1,0 +1,178 @@
+{
+  "language": "wfs",
+  "version": 1,
+  "valid_for": "[\\w.`/]+",
+  "locales": {
+    "zh-CN": [
+      {
+        "label": "window",
+        "type": "keyword",
+        "detail": "定义窗口",
+        "info": "声明一个可被 WFL events、join 或 yield 引用的数据窗口。",
+        "insert_text": "window ${name} {\n  ${attributes}\n  fields {\n    ${field}: ${type}\n  }\n}",
+        "context": ["wfs.root"]
+      },
+      {
+        "label": "输入窗口",
+        "type": "snippet",
+        "detail": "带输入流和事件时间的窗口",
+        "info": "用于订阅输入流。over 大于 0 时必须指定 time 字段。",
+        "insert_text": "window ${name} {\n  stream = \"${stream}\"\n  time = ${event_time}\n  over = ${duration}\n  fields {\n    ${event_time}: time\n    ${field}: ${type}\n  }\n}",
+        "context": ["wfs.root"]
+      },
+      {
+        "label": "静态窗口",
+        "type": "snippet",
+        "detail": "静态集合或维度窗口",
+        "info": "over = 0 表示静态集合，可省略 stream 和 time。",
+        "insert_text": "window ${name} {\n  over = 0\n  fields {\n    ${key}: ${type}\n    ${value}: chars\n  }\n}",
+        "context": ["wfs.root"]
+      },
+      {
+        "label": "输出窗口",
+        "type": "snippet",
+        "detail": "仅作为 yield 目标的窗口",
+        "info": "不声明 stream，供 WFL yield 写入。",
+        "insert_text": "window ${name} {\n  fields {\n    entity_id: chars\n    score: float\n    message: chars\n  }\n}",
+        "context": ["wfs.root"]
+      },
+      {
+        "label": "stream",
+        "type": "keyword",
+        "detail": "绑定输入流",
+        "info": "接受一个字符串或非空字符串数组；纯输出窗口可省略。",
+        "insert_text": "stream = \"${stream}\"",
+        "context": ["wfs.window"]
+      },
+      {
+        "label": "stream[]",
+        "type": "snippet",
+        "detail": "绑定多个兼容输入流",
+        "info": "多个输入流必须具有兼容 schema。",
+        "insert_text": "stream = [\"${stream1}\", \"${stream2}\"]",
+        "context": ["wfs.window"]
+      },
+      {
+        "label": "time",
+        "type": "keyword",
+        "detail": "指定事件时间字段",
+        "info": "over > 0 时必填，字段必须在 fields 中声明为 time。",
+        "insert_text": "time = ${event_time}",
+        "context": ["wfs.window"]
+      },
+      {
+        "label": "over",
+        "type": "keyword",
+        "detail": "设置窗口保留时长",
+        "info": "使用 s/m/h/d 时长；0 表示静态集合。",
+        "insert_text": "over = ${duration}",
+        "context": ["wfs.window"]
+      },
+      {
+        "label": "over = 0",
+        "type": "snippet",
+        "detail": "静态集合保留方式",
+        "info": "静态或维度窗口不要求事件时间字段。",
+        "insert_text": "over = 0",
+        "context": ["wfs.window", "wfs.over_value"]
+      },
+      {
+        "label": "fields",
+        "type": "keyword",
+        "detail": "定义字段集合",
+        "info": "字段声明格式为 name: type，不使用分号。",
+        "insert_text": "fields {\n  ${field}: ${type}\n}",
+        "context": ["wfs.window"]
+      },
+      {
+        "label": "field",
+        "type": "snippet",
+        "detail": "声明窗口字段",
+        "info": "字段名可为普通、点号或反引号标识符。",
+        "insert_text": "${field}: ${type}",
+        "context": ["wfs.fields"]
+      },
+      {
+        "label": "chars",
+        "type": "type",
+        "detail": "UTF-8 字符串",
+        "info": "文本字段。",
+        "insert_text": "chars",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "digit",
+        "type": "type",
+        "detail": "64 位整数",
+        "info": "整数数值字段。",
+        "insert_text": "digit",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "float",
+        "type": "type",
+        "detail": "浮点数",
+        "info": "双精度浮点字段。",
+        "insert_text": "float",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "bool",
+        "type": "type",
+        "detail": "布尔值",
+        "info": "true 或 false。",
+        "insert_text": "bool",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "time",
+        "type": "type",
+        "detail": "时间",
+        "info": "事件时间或业务时间字段。",
+        "insert_text": "time",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "ip",
+        "type": "type",
+        "detail": "IP 地址",
+        "info": "IPv4 或 IPv6 字段。",
+        "insert_text": "ip",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "hex",
+        "type": "type",
+        "detail": "十六进制文本",
+        "info": "十六进制值字段。",
+        "insert_text": "hex",
+        "context": ["wfs.field_type", "wfs.array_element_type"]
+      },
+      {
+        "label": "array",
+        "type": "type",
+        "detail": "数组",
+        "info": "可省略元素类型，也可写成 array/T。",
+        "insert_text": "array",
+        "context": ["wfs.field_type"]
+      },
+      {
+        "label": "array/T",
+        "type": "type",
+        "detail": "指定元素类型的数组",
+        "info": "T 只能是 WFS 基础类型。",
+        "insert_text": "array/${type}",
+        "context": ["wfs.field_type"]
+      },
+      {
+        "label": "object",
+        "type": "type",
+        "detail": "结构化对象",
+        "info": "对象类型字段。",
+        "insert_text": "object",
+        "context": ["wfs.field_type"]
+      }
+    ],
+    "en": []
+  }
+}

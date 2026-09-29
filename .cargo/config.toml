@@ -1,0 +1,3 @@
+[env]
+# 集成测试共享全局数据库连接池和项目目录，必须串行执行以避免相互清理测试数据。
+RUST_TEST_THREADS = { value = "1", force = false }
