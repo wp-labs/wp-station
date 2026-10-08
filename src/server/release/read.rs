@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::db::{
     ReleaseStatus, find_active_restore_job, find_all_releases, find_devices_by_ids,
-    find_latest_draft_release, find_latest_passed_release_by_group, find_latest_sandbox_run,
+    find_latest_draft_release, find_latest_sandbox_run, find_previous_successful_release_by_group,
     find_release_by_id, find_release_targets_by_release, find_releases_by_system,
     find_restore_job_by_target_release,
 };
@@ -152,10 +152,10 @@ pub async fn get_release_detail_logic(id: i32) -> Result<ReleaseDetailResponse, 
             if !release_contains_group(&release.release_group, group) {
                 continue;
             }
-            let previous_release = find_latest_passed_release_by_group(
+            let previous_release = find_previous_successful_release_by_group(
                 release_system(&release)?,
                 group.as_ref(),
-                Some(id),
+                &release,
             )
             .await?;
             if let Some(prev) = previous_release.as_ref().map(|rel| rel.version.clone()) {

@@ -182,14 +182,38 @@ fn project_version_for_group(
     group: ReleaseGroup,
 ) -> Option<String> {
     match project_version {
-        Some(ProjectVersionPayload::LegacyString(value)) if !value.trim().is_empty() => {
-            Some(value.to_string())
+        Some(ProjectVersionPayload::LegacyString(value)) => {
+            legacy_project_version_for_group(value, group)
         }
         Some(ProjectVersionPayload::Grouped(grouped)) => match group {
             ReleaseGroup::Models => grouped.models.as_ref().and_then(version_entry_value),
             ReleaseGroup::Infra => grouped.infra.as_ref().and_then(version_entry_value),
         },
         _ => None,
+    }
+}
+
+/// 从状态接口的旧字符串格式中提取分组版本；单版本字符串仍按旧协议兼容。
+fn legacy_project_version_for_group(value: &str, group: ReleaseGroup) -> Option<String> {
+    let mut has_group_versions = false;
+    for entry in value.split(',') {
+        let Some((name, version)) = entry.trim().split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if !matches!(name, "models" | "infra") {
+            continue;
+        }
+        has_group_versions = true;
+        if name == group.as_ref() && !version.trim().is_empty() {
+            return Some(version.trim().to_string());
+        }
+    }
+
+    if has_group_versions || value.trim().is_empty() {
+        None
+    } else {
+        Some(value.trim().to_string())
     }
 }
 

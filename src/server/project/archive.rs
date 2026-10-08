@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use flate2::read::GzDecoder;
+use rand::{RngExt, distr::Alphanumeric};
 use zip::ZipArchive;
 
 use crate::constants::project::{
@@ -32,7 +33,12 @@ pub(super) fn new_archive_import_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
-    format!("import-{}-{}", std::process::id(), millis)
+    let random_suffix: String = (&mut rand::rng())
+        .sample_iter(Alphanumeric)
+        .take(16)
+        .map(char::from)
+        .collect();
+    format!("import-{}-{}-{}", std::process::id(), millis, random_suffix)
 }
 
 /// 解析并校验导入任务目录。

@@ -46,9 +46,9 @@ pub use device::{
 // 导出 release 函数
 pub use release::{
     archive_extra_draft_releases, create_release, find_all_releases, find_latest_draft_release,
-    find_latest_passed_release, find_latest_passed_release_by_group, find_release_by_id,
-    find_releases_by_system, touch_release_as_draft, update_release_group, update_release_pipeline,
-    update_release_status,
+    find_latest_passed_release, find_latest_successful_release_by_group,
+    find_previous_successful_release_by_group, find_release_by_id, find_releases_by_system,
+    touch_release_as_draft, update_release_group, update_release_pipeline, update_release_status,
 };
 
 // 导出 user 函数

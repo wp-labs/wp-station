@@ -38,6 +38,19 @@ const INTEGRATION_OVERVIEW_KEY = 'integration-overview';
 const WFUSION_WINDOWS_FILE = 'windows.toml';
 const WFUSION_GLOBAL_RULE_FILE = '_global.wfl';
 
+const buildKnowledgeFileList = (datasets, configFile, keyword) => {
+  const normalizedKeyword = String(keyword || '').trim().toLocaleLowerCase();
+  const showConfigFile =
+    Boolean(configFile) &&
+    (!normalizedKeyword ||
+      String(configFile).toLocaleLowerCase().includes(normalizedKeyword));
+  const normalizedDatasets = Array.isArray(datasets)
+    ? datasets.filter((item) => item && item !== configFile)
+    : [];
+
+  return [...(showConfigFile ? [configFile] : []), ...normalizedDatasets];
+};
+
 const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
     return '';
@@ -693,9 +706,12 @@ function RuleManagePage() {
   );
   const pagedKnowledgeDatasets = knowledgeDatasets; // 当前页数据由后端提供
   const knowledgeListForDisplay = React.useMemo(() => {
-    const datasets = Array.isArray(pagedKnowledgeDatasets) ? pagedKnowledgeDatasets : [];
-    return [ruleFilesMeta.knowledgeConfigFile, ...datasets].filter(Boolean);
-  }, [pagedKnowledgeDatasets, ruleFilesMeta.knowledgeConfigFile]);
+    return buildKnowledgeFileList(
+      pagedKnowledgeDatasets,
+      ruleFilesMeta.knowledgeConfigFile,
+      knowledgeSearch,
+    );
+  }, [pagedKnowledgeDatasets, ruleFilesMeta.knowledgeConfigFile, knowledgeSearch]);
   
   /**
    * 加载配置内容
@@ -1923,12 +1939,18 @@ function RuleManagePage() {
                   );
                   setKnowledgeDatasets(normalizedDatasets);
                   setKnowledgeTotal(result?.total || normalizedDatasets.length);
-                  const nextActive = normalizedDatasets.includes(activeKnowledgeDataset)
+                  const visibleFiles = buildKnowledgeFileList(
+                    normalizedDatasets,
+                    nextKnowledgeConfigFile,
+                    knowledgeSearch,
+                  );
+                  const nextActive = visibleFiles.includes(activeKnowledgeDataset)
                     ? activeKnowledgeDataset
-                    : nextKnowledgeConfigFile;
+                    : visibleFiles[0] || '';
                   setActiveKnowledgeDataset(nextActive);
-                  if (nextActive !== nextKnowledgeConfigFile && !normalizedDatasets.length) {
+                  if (!nextActive || nextActive === nextKnowledgeConfigFile) {
                     setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
+                    setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                   }
                   setKnowledgePage(result?.page || 1);
                 } catch (error) {
@@ -1986,17 +2008,23 @@ function RuleManagePage() {
                               ? result.items
                               : [];
                             const normalized = datasets.filter(
-                              (item) => item !== knowledgeConfigFile,
+                              (item) =>
+                                item !==
+                                (result?.meta?.knowledgeConfigFile || knowledgeConfigFile),
                             );
                             setKnowledgeDatasets(normalized);
                             setKnowledgeTotal(result?.total || normalized.length);
-                            if (
-                              activeKnowledgeDataset !== knowledgeConfigFile &&
-                              !normalized.includes(activeKnowledgeDataset)
-                            ) {
-                              const nextActive = normalized[0] || knowledgeConfigFile;
+                            const nextConfigFile =
+                              result?.meta?.knowledgeConfigFile || knowledgeConfigFile;
+                            const visibleFiles = buildKnowledgeFileList(
+                              normalized,
+                              nextConfigFile,
+                              value,
+                            );
+                            if (!visibleFiles.includes(activeKnowledgeDataset)) {
+                              const nextActive = visibleFiles[0] || '';
                               setActiveKnowledgeDataset(nextActive);
-                              if (nextActive === knowledgeConfigFile) {
+                              if (!nextActive || nextActive === nextConfigFile) {
                                 setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                                 setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                               }

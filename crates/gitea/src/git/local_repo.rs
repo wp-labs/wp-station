@@ -108,6 +108,20 @@ impl LocalRepository {
         Ok(diff_result)
     }
 
+    /// 比较两个明确指定的版本 tag。
+    pub fn diff_between_tags(
+        &self,
+        base_version: &str,
+        target_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        self.repo.diff_between_tags(base_version, target_version)
+    }
+
+    /// 比较指定基线 tag 与仓库当前已提交的 HEAD。
+    pub fn diff_tag_to_head(&self, base_version: &str) -> Result<DiffResultWithFiles, GitError> {
+        self.repo.diff_tag_to_head(base_version)
+    }
+
     /// 获取 diff 统计信息 (文件数, 插入行数, 删除行数)
     pub fn diff_stats(&self) -> Result<DiffStats, GitError> {
         let (files_changed, insertions, deletions) = self.repo.diff_stats()?;

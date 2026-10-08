@@ -164,6 +164,27 @@ impl GiteaClient {
         local.diff_with_previous_version(curr_version)
     }
 
+    /// 比较两个明确指定的版本 tag。
+    pub fn diff_between_tags<P: AsRef<Path>>(
+        &self,
+        local_path: P,
+        base_version: &str,
+        target_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
+        local.diff_between_tags(base_version, target_version)
+    }
+
+    /// 比较指定基线 tag 与仓库当前已提交的 HEAD。
+    pub fn diff_tag_to_head<P: AsRef<Path>>(
+        &self,
+        local_path: P,
+        base_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
+        local.diff_tag_to_head(base_version)
+    }
+
     pub fn create_push_tag<P: AsRef<Path>>(
         &self,
         local_path: P,

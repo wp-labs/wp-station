@@ -4,8 +4,11 @@
 
 use std::path::Path;
 
-use crate::constants::release::GROUP_DRAFT;
-use crate::db::{Release, ReleaseGroup, find_latest_passed_release_by_group, find_release_by_id};
+use crate::constants::{gitea::REPO_BASELINE_TAG, release::GROUP_DRAFT};
+use crate::db::{
+    Release, ReleaseGroup, find_latest_successful_release_by_group,
+    find_previous_successful_release_by_group, find_release_by_id,
+};
 use crate::error::AppError;
 use crate::server::Setting;
 use crate::utils::{SystemKind, layout_for_system};
@@ -23,7 +26,7 @@ struct ReleaseDiffGroupData {
     files: Vec<ReleaseDiffFileInfo>,
 }
 
-/// 获取版本差异（与上一个版本的 git diff），按文件分批返回。
+/// 获取版本差异，以成功发布记录作为基线，按文件分批返回。
 pub async fn get_release_diff_logic(
     id: i32,
     offset: usize,
@@ -97,17 +100,16 @@ async fn collect_release_diff_groups_for_release(
     }
 
     let mut groups = Vec::new();
-    for group in all_release_groups() {
+    for group in all_release_groups()
+        .into_iter()
+        .filter(|group| release_contains_group(&release.release_group, *group))
+    {
         groups.push(
             collect_release_diff_for_group(
                 system,
                 group.as_ref(),
-                if release_contains_group(&release.release_group, group) {
-                    Some(&release.version)
-                } else {
-                    None
-                },
-                Some(release.id),
+                Some(&release.version),
+                Some(&release),
             )
             .await?,
         );
@@ -130,10 +132,10 @@ async fn collect_draft_diff_groups(
 async fn collect_release_diff_for_group(
     system: SystemKind,
     release_group: &str,
-    version: Option<&str>,
-    exclude_release_id: Option<i32>,
+    target_version: Option<&str>,
+    current_release: Option<&Release>,
 ) -> Result<ReleaseDiffGroupData, AppError> {
-    use gitea::{DiffResultWithFiles, GiteaClient, GiteaConfig};
+    use gitea::{GiteaClient, GiteaConfig};
 
     let parsed_group = ReleaseGroup::parse(release_group)?;
     let setting = Setting::load();
@@ -152,50 +154,33 @@ async fn collect_release_diff_for_group(
         ReleaseGroup::Infra => vec![layout.infra_root],
     };
 
-    let previous_release =
-        find_latest_passed_release_by_group(system, release_group, exclude_release_id).await?;
-    let previous_version = previous_release.as_ref().map(|rel| rel.version.clone());
-
-    let empty_diff = || DiffResultWithFiles {
-        files: vec![],
-        stats: gitea::DiffStats {
-            files_changed: 0,
-            insertions: 0,
-            deletions: 0,
-        },
+    let previous_release = match current_release {
+        Some(current) => {
+            find_previous_successful_release_by_group(system, release_group, current).await?
+        }
+        None => find_latest_successful_release_by_group(system, release_group).await?,
     };
+    let previous_version = previous_release.as_ref().map(|rel| rel.version.clone());
+    let baseline_version = previous_version.as_deref().unwrap_or(REPO_BASELINE_TAG);
 
     let mut merged_files = Vec::new();
     for project_path in repo_targets {
-        let diff_result = if let Some(curr_version) = version {
-            match gitea_client.diff_with_previous_version(&project_path, curr_version) {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!(
-                        "获取发布版本差异失败: version={}, release_group={}, repo={}, error={}",
-                        curr_version,
-                        release_group,
-                        project_path.display(),
-                        e
-                    );
-                    empty_diff()
-                }
-            }
+        let diff_result = if let Some(target_version) = target_version {
+            gitea_client.diff_between_tags(&project_path, baseline_version, target_version)
         } else {
-            match gitea_client.diff_with_newest_tag(&project_path) {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!(
-                        "获取草稿仓库差异失败: release_group={}, repo={}, error={}",
-                        release_group,
-                        project_path.display(),
-                        e
-                    );
-                    empty_diff()
-                }
-            }
+            gitea_client.diff_tag_to_head(&project_path, baseline_version)
         };
 
+        let diff_result = diff_result.map_err(|error| {
+            AppError::git(format!(
+                "计算发布差异失败: release_group={}, baseline={}, target={}, repo={}, error={}",
+                release_group,
+                baseline_version,
+                target_version.unwrap_or("main HEAD"),
+                project_path.display(),
+                error
+            ))
+        })?;
         merged_files.extend(diff_result.files);
     }
 
@@ -215,7 +200,7 @@ async fn collect_release_diff_for_group(
         summary: ReleaseDiffGroupSummary {
             release_group: release_group.to_string(),
             title: crate::constants::release::group_title(parsed_group.as_ref()).to_string(),
-            current_version: version.unwrap_or(GROUP_DRAFT).to_string(),
+            current_version: target_version.unwrap_or(GROUP_DRAFT).to_string(),
             previous_version,
             stats,
             total_files: files.len(),

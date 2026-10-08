@@ -1018,28 +1018,47 @@ impl GitRepository {
     ) -> Result<DiffResultWithFiles, GitError> {
         // 获取前一个版本的标签名
         let previous_tag = self.get_previous_tag(curr_version)?;
+        self.diff_between_tags(&previous_tag, curr_version)
+    }
 
-        // 解析当前版本标签引用
-        let curr_tag_ref = self
+    /// 比较两个明确指定的版本 tag，避免调用方依赖 Git 提交时间猜测基线。
+    pub fn diff_between_tags(
+        &self,
+        base_version: &str,
+        target_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        let base_tree = self.tag_tree(base_version)?;
+        let target_tree = self.tag_tree(target_version)?;
+        self.diff_trees(&base_tree, &target_tree)
+    }
+
+    /// 比较指定基线 tag 与配置的本地主分支，草稿只展示已经提交的仓库内容。
+    pub fn diff_tag_to_head(&self, base_version: &str) -> Result<DiffResultWithFiles, GitError> {
+        let base_tree = self.tag_tree(base_version)?;
+        let main_ref = self
             .repo
-            .revparse_single(&format!("refs/tags/{}", curr_version))?;
-        let curr_commit = curr_tag_ref.peel_to_commit()?;
-        let curr_tree = curr_commit.tree()?;
+            .find_reference(&format!("refs/heads/{}", self.branch))?;
+        let head_tree = main_ref.peel_to_tree()?;
+        self.diff_trees(&base_tree, &head_tree)
+    }
 
-        // 解析前一个版本标签引用
-        let prev_tag_ref = self
+    fn tag_tree(&self, version: &str) -> Result<git2::Tree<'_>, GitError> {
+        let tag_ref = self
             .repo
-            .revparse_single(&format!("refs/tags/{}", previous_tag))?;
-        let prev_commit = prev_tag_ref.peel_to_commit()?;
-        let prev_tree = prev_commit.tree()?;
+            .revparse_single(&format!("refs/tags/{version}"))
+            .map_err(|_| GitError::InvalidOperation(format!("找不到标签: {version}")))?;
+        Ok(tag_ref.peel_to_commit()?.tree()?)
+    }
 
-        // 创建 diff 对象（从前一个版本到当前版本）
+    fn diff_trees(
+        &self,
+        old_tree: &git2::Tree<'_>,
+        new_tree: &git2::Tree<'_>,
+    ) -> Result<DiffResultWithFiles, GitError> {
         let mut diff_opts = git2::DiffOptions::new();
-        let diff = self.repo.diff_tree_to_tree(
-            Some(&prev_tree),
-            Some(&curr_tree),
-            Some(&mut diff_opts),
-        )?;
+        let diff =
+            self.repo
+                .diff_tree_to_tree(Some(old_tree), Some(new_tree), Some(&mut diff_opts))?;
 
         // 获取统计信息
         let stats = diff.stats()?;

@@ -35,15 +35,15 @@ tar = "0.4"
 flate2 = "1"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
-wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
-wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.26.0" }
-wpl           = { package = "wp-lang",       version = "~0.5" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.27.0" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.27.0" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.27.0" }
+wpl           = { package = "wp-lang",       version = "~0.6" }
 wp_primitives = { package = "wp-primitives", version = "~0.2" }
-wp-knowledge  = "~0.16"
-wp-model-core = "~0.9"
-wp-parse-api = "~0.11"
-wp-data-fmt = "0.9"
+wp-knowledge  = "~0.18"
+wp-model-core = "~0.10"
+wp-parse-api = "~0.12"
+wp-data-fmt = "0.10"
 wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
 wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v2.0.24" }
 

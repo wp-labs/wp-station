@@ -212,11 +212,17 @@ pub async fn preview_project_archive_logic(
     bytes: Vec<u8>,
 ) -> Result<ProjectArchivePreviewResponse, AppError> {
     // 归档导入先预检，不直接覆盖真实目录，避免错误归档污染仓库。
-    let import_id = new_archive_import_id();
     let staging_root = archive_import_staging_root();
     fs::create_dir_all(&staging_root).map_err(AppError::internal)?;
-    let import_dir = staging_root.join(&import_id);
-    fs::create_dir_all(&import_dir).map_err(AppError::internal)?;
+    let (import_id, import_dir) = loop {
+        let import_id = new_archive_import_id();
+        let import_dir = staging_root.join(&import_id);
+        match fs::create_dir(&import_dir) {
+            Ok(()) => break (import_id, import_dir),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(AppError::internal(err)),
+        }
+    };
     let archive_path = import_dir.join(sanitize_upload_name(file_name)?);
     fs::write(&archive_path, bytes).map_err(AppError::internal)?;
     fs::write(import_dir.join("file_name.txt"), file_name).map_err(AppError::internal)?;
@@ -226,6 +232,11 @@ pub async fn preview_project_archive_logic(
 
     let project_dir = find_import_project_root(&extract_dir, system)?;
     let summary = validate_project_import_preview(system, &project_dir)?;
+    info!(
+        "归档预检通过: import_id={}, system={}",
+        import_id,
+        system.as_ref()
+    );
 
     Ok(ProjectArchivePreviewResponse {
         import_id,
@@ -246,12 +257,35 @@ pub async fn confirm_project_archive_import_logic(
     // 二次确认阶段只消费预检产物，不重复读取原始上传流。
     let import_dir = archive_import_dir(import_id)?;
     let project_dir_file = import_dir.join("project_dir.txt");
-    let project_dir = fs::read_to_string(&project_dir_file)
-        .map_err(|e| AppError::validation(format!("导入暂存记录不存在或已过期: {}", e)))?;
+    info!(
+        "确认归档导入: import_id={}, system={}",
+        import_id,
+        system.as_ref()
+    );
+    let project_dir = match fs::read_to_string(&project_dir_file) {
+        Ok(project_dir) => project_dir,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            warn!(
+                "归档确认找不到预检暂存记录: import_id={}, path={}",
+                import_id,
+                project_dir_file.display()
+            );
+            return Err(AppError::validation(format!(
+                "找不到导入预检记录，请重新选择压缩包进行导入: import_id={}",
+                import_id
+            )));
+        }
+        Err(err) => return Err(AppError::internal(err)),
+    };
     let project_dir = PathBuf::from(project_dir.trim());
     if !project_dir.is_dir() {
+        warn!(
+            "归档确认暂存目录不存在: import_id={}, path={}",
+            import_id,
+            project_dir.display()
+        );
         return Err(AppError::validation(
-            "导入暂存目录不存在或已过期".to_string(),
+            "导入预检目录不存在，请重新选择压缩包进行导入".to_string(),
         ));
     }
     let file_name = fs::read_to_string(import_dir.join("file_name.txt"))

@@ -6,16 +6,19 @@
 pub mod group;
 pub mod target;
 
+use std::collections::HashMap;
+
 use crate::constants::release::{GROUP_ALL, GROUP_DRAFT, GROUP_INFRA, GROUP_MODELS};
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
 use chrono::Utc;
-use sea_orm::{Condition, QueryOrder, QuerySelect, Set, entity::prelude::*};
+use sea_orm::{Condition, DatabaseConnection, QueryOrder, QuerySelect, Set, entity::prelude::*};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 use wp_station_migrations::entity::{
     release::{ActiveModel, Column, Entity, Model},
     release_restore_job,
+    release_target::{self, Column as TargetColumn, Entity as TargetEntity},
 };
 
 pub use self::group::ReleaseGroup;
@@ -401,11 +404,27 @@ pub async fn find_latest_passed_release(exclude_id: Option<i32>) -> DbResult<Opt
     Ok(release)
 }
 
-/// 查找同系统、同发布组最近一次已发布的版本（可排除指定 ID）。
-pub async fn find_latest_passed_release_by_group(
+/// 查找同系统、同发布组最近一次所有目标都已成功完成的发布记录。
+pub async fn find_latest_successful_release_by_group(
     system: SystemKind,
     group: &str,
-    exclude_id: Option<i32>,
+) -> DbResult<Option<Release>> {
+    find_successful_release_by_group(system, group, None).await
+}
+
+/// 查找指定发布之前，同系统同发布组最近一次所有目标都已成功完成的记录。
+pub async fn find_previous_successful_release_by_group(
+    system: SystemKind,
+    group: &str,
+    before: &Release,
+) -> DbResult<Option<Release>> {
+    find_successful_release_by_group(system, group, Some(before)).await
+}
+
+async fn find_successful_release_by_group(
+    system: SystemKind,
+    group: &str,
+    before: Option<&Release>,
 ) -> DbResult<Option<Release>> {
     let pool = get_pool();
     let db = pool.inner();
@@ -425,30 +444,70 @@ pub async fn find_latest_passed_release_by_group(
             .add(Column::ReleaseGroup.eq(GROUP_ALL)),
         other => Condition::all().add(Column::ReleaseGroup.eq(other)),
     };
-
     let mut query = Entity::find()
         .filter(Column::System.eq(system.as_ref()))
         .filter(group_condition)
         .filter(Column::Status.is_in([
             ReleaseStatus::PASS.as_ref(),
             ReleaseStatus::PARTIAL_FAIL.as_ref(),
-            ReleaseStatus::FAIL.as_ref(),
         ]));
+    if let Some(before) = before {
+        let earlier_than_release = Condition::any()
+            .add(Column::CreatedAt.lt(before.created_at.clone()))
+            .add(
+                Condition::all()
+                    .add(Column::CreatedAt.eq(before.created_at.clone()))
+                    .add(Column::Id.lt(before.id)),
+            );
+        query = query.filter(earlier_than_release);
+    }
     if !restore_target_ids.is_empty() {
         query = query.filter(Column::Id.is_not_in(restore_target_ids));
     }
-    if let Some(id) = exclude_id {
-        query = query.filter(Column::Id.ne(id));
+    let candidates = query
+        .order_by_desc(Column::CreatedAt)
+        .order_by_desc(Column::Id);
+    let candidates = candidates.all(db).await?;
+
+    for candidate in candidates {
+        if release_group_targets_succeeded(&candidate, group, db).await? {
+            return Ok(Some(candidate));
+        }
     }
 
-    let release = query
-        .order_by_desc(Column::PublishedAt)
-        .order_by_desc(Column::UpdatedAt)
-        .order_by_desc(Column::CreatedAt)
-        .one(db)
+    Ok(None)
+}
+
+async fn release_group_targets_succeeded(
+    release: &Release,
+    group: &str,
+    db: &DatabaseConnection,
+) -> DbResult<bool> {
+    let targets = TargetEntity::find()
+        .filter(TargetColumn::ReleaseId.eq(release.id))
+        .filter(TargetColumn::ReleaseGroup.eq(group))
+        .filter(TargetColumn::Operation.eq("publish"))
+        .order_by_asc(TargetColumn::AttemptNo)
+        .order_by_asc(TargetColumn::Id)
+        .all(db)
         .await?;
 
-    Ok(release)
+    let mut latest_by_device: HashMap<i32, release_target::Model> = HashMap::new();
+    for target in targets {
+        latest_by_device.insert(target.device_id, target);
+    }
+
+    if latest_by_device.is_empty() {
+        // 旧版成功记录可能没有逐设备 target 明细，保留主记录 PASS 的成功语义。
+        return Ok(release.status == ReleaseStatus::PASS.as_ref());
+    }
+
+    Ok(latest_by_device
+        .values()
+        .all(|target: &release_target::Model| {
+            target.status == ReleaseTargetStatus::SUCCESS.as_ref()
+                || target.status == ReleaseTargetStatus::ROLLED_BACK.as_ref()
+        }))
 }
 
 impl NewRelease {

@@ -53,7 +53,7 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
                     device_id, err
                 );
                 let _ = update_device_status(device_id, DeviceStatus::Inactive).await;
-                let _ = update_device_health_error(device_id, Some(&err.to_string())).await;
+                persist_health_error(device_id, Some(&err.to_string())).await;
                 return DeviceHealthCheckResult {
                     is_online: false,
                     error_message: Some(err.to_string()),
@@ -69,7 +69,6 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
                 };
                 let _ = update_device_status(device_id, device_status).await;
                 if status.is_online {
-                    let _ = update_device_health_error(device_id, None).await;
                     let _ = update_device_runtime_state(
                         device_id,
                         status.client_version.as_deref(),
@@ -80,7 +79,7 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
                     .await;
                 }
                 let offline_error = "设备返回 accepting=false".to_string();
-                let _ = update_device_health_error(
+                persist_health_error(
                     device_id,
                     if status.is_online {
                         None
@@ -104,7 +103,7 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
                     device_id, err
                 );
                 let _ = update_device_status(device_id, DeviceStatus::Inactive).await;
-                let _ = update_device_health_error(device_id, Some(&err.to_string())).await;
+                persist_health_error(device_id, Some(&err.to_string())).await;
                 return DeviceHealthCheckResult {
                     is_online: false,
                     error_message: Some(err.to_string()),
@@ -127,7 +126,6 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
             let _ = update_device_status(device_id, device_status).await;
 
             if is_online {
-                let _ = update_device_health_error(device_id, None).await;
                 let _ = update_device_runtime_state(
                     device_id,
                     status.client_version.as_deref(),
@@ -146,7 +144,7 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
             }
 
             let offline_error = "设备返回 accepting_commands=false".to_string();
-            let _ = update_device_health_error(
+            persist_health_error(
                 device_id,
                 if is_online {
                     None
@@ -163,11 +161,21 @@ pub async fn check_device_health_with_detail(device_id: i32) -> DeviceHealthChec
         Err(err) => {
             warn!("健康检查失败: device_id={}, error={}", device_id, err);
             let _ = update_device_status(device_id, DeviceStatus::Inactive).await;
-            let _ = update_device_health_error(device_id, Some(&err.to_string())).await;
+            persist_health_error(device_id, Some(&err.to_string())).await;
             DeviceHealthCheckResult {
                 is_online: false,
                 error_message: Some(err.to_string()),
             }
         }
+    }
+}
+
+/// 写回本次检查的错误状态；写回失败只记录日志，不覆盖健康检查结果。
+async fn persist_health_error(device_id: i32, error_message: Option<&str>) {
+    if let Err(err) = update_device_health_error(device_id, error_message).await {
+        warn!(
+            "写回设备健康检查错误状态失败: device_id={}, error={}",
+            device_id, err
+        );
     }
 }

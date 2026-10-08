@@ -1,24 +1,7 @@
 //! 发布状态汇总与阶段轨迹辅助。
 
 use super::*;
-
-/// 对同一设备同一发布分组只保留最新一条子任务记录。
-fn latest_target_per_device_group(targets: Vec<ReleaseTarget>) -> Vec<ReleaseTarget> {
-    let mut latest: HashMap<(i32, String), ReleaseTarget> = HashMap::new();
-    for target in targets {
-        let key = (target.device_id, target.release_group.clone());
-        match latest.get(&key) {
-            Some(existing) if existing.created_at >= target.created_at => {}
-            _ => {
-                latest.insert(key, target);
-            }
-        }
-    }
-
-    let mut values = latest.into_values().collect::<Vec<_>>();
-    values.sort_by_key(|target| target.id);
-    values
-}
+use crate::server::release::latest_target_per_device_group;
 
 impl ReleaseTaskRunner {
     pub(super) async fn refresh_release_status(&self, release_id: i32) -> Result<()> {

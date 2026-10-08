@@ -290,12 +290,6 @@ pub async fn update_device_status(id: i32, status: DeviceStatus) -> DbResult<()>
 
 /// 更新设备最近一次健康检查错误；在线或刷新成功时传 `None` 清空。
 pub async fn update_device_health_error(id: i32, error_message: Option<&str>) -> DbResult<()> {
-    debug!(
-        "更新设备健康检查错误: id={}, has_error={}",
-        id,
-        error_message.is_some()
-    );
-
     let pool = get_pool();
     let db = pool.inner();
 
@@ -308,6 +302,12 @@ pub async fn update_device_health_error(id: i32, error_message: Option<&str>) ->
     active_model.health_error = Set(error_message.map(|value| value.to_string()));
     active_model.updated_at = Set(Utc::now());
     active_model.update(db).await?;
+
+    if error_message.is_some() {
+        debug!("设备健康检查错误已记录: id={}", id);
+    } else {
+        debug!("设备健康检查错误已清除: id={}", id);
+    }
 
     Ok(())
 }
