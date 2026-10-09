@@ -797,7 +797,13 @@ function SystemReleasePage() {
       return { className: 'release-status is-running', text: t('systemRelease.statusRunning') };
     }
     if (normalizedStatus === 'FAIL' || normalizedStatus === 'PARTIAL_FAIL') {
-      return { className: 'release-status is-fail', text: t('systemRelease.statusFailed') };
+      return {
+        className: 'release-status is-fail',
+        text:
+          normalizedStatus === 'PARTIAL_FAIL'
+            ? t('systemRelease.statusPartialFail')
+            : t('systemRelease.statusFailed'),
+      };
     }
     if (normalizedStatus === 'PASS') {
       if (releaseGroup === 'models') {
@@ -810,7 +816,16 @@ function SystemReleasePage() {
         return { className: 'release-status is-pass', text: t('systemRelease.statusPublishedAll') };
       }
     }
-    return { className: 'release-status is-wait', text: t('systemRelease.statusDraft') };
+    if (normalizedStatus === 'WAIT') {
+      return { className: 'release-status is-wait', text: t('systemRelease.statusDraft') };
+    }
+    if (normalizedStatus === 'INIT') {
+      return { className: 'release-status is-wait', text: t('systemRelease.statusInit') };
+    }
+    return {
+      className: 'release-status is-wait',
+      text: record?.status || t('systemRelease.statusDraft'),
+    };
   };
 
   const renderStageIcon = (stage, index) => {
@@ -1021,10 +1036,11 @@ function SystemReleasePage() {
                 setSearchForm({ ...searchForm, status: value || '' })
               }
               options={[
-                { value: 'WAIT', label: t('systemRelease.statusWait') },
-                { value: 'INIT', label: t('systemRelease.statusInit') },
+                { value: 'WAIT', label: t('systemRelease.statusDraft') },
+                { value: 'RUNNING', label: t('systemRelease.statusRunning') },
                 { value: 'PASS', label: t('systemRelease.statusPass') },
                 { value: 'FAIL', label: t('systemRelease.statusFail') },
+                { value: 'PARTIAL_FAIL', label: t('systemRelease.statusPartialFail') },
               ]}
               style={{ width: '100%' }}
             />

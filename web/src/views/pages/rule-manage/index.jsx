@@ -1417,12 +1417,25 @@ function RuleManagePage() {
       message.warning(t('ruleManage.noFileToValidate'));
       return;
     }
-    if (isKnowledgeMode && activeKnowledgeDataset === knowledgeConfigFile) {
-      message.info('knowdb.toml 不需要执行独立校验');
-      return;
-    }
     const currentContent = buildCurrentContent();
     try {
+      if (currentFormatTarget === 'toml') {
+        try {
+          await tomlCodeFormat(currentContent);
+        } catch (error) {
+          const errorMessage = error?.message || t('debug.toml.formatError');
+          setValidateResult({
+            filename: fileInfo.display || fileInfo.file,
+            valid: false,
+            message: errorMessage,
+            details: [errorMessage],
+            type: typeLabelMap[isWplEditorMode ? RuleType.WPL : activeKey] || activeKey,
+          });
+          setValidateModalVisible(true);
+          return;
+        }
+      }
+
       // 调用服务层校验配置
       const response = await validateRuleConfig({
         type: isWplEditorMode ? RuleType.WPL : activeKey,
@@ -2228,9 +2241,6 @@ function RuleManagePage() {
                             {t('ruleManage.format')}
                           </button>
                         ) : null}
-                        <button type="button" className="btn tertiary" onClick={handleValidate}>
-                          {t('ruleManage.validate')}
-                        </button>
                         <button type="button" className="btn primary" onClick={handleSave}>
                           {t('ruleManage.save')}
                         </button>

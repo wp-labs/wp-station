@@ -195,5 +195,32 @@ async fn debug_knowledge_query_rows_for_source_logic(
         KnowledgeQuerySource::ConfiguredProvider(None) => sql_query_rows(&sql).await,
         KnowledgeQuerySource::LocalSqlite => sql_query_rows(&sql).await,
     }
-    .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))
+    .map_err(|error| {
+        let detail = error.to_string();
+        if is_missing_knowledge_table_error(&detail) {
+            AppError::validation("知识库表不存在，请检查 SQL 中的表名")
+        } else {
+            AppError::validation(format!("执行知识库 SQL 失败: {}", detail))
+        }
+    })
+}
+
+/// 识别各数据库驱动对“表不存在”的常见错误描述。
+fn is_missing_knowledge_table_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("no such table")
+        || error.contains("no such relation")
+        || error.contains("undefined table")
+        || error.contains("unknown table")
+        || error.contains("table not found")
+        || error.contains("relation not found")
+        || error.contains("er_no_such_table")
+        || error.contains("42p01")
+        || error.contains("42s02")
+        || error.contains("ora-00942")
+        || error.contains("invalid object name")
+        || error.contains("表不存在")
+        || error.contains("表未找到")
+        || ((error.contains("table") || error.contains("relation"))
+            && (error.contains("does not exist") || error.contains("doesn't exist")))
 }

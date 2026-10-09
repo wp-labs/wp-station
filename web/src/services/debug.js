@@ -86,6 +86,19 @@ export async function parseWfusionRuleEditor(options) {
 }
 
 async function postTextFormat(path, code, fallbackMessage) {
+  const formatErrorMessage = (errorData, fallback) => {
+    const message = errorData?.error?.message || fallback;
+    const detail = errorData?.error?.detail || errorData?.error?.details;
+    const detailText =
+      typeof detail === 'string'
+        ? detail
+        : detail && typeof detail === 'object'
+          ? detail.message || detail.reason || JSON.stringify(detail)
+          : '';
+
+    return detailText && !message.includes(detailText) ? `${message}: ${detailText}` : message;
+  };
+
   try {
     const response = await httpRequest.post(path, code || '', {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -95,7 +108,7 @@ async function postTextFormat(path, code, fallbackMessage) {
     });
     const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
     if (data && data.success === false) {
-      const errorMessage = data.error?.message || fallbackMessage;
+      const errorMessage = formatErrorMessage(data, fallbackMessage);
       const error = new Error(errorMessage);
       error.code = data.error?.code;
       error.responseData = data;
@@ -105,7 +118,10 @@ async function postTextFormat(path, code, fallbackMessage) {
   } catch (error) {
     const responseData = error?.response?.data || error?.data;
     if (responseData && responseData.success === false) {
-      const errorMessage = responseData.error?.message || error?.message || fallbackMessage;
+      const errorMessage = formatErrorMessage(
+        responseData,
+        error?.message || fallbackMessage,
+      );
       const wrapped = new Error(errorMessage);
       wrapped.code = responseData.error?.code;
       wrapped.responseData = responseData;

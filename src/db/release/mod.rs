@@ -98,13 +98,12 @@ pub async fn find_all_releases(
         .all(db)
         .await?;
 
-    // 状态过滤：有显式 status 时按 status 等值过滤；否则默认排除 INIT
-    let mut condition = if let Some(status) = status {
-        if !status.is_empty() {
-            Condition::all().add(Column::Status.eq(status))
-        } else {
-            Condition::all().add(Column::Status.ne(ReleaseStatus::INIT.as_ref()))
-        }
+    // 普通发布列表不展示还原任务的 INIT 技术目标；筛选值统一规范化，
+    // 避免大小写或首尾空格差异导致状态明明存在却查不到。
+    let normalized_status = status.map(str::trim).filter(|status| !status.is_empty());
+    let mut condition = if let Some(status) = normalized_status {
+        let status = status.to_ascii_uppercase();
+        Condition::all().add(Column::Status.eq(status))
     } else {
         Condition::all().add(Column::Status.ne(ReleaseStatus::INIT.as_ref()))
     };
@@ -428,12 +427,6 @@ async fn find_successful_release_by_group(
 ) -> DbResult<Option<Release>> {
     let pool = get_pool();
     let db = pool.inner();
-    let restore_target_ids = release_restore_job::Entity::find()
-        .select_only()
-        .column(release_restore_job::Column::TargetReleaseId)
-        .into_tuple::<i32>()
-        .all(db)
-        .await?;
 
     let group_condition = match group {
         GROUP_MODELS => Condition::any()
@@ -461,9 +454,8 @@ async fn find_successful_release_by_group(
             );
         query = query.filter(earlier_than_release);
     }
-    if !restore_target_ids.is_empty() {
-        query = query.filter(Column::Id.is_not_in(restore_target_ids));
-    }
+    // 还原目标记录虽然在普通列表中隐藏，但还原成功后代表当前已提升的仓库版本，
+    // 必须作为后续发布和详情 diff 的成功基线参与查询。
     let candidates = query
         .order_by_desc(Column::CreatedAt)
         .order_by_desc(Column::Id);

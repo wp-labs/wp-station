@@ -582,6 +582,23 @@ function ConfigManagePage() {
         return;
       }
 
+      if (/\.toml$/i.test(String(file || ''))) {
+        try {
+          await tomlCodeFormat(content || '');
+        } catch (error) {
+          const errorMessage = error?.message || t('debug.toml.formatError');
+          setValidateResult({
+            filename: file,
+            valid: false,
+            message: errorMessage,
+            details: [errorMessage],
+            type: getCurrentConfigLabel(),
+          });
+          setValidateModalVisible(true);
+          return;
+        }
+      }
+
       const response = await validateRuleConfig({
         type,
         file,

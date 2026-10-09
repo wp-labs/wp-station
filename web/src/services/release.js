@@ -13,7 +13,7 @@ import { resolveSystem } from './system';
  * @param {string} [options.version] - 版本号
  * @param {string} [options.pipeline] - 流水线关键词
  * @param {string} [options.createdBy] - 发布人
- * @param {string} [options.status] - 状态（WAIT/INIT/PASS/FAIL）
+ * @param {string} [options.status] - 状态（WAIT/RUNNING/PASS/FAIL/PARTIAL_FAIL）
  * @param {number} [options.page] - 页码（默认 1）
  * @param {number} [options.pageSize] - 每页条数（默认 10）
  * @returns {Promise<Object>} 分页结果
