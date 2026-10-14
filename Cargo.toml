@@ -18,7 +18,7 @@ rust-embed = "8.11"
 mime_guess = "2"
 config = "0.15"
 toml = "1.1"
-toml_edit = "0.25"
+taplo = "0.14"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 orion-error = "0.8.1"

@@ -16,7 +16,6 @@ use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use toml_edit::visit_mut::{self, VisitMut};
 use wf_engine::alert::{OutputRecord, data_record_to_json_string};
 use wf_lang::{CheckError, Severity};
 use wp_data_fmt::{FormatType, Json, RecordFormatter};
@@ -440,62 +439,22 @@ pub fn format_code_logic(kind: DebugFormatKind, code: String) -> Result<String, 
         DebugFormatKind::Wfs => tree_sitter_wfl::format_wfs(&code).map_err(|e| e.to_string()),
         DebugFormatKind::Wfl => tree_sitter_wfl::format_wfl(&code).map_err(|e| e.to_string()),
         DebugFormatKind::Wfg => tree_sitter_wfl::format_wfg(&code).map_err(|e| e.to_string()),
-        DebugFormatKind::Toml => format_toml(&code).map_err(|e| e.to_string()),
+        DebugFormatKind::Toml => format_toml(&code),
     };
 
     formatted.map_err(|e| AppError::validation(format!("格式化 {} 代码失败: {}", kind.label(), e)))
 }
 
-/// TOML 格式化：保留注释与表结构的同时，统一基础缩进与空白。
-fn format_toml(content: &str) -> Result<String, toml_edit::TomlError> {
-    let mut document = content.parse::<toml_edit::DocumentMut>()?;
-    let mut formatter = TomlSpacingFormatter;
-    formatter.visit_document_mut(&mut document);
-    document.as_table_mut().fmt();
-    Ok(document.to_string())
-}
+/// 使用 Taplo 统一格式化 TOML，并先用 TOML 解析器拒绝语法错误。
+fn format_toml(content: &str) -> Result<String, String> {
+    toml::from_str::<toml::Value>(content).map_err(|error| error.to_string())?;
 
-/// 仅规范 TOML 的键值分隔空白，保留注释与原有表结构。
-struct TomlSpacingFormatter;
-
-impl VisitMut for TomlSpacingFormatter {
-    fn visit_table_like_kv_mut(
-        &mut self,
-        mut key: toml_edit::KeyMut<'_>,
-        node: &mut toml_edit::Item,
-    ) {
-        let key_prefix = key.leaf_decor().prefix().cloned();
-        key.leaf_decor_mut().clear();
-        if let Some(prefix) = key_prefix {
-            key.leaf_decor_mut().set_prefix(prefix);
-        }
-
-        visit_mut::visit_table_like_kv_mut(self, key, node);
-    }
-
-    fn visit_value_mut(&mut self, node: &mut toml_edit::Value) {
-        preserve_value_suffix_and_reset_prefix(node);
-        visit_mut::visit_value_mut(self, node);
-    }
-
-    fn visit_array_mut(&mut self, node: &mut toml_edit::Array) {
-        visit_mut::visit_array_mut(self, node);
-        node.fmt();
-    }
-
-    fn visit_inline_table_mut(&mut self, node: &mut toml_edit::InlineTable) {
-        visit_mut::visit_inline_table_mut(self, node);
-        node.fmt();
-    }
-}
-
-/// 清理值前缀中的显式空白，让编码时回退到默认的 `= ` 形式，同时保留尾部注释。
-fn preserve_value_suffix_and_reset_prefix(value: &mut toml_edit::Value) {
-    let suffix = value.decor().suffix().cloned();
-    value.decor_mut().clear();
-    if let Some(suffix) = suffix {
-        value.decor_mut().set_suffix(suffix);
-    }
+    let options = taplo::formatter::Options {
+        // Taplo 的空行限制是全局的，最多保留一个空行。
+        allowed_blank_lines: 1,
+        ..Default::default()
+    };
+    Ok(taplo::formatter::format(content, options))
 }
 
 fn build_rule_editor_failure(

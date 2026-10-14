@@ -1720,7 +1720,7 @@ body:not(.login-page) .connection-page-wrapper {
   }
 
   .integration-overview-runtime-detail-row {
-    grid-template-columns: 18px 70px minmax(0, 1fr);
+    grid-template-columns: 18px max-content minmax(0, 1fr);
     gap: 8px;
   }
 
@@ -2007,7 +2007,7 @@ body:not(.login-page) .connection-page-wrapper {
 
 .integration-overview-runtime-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 12px;
 }
 
@@ -2095,9 +2095,9 @@ body:not(.login-page) .connection-page-wrapper {
 
 .integration-overview-runtime-detail-row {
   display: grid;
-  grid-template-columns: 20px 72px minmax(0, 1fr);
+  grid-template-columns: 20px max-content minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 36px;
   border-bottom: 1px dashed rgba(15, 23, 42, 0.06);
 }
@@ -2124,7 +2124,7 @@ body:not(.login-page) .connection-page-wrapper {
   min-width: 0;
   font-size: 13px;
   color: var(--text);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .integration-overview-runtime-detail-empty {
