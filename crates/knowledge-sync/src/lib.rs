@@ -62,8 +62,8 @@ impl AssetSyncConfig {
             return Ok(None);
         };
 
-        let target_url = Url::parse(&target_database_url)
-            .context("解析资产目标 PostgreSQL URL 失败")?;
+        let target_url =
+            Url::parse(&target_database_url).context("解析资产目标 PostgreSQL URL 失败")?;
         let source_host = optional_env("WP_KSYNC_ASSET_SOURCE_HOST")?.unwrap_or(
             target_url
                 .host_str()
@@ -71,21 +71,32 @@ impl AssetSyncConfig {
                 .to_string(),
         );
         let source_port = optional_env("WP_KSYNC_ASSET_SOURCE_PORT")?
-            .unwrap_or_else(|| target_url.port_or_known_default().unwrap_or(5432).to_string())
+            .unwrap_or_else(|| {
+                target_url
+                    .port_or_known_default()
+                    .unwrap_or(5432)
+                    .to_string()
+            })
             .parse::<u16>()
             .context("WP_KSYNC_ASSET_SOURCE_PORT 必须是 1-65535 的端口号")?;
         let source_database = required_env("WP_KSYNC_ASSET_SOURCE_DATABASE")?;
-        let source_username = optional_env("WP_KSYNC_ASSET_SOURCE_USERNAME")?.unwrap_or_else(|| {
-            percent_decode_str(target_url.username())
-                .decode_utf8_lossy()
-                .into_owned()
-        });
-        let source_password = optional_env("WP_KSYNC_ASSET_SOURCE_PASSWORD")?.unwrap_or_else(|| {
-            target_url
-                .password()
-                .map(|password| percent_decode_str(password).decode_utf8_lossy().into_owned())
-                .unwrap_or_default()
-        });
+        let source_username =
+            optional_env("WP_KSYNC_ASSET_SOURCE_USERNAME")?.unwrap_or_else(|| {
+                percent_decode_str(target_url.username())
+                    .decode_utf8_lossy()
+                    .into_owned()
+            });
+        let source_password =
+            optional_env("WP_KSYNC_ASSET_SOURCE_PASSWORD")?.unwrap_or_else(|| {
+                target_url
+                    .password()
+                    .map(|password| {
+                        percent_decode_str(password)
+                            .decode_utf8_lossy()
+                            .into_owned()
+                    })
+                    .unwrap_or_default()
+            });
         let schedule = required_env("WP_KSYNC_ASSET_CRON")?;
         let reader_role = optional_env("WP_KSYNC_ASSET_READER_ROLE")?;
 

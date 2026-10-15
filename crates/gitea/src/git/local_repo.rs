@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::types::{FileStatus, GitError, GiteaConfig};
 use crate::repository::GitRepository;
+use crate::types::{FileStatus, GitError, GiteaConfig};
 
 /// 本地 Git 仓库操作对象
 ///
@@ -91,7 +91,7 @@ impl LocalRepository {
 
     /// 查看最新标签与 HEAD 的差异
     pub fn diff_latest_tag_to_head(&self) -> Result<DiffResultWithFiles, GitError> {
-        let diff_result = self.repo.diff_tag_with_head_and_stats()?;        
+        let diff_result = self.repo.diff_tag_with_head_and_stats()?;
         Ok(diff_result)
     }
 
@@ -103,7 +103,10 @@ impl LocalRepository {
     /// # 返回值
     /// * `Ok(DiffResultWithFiles)` - 返回差异结果
     /// * `Err(GitError)` - 获取差异失败时返回错误
-    pub fn diff_with_previous_version(&self, curr_version: &str) -> Result<DiffResultWithFiles, GitError> {
+    pub fn diff_with_previous_version(
+        &self,
+        curr_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
         let diff_result = self.repo.diff_with_previous_version(curr_version)?;
         Ok(diff_result)
     }
@@ -208,16 +211,8 @@ impl LocalRepository {
         for commit in commits {
             result.push(CommitInfo {
                 oid: commit.id().to_string(),
-                author: commit
-                    .author()
-                    .name()
-                    .unwrap_or("Unknown")
-                    .to_string(),
-                email: commit
-                    .author()
-                    .email()
-                    .unwrap_or("")
-                    .to_string(),
+                author: commit.author().name().unwrap_or("Unknown").to_string(),
+                email: commit.author().email().unwrap_or("").to_string(),
                 message: commit.message().unwrap_or("").to_string(),
                 timestamp: commit.time().seconds(),
             });
@@ -247,14 +242,7 @@ impl LocalRepository {
             .peel_to_commit()?;
         let tree = source.tree()?;
         let signature = head.author();
-        let candidate = repo.commit(
-            None,
-            &signature,
-            &signature,
-            message,
-            &tree,
-            &[&head],
-        )?;
+        let candidate = repo.commit(None, &signature, &signature, message, &tree, &[&head])?;
         let object = repo.find_object(candidate, None)?;
         repo.tag(
             target_tag,

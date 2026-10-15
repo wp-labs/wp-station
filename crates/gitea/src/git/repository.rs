@@ -897,9 +897,9 @@ impl GitRepository {
         diff_opts
             .include_untracked(true)
             .recurse_untracked_dirs(true);
-        let diff =
-            self.repo
-                .diff_tree_to_workdir_with_index(Some(&tag_tree), Some(&mut diff_opts))?;
+        let diff = self
+            .repo
+            .diff_tree_to_workdir_with_index(Some(&tag_tree), Some(&mut diff_opts))?;
 
         // 获取统计信息
         let stats = diff.stats()?;

@@ -119,9 +119,15 @@ impl GiteaClient {
 
     fn authenticated_url(&self, url: &str) -> String {
         if let Some(rest) = url.strip_prefix("http://") {
-            format!("http://{}:{}@{}", self.config.username, self.config.password, rest)
+            format!(
+                "http://{}:{}@{}",
+                self.config.username, self.config.password, rest
+            )
         } else if let Some(rest) = url.strip_prefix("https://") {
-            format!("https://{}:{}@{}", self.config.username, self.config.password, rest)
+            format!(
+                "https://{}:{}@{}",
+                self.config.username, self.config.password, rest
+            )
         } else {
             url.to_string()
         }
@@ -158,7 +164,7 @@ impl GiteaClient {
     pub fn diff_with_previous_version<P: AsRef<Path>>(
         &self,
         local_path: P,
-        curr_version: &str
+        curr_version: &str,
     ) -> Result<DiffResultWithFiles, GitError> {
         let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
         local.diff_with_previous_version(curr_version)
