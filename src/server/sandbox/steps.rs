@@ -487,9 +487,7 @@ pub(super) async fn stage_run_wpgen(
         crate::utils::SystemKind::Wfusion => {
             format!(
                 "wfusion 启动稳定等待{}ms后，wfgen 已启动（{}个场景），已生成并发送{}条消息。",
-                DAEMON_READY_BEFORE_WPGEN_WAIT_MS,
-                output.scenario_count,
-                count,
+                DAEMON_READY_BEFORE_WPGEN_WAIT_MS, output.scenario_count, count,
             )
         }
     })

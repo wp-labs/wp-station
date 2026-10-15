@@ -109,7 +109,7 @@ async fn collect_release_diff_groups_for_release(
                 system,
                 group.as_ref(),
                 Some(&release.version),
-                Some(&release),
+                Some(release),
             )
             .await?,
         );

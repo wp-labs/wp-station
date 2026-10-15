@@ -94,6 +94,13 @@ pub(super) fn configure_api_services(cfg: &mut web::ServiceConfig) {
         .service(api::login)
         // 知识库 API
         .service(api::get_db_list)
+        .service(api::get_knowledge_sync_status)
+        .service(api::list_asset_runs)
+        .service(api::list_geo_runs)
+        .service(api::list_intel_runs)
+        .service(api::list_mmdb_files)
+        .service(api::start_geo_import)
+        .service(api::get_geo_import_run)
         .service(api::query);
 }
 

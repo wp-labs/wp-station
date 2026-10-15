@@ -10,9 +10,9 @@ impl MigrationTrait for Migration {
         let schema = Schema::new(manager.get_database_backend());
         if !manager.has_table("release_restore_jobs").await? {
             manager
-                .create_table(schema.create_table_from_entity(
-                    crate::entity::release_restore_job::Entity,
-                ))
+                .create_table(
+                    schema.create_table_from_entity(crate::entity::release_restore_job::Entity),
+                )
                 .await?;
         }
 
@@ -22,12 +22,12 @@ impl MigrationTrait for Migration {
         {
             manager
                 .create_index(
-                Index::create()
-                    .name("idx_restore_jobs_source_created")
-                    .table(crate::entity::release_restore_job::Entity)
-                    .col(crate::entity::release_restore_job::Column::SourceReleaseId)
-                    .col(crate::entity::release_restore_job::Column::CreatedAt)
-                    .to_owned(),
+                    Index::create()
+                        .name("idx_restore_jobs_source_created")
+                        .table(crate::entity::release_restore_job::Entity)
+                        .col(crate::entity::release_restore_job::Column::SourceReleaseId)
+                        .col(crate::entity::release_restore_job::Column::CreatedAt)
+                        .to_owned(),
                 )
                 .await?;
         }
@@ -37,13 +37,13 @@ impl MigrationTrait for Migration {
         {
             manager
                 .create_index(
-                Index::create()
-                    .name("idx_restore_jobs_status_phase")
-                    .table(crate::entity::release_restore_job::Entity)
-                    .col(crate::entity::release_restore_job::Column::Status)
-                    .col(crate::entity::release_restore_job::Column::Phase)
-                    .col(crate::entity::release_restore_job::Column::UpdatedAt)
-                    .to_owned(),
+                    Index::create()
+                        .name("idx_restore_jobs_status_phase")
+                        .table(crate::entity::release_restore_job::Entity)
+                        .col(crate::entity::release_restore_job::Column::Status)
+                        .col(crate::entity::release_restore_job::Column::Phase)
+                        .col(crate::entity::release_restore_job::Column::UpdatedAt)
+                        .to_owned(),
                 )
                 .await?;
         }
@@ -53,13 +53,13 @@ impl MigrationTrait for Migration {
         {
             manager
                 .create_index(
-                Index::create()
-                    .name("idx_restore_jobs_system_version")
-                    .table(crate::entity::release_restore_job::Entity)
-                    .col(crate::entity::release_restore_job::Column::System)
-                    .col(crate::entity::release_restore_job::Column::TargetVersion)
-                    .unique()
-                    .to_owned(),
+                    Index::create()
+                        .name("idx_restore_jobs_system_version")
+                        .table(crate::entity::release_restore_job::Entity)
+                        .col(crate::entity::release_restore_job::Column::System)
+                        .col(crate::entity::release_restore_job::Column::TargetVersion)
+                        .unique()
+                        .to_owned(),
                 )
                 .await?;
         }
@@ -147,16 +147,16 @@ impl MigrationTrait for Migration {
         {
             manager
                 .create_index(
-                Index::create()
-                    .name("idx_release_targets_attempt")
-                    .table(crate::entity::release_target::Entity)
-                    .col(crate::entity::release_target::Column::ReleaseId)
-                    .col(crate::entity::release_target::Column::DeviceId)
-                    .col(crate::entity::release_target::Column::ReleaseGroup)
-                    .col(crate::entity::release_target::Column::Operation)
-                    .col(crate::entity::release_target::Column::AttemptNo)
-                    .unique()
-                    .to_owned(),
+                    Index::create()
+                        .name("idx_release_targets_attempt")
+                        .table(crate::entity::release_target::Entity)
+                        .col(crate::entity::release_target::Column::ReleaseId)
+                        .col(crate::entity::release_target::Column::DeviceId)
+                        .col(crate::entity::release_target::Column::ReleaseGroup)
+                        .col(crate::entity::release_target::Column::Operation)
+                        .col(crate::entity::release_target::Column::AttemptNo)
+                        .unique()
+                        .to_owned(),
                 )
                 .await?;
         }

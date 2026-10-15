@@ -75,6 +75,7 @@ export async function fetchIntegrationRuntimeOverview(system) {
       connect: item?.connect || '',
       typeKey: item?.type_key || '',
       typeLabel: item?.type_label || '',
+      enabled: typeof item?.enabled === 'boolean' ? item.enabled : null,
       detail: item?.detail || '-',
     }));
 

@@ -1,23 +1,16 @@
 # wp-station
 
-WarpParse 配置与发布控制台。把规则维护、知识库管理、调试验证、设备管理、版本发布、Git/Gitea 同步串联成完整工作流。
+`wp-station` 是 WParse / WFusion 的配置、调试与发布控制台，也负责把外部数据同步到运行时使用的知识库。前端通过 `/api` 调用 Rust 后端；规则和配置保存在 `project_models`、`project_infra` 两个仓库，设备、发布和任务运行记录保存在 Station 数据库。
 
-变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
+变更记录见 [CHANGELOG.md](./CHANGELOG.md)，开发入口与联动约束见 [AGENTS.md](./AGENTS.md)。
 
-## 变更记录规范
-
-- 版本段按实际发布版本保留并存，不用后续版本覆盖前一版本内容。
-- 每个版本优先总结用户可感知的能力、接口和发布链路变化，不写按文件路径罗列的改动清单。
-- 涉及接口时，优先描述接口类别或能力边界，例如“调试接口”“发布链路”“编辑器高亮与格式化”，只在有必要时点名具体 API。
-- 依赖升级仅记录对功能有直接影响的部分，例如运行时、语法树、高亮补全、构建链路等关键组件。
-- 内容以提交中能直接确认的事实为准，不额外补写 README、讨论记录或口头约定里的推断。
-
-## 功能
+## 主要能力
 
 - **设备管理**：维护设备 IP、端口、Token、在线状态、客户端版本、配置版本，支持一键刷新单台设备状态。
 - **规则管理**：维护 `wpl`、`oml`、`knowledge` 等规则文件，支持格式化、校验、保存。
 - **配置管理**：维护 `parse`、`source`、`sink`、`source_connect`、`sink_connect` 配置；`来源配置` 与 `业务 sink 配置` 支持按 connector 模板实时追加片段。
 - **知识库**：维护知识库配置、建表 SQL、插入 SQL、样例数据，支持 SQL 查询。
+- **知识库同步**：定时同步资产、手动导入 Geo MMDB、定时同步 Doris 情报到 Redis，查看状态与历史。
 - **调试**：日志解析、知识库查询、WPL/OML 格式化、性能任务占位。
 - **接入概览**：汇总规则覆盖的设备类型 / 日志类型，以及运行时已启用的输入源 / 业务输出源。
 - **发布**：按设备维度驱动发布、轮询状态、失败重试、人工回滚；支持填写发布备注。
@@ -26,20 +19,23 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 - **项目导入导出**：支持目录导入、压缩包预检导入、确认导入和项目归档导出。
 - **AI 辅助**：提交 AI/人工辅助任务，前端全局轮询并回填建议。
 
-## 系统定位
+## 数据与运行架构
 
-运行中的 `wp-station` 有 6 个核心角色：
+运行中的 `wp-station` 有以下核心角色：
 
 | 角色 | 说明 |
 |------|------|
 | Rust 后端 | 提供 API、持久化、任务调度、规则校验、设备健康检查 |
 | React 前端 | 控制台 UI，通过 `/api` 调后端 |
-| PostgreSQL / SQLite | 系统数据库，承载设备、发布、用户等运行态数据 |
+| Station SQLite / PostgreSQL | 承载设备、发布、用户及任务运行记录 |
 | `project_models` | `wpl` / `oml` / `knowledge` 等 model 侧文件主数据源 |
 | `project_infra` | `conf` / `connectors` / `topology` 等 infra 侧文件主数据源 |
 | Gitea / WarpParse 设备 | 分别承接配置版本化和远端配置加载 |
+| 目标 PostgreSQL / Redis | 分别承接资产、Geo 查询数据和 IP / 域名情报集合 |
 
 > 当前运行时采用双仓库布局：`project_models` 保存 `models/*`，`project_infra` 保存 `conf`、`connectors`、`topology`。`default_configs/` 只补齐缺失文件，不覆盖用户已编辑内容。
+
+业务配置保存与知识库数据同步是两条独立链路：前者进入仓库和发布流程，后者更新 PostgreSQL 或 Redis 中的查询数据。
 
 ## 前置依赖
 
@@ -55,11 +51,11 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 - WarpParse 设备：健康检查、发布、回滚
 - Assist 服务：AI/人工辅助任务
 
-## 快速开始
+## 本地启动
 
 ### 1. 配置后端
 
-编辑 `config/config.toml`：
+Station 自身配置位于 `config/config.toml`。本地最小示例：
 
 ```toml
 [web]
@@ -70,36 +66,29 @@ project_models = "./project_models"
 project_infra = "./project_infra"
 
 [database]
-# 默认示例使用 SQLite
-url = "sqlite:///data/wp-station/station.db"
-# 以下字段仅在 url 为空时，作为 PostgreSQL 兼容配置生效
-host = "localhost"
-port = 5432
-name = "wp-station"
-username = "postgres"
-password = "123456"
+url = "sqlite://db/station.db"
 
 [gitea]
 base_url = "http://localhost:3000"
 username = "gitea"
-password = "123456"
-
-[assist]
-base_url = "http://localhost:8888"
-
-[admin_api]
-enabled = true
-ca_file = "./CA.crt"
-
-[features]
-data_collect_url = "http://localhost:18080/wp-monitor"
+password = "<本地 Gitea 密码>"
 ```
 
-> 默认推荐直接使用 `database.url="sqlite:///data/wp-station/station.db"`。只有当 `database.url` 为空时，才会按 `host/port/name/username/password` 连接 PostgreSQL。`project_models` 默认 `./project_models`，`project_infra` 默认 `./project_infra`。配置文件支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`、`WP_STATION__PROJECT_INFRA=/data/project_infra`。设备管理接口路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定；当前代码兼容旧配置节名 `[warparse]`，但新配置请统一使用 `[admin_api]`。
+`project_models` 和 `project_infra` 默认位于当前工作目录。常规配置支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`。知识库同步的数据库、Redis、Doris 地址及凭据只由部署环境变量注入，不写入 `config/config.toml`，也不在页面编辑。
 
-## 部署
+本机同时验证资产、Geo 和情报同步时，可在项目根目录执行以下示例。先启动本地 PostgreSQL、Doris 和 Redis，并在 PostgreSQL 中准备 `dysec-asset.public.asset_subject` 的本地副本、`pg_cron`、`dblink` 和 `btree_gist`；将待导入的 MMDB 放进 `mmdb/`。示例密码仅适用于本地测试。
 
-部署配置、脚本和编排文件统一维护在独立项目：[cust-wp-deploy](https://cnb.cool/dy-sec/core-engine/data-parse/cust-wp-deploy)。
+```bash
+export WP_KSYNC_TARGET_URL='postgres://postgres:123456@127.0.0.1:5432/postgres'
+export WP_KSYNC_ASSET_SOURCE_DATABASE='dysec-asset'
+export WP_KSYNC_ASSET_CRON='*/5 * * * *'
+export WP_KSYNC_MMDB_DIR='mmdb/'
+export WP_KSYNC_DORIS_HOST='127.0.0.1'
+export WP_KSYNC_REDIS_URL='redis://:123456@127.0.0.1:6379/0'
+cargo run
+```
+
+资产源库与目标库共用 PostgreSQL 主机、端口和账号密码，只通过 `WP_KSYNC_ASSET_SOURCE_DATABASE` 指定不同的源库；Geo 使用同一个目标库。Doris 默认使用 `9030` 端口和 `root` 用户，数据库固定为 `intel`；情报同步默认每 300 秒执行，写入本地 Redis 0 号库。生产容器默认读取 `/app/mmdb`，无需设置 `WP_KSYNC_MMDB_DIR`；本机 `cargo run` 才设置为 `mmdb/`。资产在启动时只创建同步对象和 `pg_cron` 任务，到下一个周期才执行；情报任务同样等待下一个整周期，Geo 需在页面选择文件后手动导入。实际部署请注入自己的凭据，不要把密码写进版本库。
 
 ### 2. 启动后端
 
@@ -119,24 +108,104 @@ npm run dev
 
 前端开发走 Vite 代理，默认代理到 `http://localhost:8081`。
 
-## 常用命令
+部署配置、脚本和编排文件维护在独立项目：[cust-wp-deploy](https://cnb.cool/dy-sec/core-engine/data-parse/cust-wp-deploy)。
 
-```bash
-# 后端
-cargo run
-cargo test
+## 知识库同步
 
-# 前端
-cd web
-npm install
-npm run dev
-npm run build
+顶部的 **知识库同步** 菜单（`/knowledge-sync`）展示任务状态、数量、周期、异常和历史。连接信息由服务端读取；页面只提供 MMDB 文件选择与导入操作。
+
+| 数据 | 触发方式 | 查询数据 | 历史记录 |
+| --- | --- | --- | --- |
+| 资产 | PostgreSQL `pg_cron` 按配置周期执行 | `asset_lookup.asset_subject_exclude_biz_sync`，视图 `public.v_asset_subject_exclude_biz` | `cron.job_run_details`，成功数量在 `asset_lookup.sync_run_summary` |
+| IP Geo | 从服务端 MMDB 目录选择文件后手动导入 | `public.ip_geo` | Station SQLite `geo_sync_runs` |
+| IP / 域名情报 | Station 按周期从 Doris 全量拉取 | Redis SET `threat_intelligence:ip`、`threat_intelligence:domain` | Station SQLite `intel_sync_runs` |
+
+Geo 与情报运行记录使用 Station 自身的 SQLite `station.db`；启用这两项功能时，Station 主数据库需配置为 SQLite。资产同步过程在目标 PostgreSQL 内执行，成功摘要也保存在该库中。
+
+### 资产同步
+
+Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 字段和 `NET_WORK` 的 `data.cidr` 字段，把 IP 和网段转换为数值区间。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总数、HOST / TERMINAL / NET_WORK 数、IPv4 / IPv6 数。资产历史直接读取 `pg_cron` 执行结果。
+
+### Geo 导入
+
+容器默认扫描 `/app/mmdb`。本机 `cargo run` 可设置 `WP_KSYNC_MMDB_DIR=mmdb/`，相对路径以 Station 启动目录为基准。未配置目录时页面显示“数据未配置”。点击导入后记录文件版本与 SHA-256，并展示阶段、进度、已扫描 IPv4 / IPv6 网段和执行时长。
+
+当前只把 IPv4 写入 `public.ip_geo`，IPv6 仅统计。新版本先写入独立临时表，建好主键和 GiST 索引并校验，再用短事务切换正式表；导入期间业务查询继续读取旧表。切换遇到读锁时限时重试，失败保留旧表。已成功导入的相同文件名、SHA-256 或相同数据库类型与构建时间，在点击导入时拒绝。开发样本可设置 `WP_KSYNC_GEO_MAX_ROWS=5000`，生产环境不设置此项。
+
+### Doris 情报同步
+
+Station 启动时只初始化运行记录和定时器。到达周期边界后，从 Doris `intel.stix_object` 分页全量读取有效 IP、域名情报，先写 Redis 临时 SET，校验后用单个 Lua 脚本切换两个正式键。读取、构建或校验失败时清理临时键，正式键保持原样；切换不创建备份键。任务不重叠，执行时间跨越周期时跳过错过的触发点。
+
+`WP_KSYNC_INTEL_INTERVAL` 默认 `300` 秒，最小 `60` 秒。周期按 Unix 时间边界对齐：设置 `300` 秒时，每小时 `:00、:05、:10…` 开始；Station 启动后等待下一个边界。
+
+### 部署环境变量
+
+| 参数 | 用途 |
+| --- | --- |
+| `WP_KSYNC_TARGET_URL` | 资产和 Geo 共用的目标 PostgreSQL URL；资产源复用其中的主机、端口及凭据 |
+| `WP_KSYNC_ASSET_SOURCE_DATABASE` | 资产源 PostgreSQL 数据库名，其他连接参数默认取自目标 URL |
+| `WP_KSYNC_ASSET_SOURCE_HOST` / `PORT` / `USERNAME` / `PASSWORD` | 可选覆盖项，仅在资产源连接参数与目标库不同时使用 |
+| `WP_KSYNC_ASSET_CRON` | 资产 `pg_cron` 表达式，例如 `*/5 * * * *` |
+| `WP_KSYNC_ASSET_READER_ROLE` | 可选的目标库只读角色 |
+| `WP_KSYNC_MMDB_DIR` / `WP_KSYNC_MMDB_WORK_DIR` | MMDB 扫描目录与导入临时目录 |
+| `WP_KSYNC_GEO_MAX_ROWS` | 仅用于本地快速验证的 Geo 行数上限 |
+| `WP_KSYNC_DORIS_HOST` / `PORT` / `USER` / `PASSWORD` | Doris FE 连接信息，数据库固定为 `intel`，密码可以为空 |
+| `WP_KSYNC_REDIS_URL` | Redis 连接 URL |
+| `WP_KSYNC_INTEL_INTERVAL` | 情报同步周期，单位秒 |
+
+资产同步要求目标 PostgreSQL 可用 `dblink`、`btree_gist` 和预加载的 `pg_cron`；Geo 索引要求 `btree_gist`。目标库还需允许 Station 创建表、索引和扩展。开发与性能验证只使用本地副本和本地服务。运行记录和清理范围的细节见 [知识库同步实现说明](./KNOWLEDGE_SYNC_NOTES.md)。
+
+## 资产和 Geo 查询性能检查
+
+OML 中的 `geo.ip_geo`、`asset.v_asset_subject_exclude_biz` 是知识库连接名加表名。本地目标 PostgreSQL 的实际对象为 `public.ip_geo` 和 `public.v_asset_subject_exclude_biz`。将 `@__sip_num`、`@__sip_asset_num` 作为 `numeric` 参数传入后，可用下面的 SQL 复现同等查询。在连接到**本地目标库**的同一个 `psql` 会话执行：
+
+```sql
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE geo_lookup(numeric) AS
+SELECT country_iso_code, country_name, province_name, city_name,
+       continent_name, latitude, longitude
+FROM public.ip_geo
+WHERE start_ip_num <= $1 AND end_ip_num >= $1
+ORDER BY start_ip_num DESC
+LIMIT 1;
+
+PREPARE asset_lookup(numeric) AS
+SELECT asset_id, asset_name, asset_type, system_id, system_name, company_name
+FROM public.v_asset_subject_exclude_biz
+WHERE start_ip_num <= $1 AND end_ip_num >= $1
+ORDER BY start_ip_num DESC, asset_priority DESC, asset_id ASC
+LIMIT 1;
+
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE geo_lookup(134744072);
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE geo_lookup(2130706433);
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE asset_lookup(168427859);
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE asset_lookup(134744072);
 ```
 
-前端依赖统一使用 npm 和 `web/package-lock.json`。Tree-sitter 语言资产固定来自
-`Cargo.lock` 锁定的依赖，不读取同级目录中的本地仓库。
+这些数字分别对应 `8.8.8.8`、`127.0.0.1`、`10.10.0.83`。`force_generic_plan` 用于检查参数化查询复用通用计划时是否仍能使用索引。检查计划中的 `Index Cond` 是否同时包含区间两侧条件，以及是否使用 `ip_geo_num_lookup_gist_idx` 或 `asset_subject_exclude_biz_sync_num_gist_idx`。资产视图是普通视图，优化器会把查询下推到同步表。资产规则的 OML 查询也需在原有排序后加上 `asset_priority DESC, asset_id ASC`，使同一 IP 按 `HOST → TERMINAL → NET_WORK` 返回，同类重复 IP 按资产 ID 稳定选取；只更新 Station 视图而不更新 OML 查询，不能保证命中优先级。额外排序只作用于区间条件命中的候选行，应结合实际返回行数、`Buffers` 和 `Execution Time` 判断成本。`EXPLAIN ANALYZE` 会真正执行查询。
 
-## 配置管理最新变化
+对应的资产 OML 查询排序应写为：
+
+```sql
+__sip_asset_id, __sip_asset_name, __sip_asset_type, __sip_system_id, __sip_system_name, __sip_company_name = select asset_id, asset_name, asset_type, system_id, system_name, company_name from asset.v_asset_subject_exclude_biz where start_ip_num <= @__sip_asset_num and end_ip_num >= @__sip_asset_num order by start_ip_num desc, asset_priority desc, asset_id asc limit 1;
+```
+
+此前的本地副本包含 Geo **6,157,739** 行、资产 **1,980** 行。强制通用计划后，两条查询都使用 GiST `Index Only Scan`，这批样本的 `Heap Fetches` 为 0：
+
+| 查询 | 样本 | 执行耗时 |
+| --- | --- | ---: |
+| Geo 命中 | `8.8.8.8` | 约 1.2 ms |
+| Geo 命中 | `1.1.1.1` | 约 0.59 ms |
+| Geo 未命中 | `127.0.0.1`，缓存热时 | 约 0.04 ms |
+| 资产命中 | `10.10.0.83`，同时匹配 HOST 和网段，取 HOST | 约 0.07 ms |
+| 资产未命中 | `8.8.8.8` | 约 0.02 ms |
+
+Geo 未命中查询首次读取磁盘页时曾达到约 **8.5 ms**，再次执行约 **0.04 ms**。这些数字只代表本地单次查询，不代表并发业务负载或其他机器的延迟；实际部署还需观察缓存命中和请求端到端耗时。
+
+三类资产转换后的本地样本为 **15,373** 行。使用 14 个参数执行通用计划查询，旧排序与加入类别优先级及资产 ID 排序后均在 **14/14** 次查询中命中资产 GiST 索引，执行时间中位数分别约 **0.024 ms**、**0.025 ms**。这是本机热缓存小样本结果，不能代替生产并发测试。
+
+## 配置模板
 
 - `来源配置` 页新增 `新增输入源` 按钮，编辑的是 `project_infra/topology/sources/wpsrc.toml`。
 - `输出配置` 页在 `business.d/*` 文件下新增 `新增输出源` 按钮，编辑的是 `project_infra/topology/sinks/business.d/*.toml`。
@@ -170,4 +239,16 @@ npm run build
 
 ## 开发指南
 
-接需求或做修改前，请先阅读 [AGENTS.md](./AGENTS.md)。
+接需求或做修改前，请先阅读 [AGENTS.md](./AGENTS.md)。前端依赖统一使用 npm 和 `web/package-lock.json`；Tree-sitter 语言资产来自 `Cargo.lock` 锁定的依赖。
+
+```bash
+# 后端
+cargo test
+
+# 前端
+cd web
+npm run build
+npm test
+```
+
+重置本地知识库同步产物时，先停止 Station，再运行根目录的 `python3 clean_knowledge_sync.py`，脚本会直接删除资产任务及目标对象、Geo 表、Redis 情报键和 Station SQLite 同步运行记录；如需先查看范围，使用 `python3 clean_knowledge_sync.py --dry-run`。未设置连接环境变量时，脚本默认连接本地 `postgres://postgres:123456@127.0.0.1:5432/postgres` 和 `redis://:123456@127.0.0.1:6379/0`；命令行 `--pg-url`、`--redis-url` 优先级最高。本地 SQLite 文件不存在时跳过该项。脚本不会删除源资产表、Doris 原表或 MMDB 文件。

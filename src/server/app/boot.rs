@@ -9,7 +9,9 @@
 
 use crate::db::{DeviceStatus, find_all_devices, get_pool, init_pool};
 use crate::server::sync::ensure_project_repositories;
-use crate::server::{Setting, spawn_release_task_runner, spawn_restore_task_runner};
+use crate::server::{
+    KnowledgeSyncState, Setting, spawn_release_task_runner, spawn_restore_task_runner,
+};
 use crate::utils::{
     WarpParseService, WfusionService, all_system_layouts, check_device_health,
     init_default_configs_to_infra_for_system, init_default_configs_to_models_for_system,
@@ -24,7 +26,7 @@ pub(super) fn build_runtime_log_level(level: &str) -> String {
         level.trim()
     };
 
-    let noisy_targets = ["orion_error", "wp_config", "wp_engine"];
+    let noisy_targets = ["orion_error", "wp_config", "wp_engine", "maxminddb"];
 
     let mut runtime_level = base_level.to_string();
     for target in noisy_targets {
@@ -39,7 +41,7 @@ pub(super) fn build_runtime_log_level(level: &str) -> String {
 }
 
 /// 完成应用启动前的所有初始化动作。
-pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<()> {
+pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<KnowledgeSyncState> {
     info!("启动 WarpStation 服务器");
     info!("Web 地址: {}:{}", setting.web.host, setting.web.port);
     info!("数据库: {}", setting.database.safe_summary());
@@ -71,8 +73,15 @@ pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<()>
     initialize_repo_layouts()?;
     info!("默认配置检查完成");
 
+    let sqlite_url = matches!(
+        setting.database.database_kind(),
+        crate::server::DatabaseKind::Sqlite
+    )
+    .then(|| setting.database.connection_string_with_options());
+    let knowledge_sync_state = KnowledgeSyncState::initialize(sqlite_url.as_deref()).await;
+
     spawn_health_check_task();
-    Ok(())
+    Ok(knowledge_sync_state)
 }
 
 /// 启动时预加载设备管理接口 TLS 证书，尽早暴露证书问题。

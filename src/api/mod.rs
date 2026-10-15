@@ -7,6 +7,7 @@ pub mod config;
 pub mod debug;
 pub mod device;
 pub mod knowledge_query;
+pub mod knowledge_sync;
 pub mod meta;
 pub mod overview;
 pub mod project;
@@ -30,6 +31,10 @@ pub use device::{
     update_device,
 };
 pub use knowledge_query::{get_db_list, query};
+pub use knowledge_sync::{
+    get_geo_import_run, get_knowledge_sync_status, list_asset_runs, list_geo_runs, list_intel_runs,
+    list_mmdb_files, start_geo_import,
+};
 pub use meta::{get_features_config, get_version, hello};
 pub use overview::{get_integration_rule_overview, get_integration_runtime_overview};
 pub use project::{

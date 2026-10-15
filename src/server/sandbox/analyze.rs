@@ -352,7 +352,10 @@ fn collect_wfusion_business_outputs(project_dir: &Path) -> Result<Vec<String>, S
     let mut outputs = Vec::new();
     for file in files {
         let content = fs::read_to_string(&file).map_err(|err| {
-            StageError::new(format!("读取 wfusion business sink {} 失败: {err}", file.display()))
+            StageError::new(format!(
+                "读取 wfusion business sink {} 失败: {err}",
+                file.display()
+            ))
         })?;
         let Some(output_file) = find_sink_output_file(&content) else {
             continue;

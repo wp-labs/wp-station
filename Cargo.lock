@@ -2911,6 +2911,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ipnetwork"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf370abdafd54d13e54a620e8c3e1145f28e46cc9d704bc6d94414559df41763"
+
+[[package]]
 name = "is_debug"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3415,6 +3421,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "maxminddb"
+version = "0.27.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76371bd37ce742f8954daabd0fde7f1594ee43ac2200e20c003ba5c3d65e2192"
+dependencies = [
+ "ipnetwork",
+ "log",
+ "memchr",
+ "memmap2",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3435,6 +3455,15 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "memmap2"
+version = "0.9.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "memoffset"
@@ -7795,7 +7824,7 @@ dependencies = [
 
 [[package]]
 name = "wp-station"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "actix-files",
  "actix-web",
@@ -7820,6 +7849,7 @@ dependencies = [
  "serde_json",
  "simple-log",
  "small_ctor",
+ "sqlx",
  "strum 0.28.0",
  "taplo",
  "tar",
@@ -7844,8 +7874,31 @@ dependencies = [
  "wp-parse-api",
  "wp-primitives",
  "wp-proj",
+ "wp-station-knowledge-sync",
  "wp-station-migrations",
  "zip",
+]
+
+[[package]]
+name = "wp-station-knowledge-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "ipnetwork",
+ "log",
+ "maxminddb",
+ "percent-encoding",
+ "redis",
+ "sea-orm",
+ "serde",
+ "sha2 0.10.9",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "url",
+ "wp-station-migrations",
 ]
 
 [[package]]

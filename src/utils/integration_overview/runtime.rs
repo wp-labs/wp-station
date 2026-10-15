@@ -129,7 +129,7 @@ fn build_connector_meta_map(
     Ok(meta_map)
 }
 
-/// 汇总启用的输入源摘要。
+/// 汇总已配置输入源摘要，并保留各输入源的启用状态。
 fn summarize_sources(
     source_dir: &Path,
     system: SystemKind,
@@ -159,7 +159,7 @@ fn summarize_wparse_sources(
     Ok(parsed
         .sources
         .into_iter()
-        .filter(|item| item.enable && !item.connect.trim().is_empty())
+        .filter(|item| !item.connect.trim().is_empty())
         .map(|item| build_source_runtime_item(item, meta_map, None))
         .collect())
 }
@@ -184,7 +184,7 @@ fn summarize_wfusion_sources(
     let mut items = Vec::new();
     for path in files {
         let parsed = parse_toml_file::<SourceTopologyItem>(&path)?;
-        if !parsed.enable || parsed.connect.trim().is_empty() {
+        if parsed.connect.trim().is_empty() {
             continue;
         }
 
@@ -228,6 +228,7 @@ fn build_source_runtime_item(
         connect: item.connect.clone(),
         type_key: type_key.clone(),
         type_label,
+        enabled: Some(item.enable),
         detail: build_connector_detail(&type_key, &effective_params),
     }
 }
@@ -280,6 +281,7 @@ fn summarize_business_sinks(
                 connect: sink.connect.clone(),
                 type_key: type_key.clone(),
                 type_label,
+                enabled: None,
                 detail: build_connector_detail(&type_key, &effective_params),
             });
         }

@@ -14,6 +14,7 @@ import RuleManagePage from '@/views/pages/rule-manage';
 import ConfigManagePage from '@/views/pages/config-manage';
 import SimulateDebugPage from '@/views/pages/simulate-debug';
 import IntegrationOverviewPage from '@/views/pages/integration-overview';
+import KnowledgeSyncPage from '@/views/pages/knowledge-sync';
 import SystemManagePage from '@/views/pages/system-manage';
 import WfusionRuleEditorPage from '@/views/pages/wfusion-rule-editor';
 import { AssistTaskProvider } from '@/contexts/AssistTaskContext';
@@ -103,6 +104,7 @@ function App() {
                       <Route path="/simulate-debug" element={<SimulateDebugPage />} />
                       <Route path="/wfusion-rule-editor" element={<WfusionRuleEditorPage />} />
                       <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
+                      <Route path="/knowledge-sync" element={<KnowledgeSyncPage />} />
                       <Route path="/system-manage" element={<SystemManagePage />} />
                       <Route path="*" element={<Navigate to="/rule-manage" replace />} />
                     </Routes>

@@ -100,6 +100,11 @@ function Navigation({ children, onLocaleChange }) {
       name: t('navigation.integrationOverview'),
       page: 'integration-overview',
     },
+    {
+      path: '/knowledge-sync',
+      name: t('navigation.knowledgeSync'),
+      page: 'knowledge-sync',
+    },
     { path: '/system-manage', name: t('connectionManage.title'), page: 'system-manage' },
   ];
 
@@ -266,7 +271,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/system-release', '/integration-overview', '/system-manage'].some((path) =>
+            ['/system-release', '/integration-overview', '/knowledge-sync', '/system-manage'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

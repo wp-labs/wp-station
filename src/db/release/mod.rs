@@ -446,10 +446,10 @@ async fn find_successful_release_by_group(
         ]));
     if let Some(before) = before {
         let earlier_than_release = Condition::any()
-            .add(Column::CreatedAt.lt(before.created_at.clone()))
+            .add(Column::CreatedAt.lt(before.created_at))
             .add(
                 Condition::all()
-                    .add(Column::CreatedAt.eq(before.created_at.clone()))
+                    .add(Column::CreatedAt.eq(before.created_at))
                     .add(Column::Id.lt(before.id)),
             );
         query = query.filter(earlier_than_release);

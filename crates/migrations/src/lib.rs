@@ -6,6 +6,7 @@ pub mod entity;
 mod m20250101_000001_create_tables;
 mod m20260917_000002_create_release_restore_jobs;
 mod m20260920_000001_add_active_restore_system_index;
+mod m20261014_000001_create_knowledge_sync_runs;
 
 pub use entity::*;
 
@@ -18,6 +19,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20250101_000001_create_tables::Migration),
             Box::new(m20260917_000002_create_release_restore_jobs::Migration),
             Box::new(m20260920_000001_add_active_restore_system_index::Migration),
+            Box::new(m20261014_000001_create_knowledge_sync_runs::Migration),
         ]
     }
 }

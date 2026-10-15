@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Table, Tag, message } from 'antd';
+import { Button, Input, Table, Tag, message } from 'antd';
 import {
   ApartmentOutlined,
   ApiOutlined,
@@ -635,9 +635,17 @@ const parseRuntimeDetailRows = (detail = '') =>
     .filter(Boolean)
     .map((item) => {
       const [label, ...rest] = item.split(/\s+/);
+      const value = rest.join(' ').trim();
       return {
         label: label || '',
-        value: rest.join(' ').trim() || '',
+        value,
+        values:
+          label === 'Topic'
+            ? value
+                .split(/\s*[,、]\s*/)
+                .map((topic) => topic.trim())
+                .filter(Boolean)
+            : [],
       };
     })
     .filter((item) => item.label && item.value);
@@ -714,6 +722,8 @@ function IntegrationOverviewPage() {
   const [windowStructureItems, setWindowStructureItems] = useState([]);
   const [associationRuleItems, setAssociationRuleItems] = useState([]);
   const [wfusionView, setWfusionView] = useState('rules');
+  const [activeSection, setActiveSection] = useState('overview');
+  const [detailSearch, setDetailSearch] = useState('');
   const [sourceItems, setSourceItems] = useState([]);
   const [sinkItems, setSinkItems] = useState([]);
 
@@ -764,10 +774,10 @@ function IntegrationOverviewPage() {
       logTypeCount: isWfusionSystem
         ? associationRuleItems.length
         : rows.reduce((total, item) => total + item.logTypes.length, 0),
-      sourceCount: sourceItems.length,
+      sourceCount: sourceItems.filter((item) => item.enabled === true).length,
       sinkCount: sinkItems.length,
     }),
-    [associationRuleItems.length, isWfusionSystem, rows, sinkItems.length, sourceItems.length, windowStructureItems.length],
+    [associationRuleItems.length, isWfusionSystem, rows, sinkItems.length, sourceItems, windowStructureItems.length],
   );
 
   const wfusionRows = useMemo(() => {
@@ -793,6 +803,32 @@ function IntegrationOverviewPage() {
       'wfl',
     );
   }, [associationRuleItems, t, wfusionView, windowStructureItems]);
+
+  const filteredDetailRows = useMemo(() => {
+    const query = detailSearch.trim().toLocaleLowerCase();
+    const detailRows = isWfusionSystem ? wfusionRows : rows;
+    if (!query) {
+      return detailRows;
+    }
+
+    return detailRows.filter((item) => {
+      if (isWfusionSystem) {
+        return (
+          String(item.fileName || '').toLocaleLowerCase().includes(query) ||
+          item.ruleNames.some((name) => String(name).toLocaleLowerCase().includes(query))
+        );
+      }
+
+      return (
+        String(item.deviceType || '').toLocaleLowerCase().includes(query) ||
+        item.logTypes.some(
+          (logType) =>
+            String(logType.logTypeName || '').toLocaleLowerCase().includes(query) ||
+            logType.ruleKeys.some((ruleKey) => String(ruleKey).toLocaleLowerCase().includes(query)),
+        )
+      );
+    });
+  }, [detailSearch, isWfusionSystem, rows, wfusionRows]);
 
   const columns = isWfusionSystem
     ? [
@@ -901,7 +937,14 @@ function IntegrationOverviewPage() {
       ];
 
   const renderRuntimeSection = (title, items, emptyKey, options = {}) => (
-    <section className="integration-overview-runtime-section">
+    <section
+      className={[
+        'integration-overview-runtime-section',
+        options.kind && `integration-overview-runtime-section--${options.kind}`,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <div className="integration-overview-runtime-header">
         <h3>{title}</h3>
         <span className="integration-overview-runtime-count">{items.length}</span>
@@ -917,7 +960,20 @@ function IntegrationOverviewPage() {
                 <div className="integration-overview-runtime-card-body">
                   <div className="integration-overview-runtime-card-head">
                     <strong>{item.title}</strong>
-                    <span className="integration-overview-runtime-type">{item.typeLabel}</span>
+                    <span className="integration-overview-runtime-card-badges">
+                      <span className="integration-overview-runtime-type">{item.typeLabel}</span>
+                      {options.kind === 'source' && typeof item.enabled === 'boolean' ? (
+                        <span
+                          className={`integration-overview-runtime-enabled${item.enabled ? ' is-enabled' : ' is-disabled'}`}
+                        >
+                          {t(
+                            item.enabled
+                              ? 'integrationOverview.sourceEnabled'
+                              : 'integrationOverview.sourceDisabled',
+                          )}
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                   {options.showMeta && 'metaLabel' in item && item.metaLabel ? (
                     <div className="integration-overview-runtime-meta">{item.metaLabel}</div>
@@ -936,7 +992,20 @@ function IntegrationOverviewPage() {
                             {detailItem.label}
                           </span>
                           <span className="integration-overview-runtime-detail-value">
-                            {detailItem.value}
+                            {detailItem.values.length > 1 ? (
+                              <span className="integration-overview-runtime-topic-list">
+                                {detailItem.values.map((topic, topicIndex) => (
+                                  <span
+                                    key={`${item.key}-${topic}-${topicIndex}`}
+                                    className="integration-overview-runtime-topic"
+                                  >
+                                    {topic}
+                                  </span>
+                                ))}
+                              </span>
+                            ) : (
+                              detailItem.value
+                            )}
                           </span>
                         </div>
                       ))
@@ -991,82 +1060,127 @@ function IntegrationOverviewPage() {
           <h2>{t('integrationOverview.title')}</h2>
         </header>
         <section className="panel-body integration-overview-body">
-          <div className="integration-overview-toolbar">
-            <div className="integration-overview-summary">
-              {summaryCards.map((card) => (
-                <div key={card.key} className="integration-overview-summary-card">
-                  <span className="integration-overview-summary-icon">
-                    {renderSummaryIcon(card.key)}
+          <div className="integration-overview-subnav" role="tablist" aria-label={t('integrationOverview.title')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'overview'}
+              className={activeSection === 'overview' ? 'is-active' : ''}
+              onClick={() => setActiveSection('overview')}
+            >
+              {t('integrationOverview.overviewTab')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSection === 'details'}
+              className={activeSection === 'details' ? 'is-active' : ''}
+              onClick={() => setActiveSection('details')}
+            >
+              {t('integrationOverview.detailsTab')}
+            </button>
+          </div>
+
+          {activeSection === 'overview' ? (
+            <>
+              <div className="integration-overview-toolbar">
+                <div className="integration-overview-summary">
+                  {summaryCards.map((card) => (
+                    <div key={card.key} className="integration-overview-summary-card">
+                      <span className="integration-overview-summary-icon">
+                        {renderSummaryIcon(card.key)}
+                      </span>
+                      <div className="integration-overview-summary-content">
+                        <span className="integration-overview-summary-label">{card.label}</span>
+                        <strong className="integration-overview-summary-value">{card.value}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="integration-overview-runtime-grid">
+                {renderRuntimeSection(
+                  t('integrationOverview.sourceOverview'),
+                  sourceItems,
+                  'sourceEmpty',
+                  { showMeta: false, kind: 'source' },
+                )}
+                {renderRuntimeSection(
+                  t('integrationOverview.sinkOverview'),
+                  sinkItems,
+                  'sinkEmpty',
+                  { showMeta: false, kind: 'sink' },
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {isWfusionSystem ? (
+                <div className="integration-overview-wfusion-toolbar">
+                  <span className="integration-overview-wfusion-toolbar-label">
+                    {t('integrationOverview.wfusionContentType')}
                   </span>
-                  <div className="integration-overview-summary-content">
-                    <span className="integration-overview-summary-label">{card.label}</span>
-                    <strong className="integration-overview-summary-value">{card.value}</strong>
+                  <div
+                    className="integration-overview-wfusion-switch"
+                    role="group"
+                    aria-label={t('integrationOverview.wfusionContentType')}
+                  >
+                    <Button
+                      type={wfusionView === 'rules' ? 'primary' : 'default'}
+                      aria-pressed={wfusionView === 'rules'}
+                      onClick={() => setWfusionView('rules')}
+                    >
+                      {t('integrationOverview.ruleView')}
+                    </Button>
+                    <Button
+                      type={wfusionView === 'windows' ? 'primary' : 'default'}
+                      aria-pressed={wfusionView === 'windows'}
+                      onClick={() => setWfusionView('windows')}
+                    >
+                      {t('integrationOverview.windowView')}
+                    </Button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+              ) : null}
 
-          <div className="integration-overview-runtime-grid">
-            {renderRuntimeSection(
-              t('integrationOverview.sourceOverview'),
-              sourceItems,
-              'sourceEmpty',
-              { showMeta: false },
-            )}
-            {renderRuntimeSection(
-              t('integrationOverview.sinkOverview'),
-              sinkItems,
-              'sinkEmpty',
-              { showMeta: false },
-            )}
-          </div>
-
-          {isWfusionSystem ? (
-            <div className="integration-overview-wfusion-toolbar">
-              <span className="integration-overview-wfusion-toolbar-label">
-                {t('integrationOverview.wfusionContentType')}
-              </span>
-              <div
-                className="integration-overview-wfusion-switch"
-                role="group"
-                aria-label={t('integrationOverview.wfusionContentType')}
-              >
-                <Button
-                  type={wfusionView === 'rules' ? 'primary' : 'default'}
-                  aria-pressed={wfusionView === 'rules'}
-                  onClick={() => setWfusionView('rules')}
-                >
-                  {t('integrationOverview.ruleView')}
-                </Button>
-                <Button
-                  type={wfusionView === 'windows' ? 'primary' : 'default'}
-                  aria-pressed={wfusionView === 'windows'}
-                  onClick={() => setWfusionView('windows')}
-                >
-                  {t('integrationOverview.windowView')}
-                </Button>
+              <div className="integration-overview-detail-search">
+                <Input.Search
+                  allowClear
+                  value={detailSearch}
+                  placeholder={t(
+                    isWfusionSystem
+                      ? 'integrationOverview.searchFileOrRulePlaceholder'
+                      : 'integrationOverview.searchPlaceholder',
+                  )}
+                  onChange={(event) => setDetailSearch(event.target.value)}
+                  onSearch={setDetailSearch}
+                />
               </div>
-            </div>
-          ) : null}
 
-          <Table
-            className="release-table integration-overview-table"
-            key={`${currentSystem}-${isWfusionSystem ? wfusionView : 'wparse'}`}
-            rowKey="key"
-            loading={loading}
-            columns={columns}
-            dataSource={isWfusionSystem ? wfusionRows : rows}
-            scroll={{ x: 1080 }}
-            pagination={{
-              pageSize: isWfusionSystem ? 20 : 10,
-              showSizeChanger: false,
-              hideOnSinglePage: true,
-            }}
-            locale={{
-              emptyText: t('integrationOverview.empty'),
-            }}
-          />
+              <Table
+                className="release-table integration-overview-table"
+                key={`${currentSystem}-${isWfusionSystem ? wfusionView : 'wparse'}`}
+                rowKey="key"
+                loading={loading}
+                columns={columns}
+                dataSource={filteredDetailRows}
+                scroll={{ x: 1080 }}
+                pagination={{
+                  pageSize: isWfusionSystem ? 20 : 10,
+                  showSizeChanger: false,
+                  hideOnSinglePage: true,
+                }}
+                locale={{
+                  emptyText: t(
+                    detailSearch.trim()
+                      ? 'integrationOverview.searchEmpty'
+                      : 'integrationOverview.empty',
+                  ),
+                }}
+              />
+            </>
+          )}
         </section>
       </article>
     </section>

@@ -72,12 +72,13 @@ pub async fn start() -> std::io::Result<()> {
         tracing::warn!("开发态同步 tree-sitter 资产失败: error={}", err);
     }
 
-    boot::initialize_runtime(&setting).await?;
+    let knowledge_sync_state = boot::initialize_runtime(&setting).await?;
 
     // 创建并注入 SharedRecord
     let shared_record: SharedRecord = Arc::new(Mutex::new(None));
     let shared_record_data = web::Data::new(shared_record);
     let sandbox_state = web::Data::new(SandboxState::new());
+    let knowledge_sync_data = web::Data::new(knowledge_sync_state);
 
     HttpServer::new(move || {
         App::new()
@@ -101,6 +102,7 @@ pub async fn start() -> std::io::Result<()> {
             )
             .app_data(shared_record_data.clone())
             .app_data(sandbox_state.clone())
+            .app_data(knowledge_sync_data.clone())
             .configure(routes::configure_api_services)
             .default_service(web::to(routes::default_route))
     })

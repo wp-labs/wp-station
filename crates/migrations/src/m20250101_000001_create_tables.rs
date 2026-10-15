@@ -100,11 +100,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
         manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::user::Entity)
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(crate::entity::user::Entity).to_owned())
             .await?;
         manager
             .drop_table(

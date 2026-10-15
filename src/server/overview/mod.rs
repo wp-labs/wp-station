@@ -19,6 +19,7 @@ pub struct IntegrationRuntimeItemResponse {
     pub connect: String,
     pub type_key: String,
     pub type_label: String,
+    pub enabled: Option<bool>,
     pub detail: String,
 }
 
@@ -84,6 +85,7 @@ pub fn get_integration_runtime_overview_logic(
                 connect: item.connect,
                 type_key: item.type_key,
                 type_label: item.type_label,
+                enabled: item.enabled,
                 detail: item.detail,
             })
             .collect(),
@@ -96,6 +98,7 @@ pub fn get_integration_runtime_overview_logic(
                 connect: item.connect,
                 type_key: item.type_key,
                 type_label: item.type_label,
+                enabled: item.enabled,
                 detail: item.detail,
             })
             .collect(),

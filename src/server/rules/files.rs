@@ -6,9 +6,7 @@
 //! - 规则文件创建与删除
 //! - 普通规则保存
 
-use crate::constants::project::{
-    FILE_KNOWDB, FILE_WPL_PARSE, FILE_WPL_SAMPLE,
-};
+use crate::constants::project::{FILE_KNOWDB, FILE_WPL_PARSE, FILE_WPL_SAMPLE};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::refresh_draft_release_logic;

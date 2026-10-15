@@ -9,6 +9,7 @@ pub mod config;
 pub mod debug;
 pub mod device;
 pub mod knowledge_query;
+pub mod knowledge_sync;
 pub mod meta;
 pub mod overview;
 pub mod project;
@@ -46,6 +47,7 @@ pub use device::{
     list_online_devices_logic, refresh_device_status_logic, update_device_logic,
 };
 pub use knowledge_query::{KnowdbQuery, KnowledgeDbListQuery, get_db_list_logic, query_logic};
+pub use knowledge_sync::{KnowledgeSyncState, get_knowledge_sync_status_logic};
 pub use meta::{
     FeaturesConfigResponse, VersionResponse, get_features_config_logic, get_version_logic,
     hello_logic,

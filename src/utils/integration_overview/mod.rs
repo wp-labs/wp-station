@@ -22,6 +22,8 @@ pub struct IntegrationRuntimeItem {
     pub connect: String,
     pub type_key: String,
     pub type_label: String,
+    /// 输入源保留拓扑中的启用状态；输出源没有该状态时为 None。
+    pub enabled: Option<bool>,
     pub detail: String,
 }
 

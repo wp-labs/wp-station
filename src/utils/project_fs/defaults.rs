@@ -3,9 +3,7 @@
 //! 负责把内置或运行时 `default_configs` 目录中的默认文件补齐到项目目录。
 //! 只补缺失文件，不覆盖用户已有内容。
 
-use crate::constants::project::{
-    DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_RUNTIME, DIR_TOPOLOGY,
-};
+use crate::constants::project::{DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_RUNTIME, DIR_TOPOLOGY};
 use crate::error::AppError;
 use crate::server::Setting;
 use crate::utils::SystemKind;
@@ -46,7 +44,7 @@ pub fn init_default_configs_to_models_for_system(
     system: SystemKind,
     models_root: &str,
 ) -> Result<(), AppError> {
-    let result = match system {
+    match system {
         SystemKind::Wparse => init_default_configs_with_mappings(
             models_root,
             "wparse/models",
@@ -63,8 +61,7 @@ pub fn init_default_configs_to_models_for_system(
                 target_prefix: DIR_MODELS,
             }],
         ),
-    };
-    result
+    }
 }
 
 /// 按系统将默认 infra 配置补齐到指定 infra 仓库，仅补缺失文件。

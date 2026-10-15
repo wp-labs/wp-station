@@ -1680,6 +1680,11 @@ body:not(.login-page) .connection-page-wrapper {
     grid-template-columns: 1fr;
   }
 
+  .integration-overview-detail-search,
+  .integration-overview-detail-search .ant-input-search {
+    width: 100%;
+  }
+
   .integration-overview-summary-card {
     grid-template-columns: 48px minmax(0, 1fr);
     min-height: auto;
@@ -1838,6 +1843,43 @@ body:not(.login-page) .connection-page-wrapper {
   flex-direction: column;
   gap: 14px;
   padding: 0 !important;
+}
+
+.integration-overview-subnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.integration-overview-subnav button {
+  min-width: 88px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.integration-overview-subnav button:hover {
+  background: rgba(39, 94, 254, 0.06);
+  color: var(--primary);
+}
+
+.integration-overview-subnav button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.integration-overview-subnav button.is-active {
+  background: rgba(39, 94, 254, 0.1);
+  color: var(--primary);
 }
 
 .integration-overview-page {
@@ -2011,6 +2053,14 @@ body:not(.login-page) .connection-page-wrapper {
   gap: 12px;
 }
 
+.integration-overview-runtime-section--source .integration-overview-runtime-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.integration-overview-runtime-section--sink .integration-overview-runtime-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+}
+
 .integration-overview-runtime-card {
   min-width: 0;
   padding: 14px 16px;
@@ -2053,19 +2103,19 @@ body:not(.login-page) .connection-page-wrapper {
 
 .integration-overview-runtime-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
 }
 
 .integration-overview-runtime-card-head strong {
+  flex: 1 1 auto;
   min-width: 0;
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .integration-overview-runtime-type {
@@ -2077,6 +2127,34 @@ body:not(.login-page) .connection-page-wrapper {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
+}
+
+.integration-overview-runtime-card-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.integration-overview-runtime-enabled {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.integration-overview-runtime-enabled.is-enabled {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16803d;
+}
+
+.integration-overview-runtime-enabled.is-disabled {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
 }
 
 .integration-overview-runtime-meta {
@@ -2124,6 +2202,25 @@ body:not(.login-page) .connection-page-wrapper {
   min-width: 0;
   font-size: 13px;
   color: var(--text);
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.integration-overview-runtime-topic-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.integration-overview-runtime-topic {
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid rgba(42, 99, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(42, 99, 255, 0.06);
+  color: var(--text);
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
@@ -2156,6 +2253,16 @@ body:not(.login-page) .connection-page-wrapper {
   background: rgba(249, 251, 255, 0.88);
 }
 
+.integration-overview-detail-search {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.integration-overview-detail-search .ant-input-search {
+  width: min(100%, 420px);
+}
+
 .integration-overview-wfusion-toolbar-label {
   color: var(--text);
   font-size: 13px;
@@ -2181,18 +2288,7 @@ body:not(.login-page) .connection-page-wrapper {
   gap: 8px;
   align-items: flex-start;
   align-content: flex-start;
-  max-height: 128px;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-
-.integration-overview-log-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.integration-overview-log-list::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(120, 146, 196, 0.4);
+  padding-right: 0;
 }
 
 .integration-overview-log-item {
@@ -3142,6 +3238,61 @@ mark.diff-highlight {
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
+}
+
+/* 知识库同步内容按卡片高度自然展开，由页面容器负责滚动。 */
+.knowledge-sync-page {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.page-panels.knowledge-sync-page > .panel.is-visible {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.knowledge-sync-page .panel-body {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.knowledge-sync-geo-title,
+.knowledge-sync-geo-import {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.knowledge-sync-geo-title .ant-select {
+  font-weight: normal;
+}
+
+.knowledge-sync-geo-import .ant-btn-primary,
+.knowledge-sync-geo-import .ant-btn-primary:disabled {
+  color: #fff !important;
+}
+
+.knowledge-sync-geo-details .ant-descriptions-view table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.knowledge-sync-geo-details .ant-descriptions-item-content {
+  min-width: 0;
+}
+
+.knowledge-sync-hash {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.knowledge-sync-history-table .ant-table-thead > tr > th {
+  white-space: nowrap;
 }
 
 /* 连接管理没有左侧子导航，工具栏和连接卡片使用完整内容宽度。 */

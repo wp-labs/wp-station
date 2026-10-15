@@ -1,8 +1,12 @@
 [package]
 name = "wp-station"
-version = "0.3.9" #@gxl:set(version)
+version = "0.3.10" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
+
+[workspace]
+members = ["crates/gitea", "crates/migrations", "crates/knowledge-sync"]
+resolver = "3"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -60,6 +64,7 @@ tree-sitter-wfl = { package = "tree-sitter-wfl", git = "https://github.com/wp-la
 # PostgreSQL 数据库支持 - SeaORM
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono"] }
 wp-station-migrations = { path = "crates/migrations" }
+wp-station-knowledge-sync = { path = "crates/knowledge-sync" }
 
 # HTTP 客户端（用于健康检查）
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
@@ -74,3 +79,6 @@ nix = { version = "0.31", default-features = false, features = ["signal", "proce
 [build-dependencies]
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = "~1.0"
+
+[dev-dependencies]
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }

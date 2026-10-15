@@ -8,8 +8,25 @@ The format is based on Keep a Changelog, and the project follows Semantic Versio
 Note:
 - 以下内容按 `git` 提交记录和改动文件整理。
 - 同一 `Cargo.toml` 版本跨多个日期时，使用 `-1`、`-2` 这类后缀区分时间点。
-- 每条只记录提交里能直接看到的事实，不依赖 `README.md` 或 `AGENTS.md` 的补充描述。
+- 已发布版本只记录提交里能直接看到的事实；当前版本可记录工作区已实现的改动。
 - `0.3.x` 为当前未发布的大版本更新线，与下方 `0.2.x` 历史版本分开记录。
+
+## [0.3.10] - 2026-10-15
+
+对比基线：`0.3.9` 对应提交 `19787c1`（仓库目前没有 `0.3.9` Git tag）；以下包含该提交之后的已提交及当前工作区改动。
+
+### Added
+- 新增知识库同步独立 crate、Station API 和前端“知识库同步”页面，集中展示资产、Geo 与情报的运行状态、数量和历史。
+- 资产同步启动时幂等初始化目标表、索引、视图、存储过程和 `pg_cron` 任务；按周期从资产源库筛选 `HOST`、`NET_WORK`，记录写入及 IPv4 / IPv6 数量，启动本身不触发同步。
+- Geo 支持从服务端目录选择 MMDB 手动导入，记录版本、SHA-256、IPv4 / IPv6 扫描数、阶段、进度和时长；仅写入 IPv4，通过临时表准备并在完成后切换正式表。
+- 情报任务按整周期从 Doris `intel.stix_object` 全量读取有效 IP / 域名，写入 Redis SET 后切换正式键；失败时保留原有正式键，历史写入 Station SQLite。
+- 新增本地知识库同步产物清理脚本、资产 / Geo / 情报测试，以及 README 中的本地连接示例和查询性能检查方法。
+
+### Changed
+- Station 版本号更新至 `0.3.10`；TOML 格式化改用 Taplo。
+- 接入概览的后端摘要、前端展示与布局调整，知识库同步入口加入顶部导航。
+- Geo 和情报运行记录使用 Station SQLite；旧 PostgreSQL `knowledge_sync` 运行记录支持迁移并清理旧结构。
+- 资产同步改为读取 `HOST`、`TERMINAL` 的 `ip` 和 `NET_WORK` 的 `data.cidr`，分别统计三类数量；视图提供类别优先级以支持精确 IP 优先于网段的查询排序。
 
 ## [0.3.9] - 2026-10-09
 Commit range: `1b32374..19787c1`

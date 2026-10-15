@@ -855,8 +855,7 @@ fn rewrite_wfusion_source_runtime(project_dir: &Path) -> Result<(), AppError> {
         fs::remove_dir_all(&overlay_sources_dir).map_err(AppError::internal)?;
     }
     fs::create_dir_all(&overlay_sources_dir).map_err(AppError::internal)?;
-    fs::write(overlay_sources_dir.join("tcp.toml"), &source_content)
-        .map_err(AppError::internal)?;
+    fs::write(overlay_sources_dir.join("tcp.toml"), &source_content).map_err(AppError::internal)?;
 
     let overlay_path = wfusion_source_overlay_path(project_dir);
     let overlay_sources_value = overlay_sources_dir
@@ -1466,10 +1465,8 @@ fn find_wfusion_sink_file(content: &str) -> Option<String> {
             in_sink_params = trimmed == "[sink_group.sinks.params]";
             continue;
         }
-        if in_sink_params {
-            if let Some(file) = parse_toml_string_assignment(trimmed, "file") {
-                return Some(file);
-            }
+        if in_sink_params && let Some(file) = parse_toml_string_assignment(trimmed, "file") {
+            return Some(file);
         }
     }
     None

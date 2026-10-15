@@ -410,8 +410,9 @@ fn sandbox_prepare_creates_wfusion_source_overlay() {
     let runtime = tokio::runtime::Runtime::new().expect("create runtime");
     runtime.block_on(setup_db());
 
-    let workspace = SandboxWorkspace::prepare("sandbox-wfusion-source-overlay", SystemKind::Wfusion, &[])
-        .expect("prepare wfusion sandbox workspace");
+    let workspace =
+        SandboxWorkspace::prepare("sandbox-wfusion-source-overlay", SystemKind::Wfusion, &[])
+            .expect("prepare wfusion sandbox workspace");
     let overlay_path = workspace.root.join("source-overlay.toml");
     let overlay = fs::read_to_string(&overlay_path).expect("read wfusion source overlay");
     let source = fs::read_to_string(workspace.root.join("sources/tcp.toml"))
@@ -455,8 +456,9 @@ sync = true
     )
     .expect("write wfusion business sink");
 
-    let workspace = SandboxWorkspace::prepare("sandbox-wfusion-business-sinks", SystemKind::Wfusion, &[])
-        .expect("prepare wfusion sandbox workspace");
+    let workspace =
+        SandboxWorkspace::prepare("sandbox-wfusion-business-sinks", SystemKind::Wfusion, &[])
+            .expect("prepare wfusion sandbox workspace");
     let content = fs::read_to_string(
         workspace
             .project_dir
@@ -476,8 +478,11 @@ fn wfusion_analysis_prefers_sdm_alert_output() {
     let base = temp_dir("wfusion-analysis");
     let output_dir = base.join("data/out_dat");
     fs::create_dir_all(&output_dir).expect("create output directory");
-    fs::write(output_dir.join("sdm_alert.json"), "{\"source_alert_id\":\"1\"}\n")
-        .expect("write sdm alert output");
+    fs::write(
+        output_dir.join("sdm_alert.json"),
+        "{\"source_alert_id\":\"1\"}\n",
+    )
+    .expect("write sdm alert output");
     fs::write(output_dir.join("default.ndjson"), "").expect("write default output");
     fs::write(output_dir.join("error.ndjson"), "").expect("write error output");
     let daemon_log = base.join("wfusion.log");
@@ -500,12 +505,9 @@ fn wfusion_analysis_lists_each_business_output() {
     let sink_dir = base.join("topology/sinks/business.d");
     fs::create_dir_all(&output_dir).expect("create output directory");
     fs::create_dir_all(&sink_dir).expect("create business sink directory");
-    fs::write(output_dir.join("sdm_alert.json"), "{}\n{}\n")
-        .expect("write alert output");
-    fs::write(output_dir.join("sdm_alert_entity.json"), "{}\n")
-        .expect("write entity output");
-    fs::write(output_dir.join("sdm_evidence.json"), "{}\n")
-        .expect("write evidence output");
+    fs::write(output_dir.join("sdm_alert.json"), "{}\n{}\n").expect("write alert output");
+    fs::write(output_dir.join("sdm_alert_entity.json"), "{}\n").expect("write entity output");
+    fs::write(output_dir.join("sdm_evidence.json"), "{}\n").expect("write evidence output");
     for (name, output) in [
         ("sdm_alert.toml", "sdm_alert.json"),
         ("sdm_alert_entity.toml", "sdm_alert_entity.json"),
@@ -539,9 +541,16 @@ fn wfusion_analysis_lists_each_business_output() {
                 .any(|check| check.relative_path == output),
             "missing output check: {output}"
         );
-        assert!(analysis.log_text.contains(&format!("$ cat {output} | wc -l")));
+        assert!(
+            analysis
+                .log_text
+                .contains(&format!("$ cat {output} | wc -l"))
+        );
     }
-    assert_eq!(analysis.log_text.matches("$ cat data/out_dat/sdm_").count(), 3);
+    assert_eq!(
+        analysis.log_text.matches("$ cat data/out_dat/sdm_").count(),
+        3
+    );
 
     let _ = fs::remove_dir_all(base);
 }
