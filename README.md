@@ -124,7 +124,7 @@ Geo 与情报运行记录使用 Station 自身的 SQLite `station.db`；启用�
 
 ### 资产同步
 
-Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 字段和 `NET_WORK` 的 `data.cidr` 字段，把 IP 和网段转换为数值区间。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总数、HOST / TERMINAL / NET_WORK 数、IPv4 / IPv6 数。资产历史直接读取 `pg_cron` 执行结果。
+Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；已有任务的周期与部署环境变量不同时，原位更新周期，启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 字段和 `NET_WORK` 的 `data.cidr` 字段，把 IP 和网段转换为数值区间。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总数、HOST / TERMINAL / NET_WORK 数、IPv4 / IPv6 数。资产历史直接读取 `pg_cron` 执行结果。
 
 ### Geo 导入
 

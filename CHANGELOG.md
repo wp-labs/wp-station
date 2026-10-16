@@ -23,6 +23,7 @@ Note:
 - 新增本地知识库同步产物清理脚本、资产 / Geo / 情报测试，以及 README 中的本地连接示例和查询性能检查方法。
 
 ### Changed
+- 资产任务启动初始化时按部署环境变量更新已有 `pg_cron` 周期，保留原任务 ID 与启停状态。
 - Station 版本号更新至 `0.3.10`；TOML 格式化改用 Taplo。
 - 接入概览的后端摘要、前端展示与布局调整，知识库同步入口加入顶部导航。
 - Geo 和情报运行记录使用 Station SQLite；旧 PostgreSQL `knowledge_sync` 运行记录支持迁移并清理旧结构。

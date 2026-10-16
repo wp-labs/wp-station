@@ -311,7 +311,6 @@
     "taskActive": "Scheduled Task Enabled",
     "taskUnavailable": "Scheduled Task Unavailable",
     "environmentNotConfigured": "Asset sync environment variables are not configured",
-    "scheduleDrift": "The database task schedule differs from deployment settings. The existing database task is kept.",
     "currentRows": "Current Rows",
     "lastWrittenRows": "Latest Successful Write",
     "lastAssetRows": "Latest Asset Count",

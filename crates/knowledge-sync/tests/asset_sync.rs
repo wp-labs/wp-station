@@ -45,6 +45,43 @@ async fn initializes_asset_job_once_without_running_sync() {
     .expect("应可查询已注册的资产任务");
     assert_eq!(job_count, 1, "重复初始化不应创建第二个定时任务");
 
+    let job_id: i64 = sqlx::query_scalar(
+        "SELECT jobid FROM cron.job WHERE database=current_database() AND jobname=$1",
+    )
+    .bind(ASSET_JOB_NAME)
+    .fetch_one(&pool)
+    .await
+    .expect("应可读取资产任务 ID");
+    let alternate_schedule = if config.schedule == "0 0 1 1 *" {
+        "0 0 2 1 *"
+    } else {
+        "0 0 1 1 *"
+    };
+    let mut alternate_config = config.clone();
+    alternate_config.schedule = alternate_schedule.to_string();
+    let alternate_service = AssetSyncService::connect(alternate_config)
+        .await
+        .expect("应可连接本地资产目标库");
+    let changed = alternate_service
+        .initialize()
+        .await
+        .expect("应原位更新任务周期");
+    let restored = service.initialize().await.expect("应恢复原部署周期");
+    assert_eq!(changed.task_schedule.as_deref(), Some(alternate_schedule));
+    assert_eq!(
+        restored.task_schedule.as_deref(),
+        Some(config.schedule.as_str())
+    );
+    assert_eq!(restored.schedule_matches, Some(true));
+    let current_job_id: i64 = sqlx::query_scalar(
+        "SELECT jobid FROM cron.job WHERE database=current_database() AND jobname=$1",
+    )
+    .bind(ASSET_JOB_NAME)
+    .fetch_one(&pool)
+    .await
+    .expect("应可核对任务 ID");
+    assert_eq!(current_job_id, job_id, "修改周期不应重新创建任务");
+
     // 初始化只准备数据库对象；同步摘要只能由后续 pg_cron 执行写入。
     assert_eq!(sync_run_count(&pool).await, before_runs);
     assert_eq!(first.current_row_count, second.current_row_count);

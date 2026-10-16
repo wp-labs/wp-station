@@ -581,13 +581,34 @@ async fn ensure_asset_job(pool: &PgPool, schedule: &str) -> Result<AssetJob> {
             schedule: job.try_get("schedule")?,
             active: job.try_get("active")?,
         };
+        if existing.schedule != schedule {
+            sqlx::query("SELECT cron.alter_job($1, schedule => $2)")
+                .bind(existing.job_id)
+                .bind(schedule)
+                .execute(pool)
+                .await
+                .context("更新 pg_cron 资产任务周期失败")?;
+            let updated_schedule: String = sqlx::query_scalar(
+                "SELECT schedule FROM cron.job WHERE jobid=$1 AND database=current_database()",
+            )
+            .bind(existing.job_id)
+            .fetch_one(pool)
+            .await
+            .context("核对 pg_cron 资产任务周期失败")?;
+            if updated_schedule != schedule {
+                bail!("pg_cron 资产任务周期更新后与部署配置不一致");
+            }
+            info!(
+                "更新资产 pg_cron 周期成功: job_id={}, schedule={schedule}",
+                existing.job_id
+            );
+            return Ok(AssetJob {
+                schedule: updated_schedule,
+                ..existing
+            });
+        }
         if !existing.active {
             warn!("资产 cron 任务已存在但停用: job_id={}", existing.job_id);
-        } else if existing.schedule != schedule {
-            warn!(
-                "资产 cron 周期与部署参数不同，保留现有任务: job_id={}, existing={}, configured={}",
-                existing.job_id, existing.schedule, schedule
-            );
         }
         return Ok(existing);
     }

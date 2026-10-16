@@ -426,7 +426,6 @@
     "taskActive": "定时任务已启用",
     "taskUnavailable": "定时任务不可用",
     "environmentNotConfigured": "未注入资产同步服务端环境变量",
-    "scheduleDrift": "数据库中的任务周期与部署配置不同，当前保留数据库已有任务。",
     "currentRows": "当前数据行数",
     "lastWrittenRows": "最近成功写入",
     "lastAssetRows": "最近资产数",

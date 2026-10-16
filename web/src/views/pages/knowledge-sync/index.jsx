@@ -248,14 +248,6 @@ function KnowledgeSyncPage() {
                     style={{ marginBottom: 16 }}
                   />
                 )}
-                {asset.scheduleMatches === false && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message={t('knowledgeSync.scheduleDrift')}
-                    style={{ marginBottom: 16 }}
-                  />
-                )}
                 <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                   <Col xs={12} md={6}>
                     <Statistic
