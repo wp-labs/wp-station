@@ -4,11 +4,12 @@
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// 自定义反序列化：将字符串或数字转换为 Option<i64>
+/// 自定义反序列化：将字符串或数字转换为 `Option<i64>`。
 fn deserialize_optional_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
 where
     D: Deserializer<'de>,
 {
+    /// 允许分页字段同时接受字符串和整数两种输入形式。
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum StringOrInt {

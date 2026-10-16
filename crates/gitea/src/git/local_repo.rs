@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::types::{FileStatus, GitError, GiteaConfig};
 use crate::repository::GitRepository;
+use crate::types::{FileStatus, GitError, GiteaConfig};
 
 /// 本地 Git 仓库操作对象
 ///
@@ -48,6 +48,11 @@ impl LocalRepository {
         self.repo.pull()
     }
 
+    /// 拉取远端标签，供按历史发布版本恢复工作区使用。
+    pub fn fetch_tags(&self) -> Result<(), GitError> {
+        self.repo.fetch_tags()
+    }
+
     pub fn force_push(&self) -> Result<(), GitError> {
         self.repo.force_push()
     }
@@ -86,7 +91,7 @@ impl LocalRepository {
 
     /// 查看最新标签与 HEAD 的差异
     pub fn diff_latest_tag_to_head(&self) -> Result<DiffResultWithFiles, GitError> {
-        let diff_result = self.repo.diff_tag_with_head_and_stats()?;        
+        let diff_result = self.repo.diff_tag_with_head_and_stats()?;
         Ok(diff_result)
     }
 
@@ -98,9 +103,26 @@ impl LocalRepository {
     /// # 返回值
     /// * `Ok(DiffResultWithFiles)` - 返回差异结果
     /// * `Err(GitError)` - 获取差异失败时返回错误
-    pub fn diff_with_previous_version(&self, curr_version: &str) -> Result<DiffResultWithFiles, GitError> {
+    pub fn diff_with_previous_version(
+        &self,
+        curr_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
         let diff_result = self.repo.diff_with_previous_version(curr_version)?;
         Ok(diff_result)
+    }
+
+    /// 比较两个明确指定的版本 tag。
+    pub fn diff_between_tags(
+        &self,
+        base_version: &str,
+        target_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        self.repo.diff_between_tags(base_version, target_version)
+    }
+
+    /// 比较指定基线 tag 与仓库当前已提交的 HEAD。
+    pub fn diff_tag_to_head(&self, base_version: &str) -> Result<DiffResultWithFiles, GitError> {
+        self.repo.diff_tag_to_head(base_version)
     }
 
     /// 获取 diff 统计信息 (文件数, 插入行数, 删除行数)
@@ -189,16 +211,8 @@ impl LocalRepository {
         for commit in commits {
             result.push(CommitInfo {
                 oid: commit.id().to_string(),
-                author: commit
-                    .author()
-                    .name()
-                    .unwrap_or("Unknown")
-                    .to_string(),
-                email: commit
-                    .author()
-                    .email()
-                    .unwrap_or("")
-                    .to_string(),
+                author: commit.author().name().unwrap_or("Unknown").to_string(),
+                email: commit.author().email().unwrap_or("").to_string(),
                 message: commit.message().unwrap_or("").to_string(),
                 timestamp: commit.time().seconds(),
             });
@@ -209,6 +223,59 @@ impl LocalRepository {
 
     pub fn checkout(&self, treeish: &str) -> Result<(), GitError> {
         self.repo.checkout(treeish)
+    }
+
+    /// 创建“内容等于历史标签、父提交为当前 main”的候选提交并推送新标签。
+    ///
+    /// 该操作不移动当前分支，适合先让设备按新版本拉取，全部成功后再提升 main。
+    pub fn create_candidate_from_tag(
+        &self,
+        source_tag: &str,
+        target_tag: &str,
+        message: &str,
+    ) -> Result<(String, String), GitError> {
+        let repo = self.repo.raw_repo();
+        let head = repo.head()?.peel_to_commit()?;
+        let previous_head = head.id().to_string();
+        let source = repo
+            .revparse_single(&format!("refs/tags/{source_tag}"))?
+            .peel_to_commit()?;
+        let tree = source.tree()?;
+        let signature = head.author();
+        let candidate = repo.commit(None, &signature, &signature, message, &tree, &[&head])?;
+        let object = repo.find_object(candidate, None)?;
+        repo.tag(
+            target_tag,
+            &object,
+            &signature,
+            &format!("Tag {target_tag}"),
+            false,
+        )?;
+        self.push_tag(target_tag)?;
+        Ok((previous_head, candidate.to_string()))
+    }
+
+    /// 在 main 仍指向预期提交时，将其快进到候选提交并推送。
+    pub fn promote_candidate(
+        &self,
+        expected_head: &str,
+        candidate_commit: &str,
+    ) -> Result<(), GitError> {
+        let repo = self.repo.raw_repo();
+        let mut head_ref = repo.head()?;
+        let actual_head = head_ref.peel_to_commit()?.id().to_string();
+        if actual_head != expected_head {
+            return Err(GitError::InvalidOperation(format!(
+                "main 已变化，拒绝提升候选版本: expected={expected_head}, actual={actual_head}"
+            )));
+        }
+        let candidate = git2::Oid::from_str(candidate_commit)?;
+        head_ref.set_target(candidate, "promote restore candidate")?;
+        let object = repo.find_object(candidate, None)?;
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.force();
+        repo.checkout_tree(&object, Some(&mut checkout))?;
+        self.push()
     }
 
     pub fn raw_repo(&self) -> &GitRepository {

@@ -25,6 +25,16 @@
   overflow: hidden;
   background-color: var(--panel-bg, #ffffff);
   box-shadow: var(--shadow-sm, 0 8px 24px rgba(33, 47, 75, 0.08));
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.diff-file-anchor {
+  scroll-margin-top: 84px;
+}
+
+.diff-file-anchor:target .diff-file {
+  border-color: rgba(39, 94, 254, 0.36);
+  box-shadow: 0 0 0 3px rgba(39, 94, 254, 0.12), var(--shadow-sm, 0 8px 24px rgba(33, 47, 75, 0.08));
 }
 
 /* File header - matches project panel header style */

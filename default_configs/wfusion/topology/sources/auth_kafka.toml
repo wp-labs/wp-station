@@ -1,0 +1,9 @@
+connect = "kafka_src"
+key = "kafka"
+enable = true
+brokers = "10.168.1.145:30001"
+topic = "sdm_s4_events"
+group_id = "wfusion_debug_0713_latest"
+config = "auto.offset.reset=latest"
+data_format = "ndjson"
+stream_tag_field = "log_type"

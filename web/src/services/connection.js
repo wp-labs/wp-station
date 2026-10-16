@@ -4,6 +4,7 @@
  */
 
 import httpRequest from './request';
+import { resolveSystem } from './system';
 
 /**
  * 获取连接列表（分页）
@@ -14,9 +15,9 @@ import httpRequest from './request';
  * @returns {Promise<Object>} 分页结果
  */
 export async function fetchConnections(options = {}) {
-  const { keyword, page, pageSize } = options;
+  const { keyword, page, pageSize, system } = options;
 
-  const params = {};
+  const params = { system: resolveSystem(system) };
   if (keyword) params.keyword = keyword;
   if (typeof page === 'number') params.page = page;
   if (typeof pageSize === 'number') params.page_size = pageSize;
@@ -50,6 +51,7 @@ export async function fetchConnections(options = {}) {
     status: conn.status || 'inactive',
     client_version: conn.client_version || null,
     config_version: conn.config_version || null,
+    healthError: conn.health_error || null,
     createdAt: conn.created_at,
     updatedAt: conn.updated_at,
   }));
@@ -66,8 +68,10 @@ export async function fetchConnections(options = {}) {
  * 获取在线连接列表（用于发布时多选目标机器）
  * @returns {Promise<Array>} 在线连接数组
  */
-export async function fetchOnlineConnections() {
-  const response = await httpRequest.get('/devices/online');
+export async function fetchOnlineConnections(system) {
+  const response = await httpRequest.get('/devices/online', {
+    params: { system: resolveSystem(system) },
+  });
   const rawItems = Array.isArray(response) ? response : (response?.items || []);
   return rawItems.map((conn) => ({
     id: conn.id,
@@ -76,6 +80,7 @@ export async function fetchOnlineConnections() {
     port: conn.port,
     remark: conn.remark || '',
     status: conn.status || 'active',
+    configVersion: conn.config_version || conn.configVersion || '',
   }));
 }
 
@@ -89,8 +94,9 @@ export async function fetchOnlineConnections() {
  * @returns {Promise<Object>} 创建结果，包含新建 id
  */
 export async function createConnection(options) {
-  const { name, ip, port, token, remark } = options;
+  const { name, ip, port, token, remark, system } = options;
   return httpRequest.post('/devices', {
+    system: resolveSystem(system),
     name: name || undefined,
     ip,
     port: Number(port),
@@ -110,9 +116,10 @@ export async function createConnection(options) {
  * @returns {Promise<Object>} 更新结果
  */
 export async function updateConnection(options) {
-  const { id, name, ip, port, token, remark } = options;
+  const { id, name, ip, port, token, remark, system } = options;
   return httpRequest.put('/devices', {
     id,
+    system: resolveSystem(system),
     name: name || undefined,
     ip,
     port: Number(port),
@@ -139,5 +146,25 @@ export async function deleteConnection(options) {
  */
 export async function refreshConnectionStatus(id) {
   const response = await httpRequest.post(`/devices/${id}/refresh`);
-  return response?.id ? response : response?.data || response;
+  const payload = response?.data || response;
+  if (payload?.device) {
+    return {
+      device: {
+        id: payload.device.id,
+        name: payload.device.name || '',
+        ip: payload.device.ip || '',
+        port: payload.device.port,
+        token: payload.device.token || '',
+        remark: payload.device.remark || '',
+        status: payload.device.status || 'inactive',
+        client_version: payload.device.client_version || null,
+        config_version: payload.device.config_version || null,
+        healthError: payload.health_error || null,
+        createdAt: payload.device.created_at,
+        updatedAt: payload.device.updated_at,
+      },
+      healthError: payload.health_error || null,
+    };
+  }
+  return payload;
 }

@@ -40,7 +40,27 @@ impl GiteaClient {
             resp.clone_url,
             resp.ssh_url,
             resp.html_url,
+            resp.empty,
         ))
+    }
+
+    /// 查询 Gitea 上当前用户下的远程仓库。
+    pub async fn get_repo(&self, repo_name: &str) -> Result<Option<RepoInfo>, GitError> {
+        let resp = self
+            .api_client
+            .get_repo(repo_name)
+            .await
+            .map_err(|e| GitError::InvalidOperation(e.to_string()))?;
+
+        Ok(resp.map(|repo| {
+            RepoInfo::new(
+                repo_name.to_string(),
+                repo.clone_url,
+                repo.ssh_url,
+                repo.html_url,
+                repo.empty,
+            )
+        }))
     }
 
     /// 删除 Gitea 上的远程仓库
@@ -90,10 +110,27 @@ impl GiteaClient {
         clone_url: &str,
         local_path: P,
     ) -> Result<LocalRepository, GitError> {
-        git2::Repository::clone(clone_url, local_path.as_ref())
+        let auth_url = self.authenticated_url(clone_url);
+        git2::Repository::clone(&auth_url, local_path.as_ref())
             .map_err(|e| GitError::InvalidOperation(e.to_string()))?;
 
         LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())
+    }
+
+    fn authenticated_url(&self, url: &str) -> String {
+        if let Some(rest) = url.strip_prefix("http://") {
+            format!(
+                "http://{}:{}@{}",
+                self.config.username, self.config.password, rest
+            )
+        } else if let Some(rest) = url.strip_prefix("https://") {
+            format!(
+                "https://{}:{}@{}",
+                self.config.username, self.config.password, rest
+            )
+        } else {
+            url.to_string()
+        }
     }
 
     /// 打开已存在的本地仓库
@@ -127,10 +164,31 @@ impl GiteaClient {
     pub fn diff_with_previous_version<P: AsRef<Path>>(
         &self,
         local_path: P,
-        curr_version: &str
+        curr_version: &str,
     ) -> Result<DiffResultWithFiles, GitError> {
         let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
         local.diff_with_previous_version(curr_version)
+    }
+
+    /// 比较两个明确指定的版本 tag。
+    pub fn diff_between_tags<P: AsRef<Path>>(
+        &self,
+        local_path: P,
+        base_version: &str,
+        target_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
+        local.diff_between_tags(base_version, target_version)
+    }
+
+    /// 比较指定基线 tag 与仓库当前已提交的 HEAD。
+    pub fn diff_tag_to_head<P: AsRef<Path>>(
+        &self,
+        local_path: P,
+        base_version: &str,
+    ) -> Result<DiffResultWithFiles, GitError> {
+        let local = LocalRepository::new(self.config.clone(), local_path.as_ref().to_path_buf())?;
+        local.diff_tag_to_head(base_version)
     }
 
     pub fn create_push_tag<P: AsRef<Path>>(

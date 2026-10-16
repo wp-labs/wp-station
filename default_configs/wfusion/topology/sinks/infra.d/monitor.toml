@@ -1,0 +1,12 @@
+version = "1.0"
+
+[sink_group]
+name = "monitor_infra"
+windows = ["*"]
+
+[[sink_group.sinks]]
+connect = "file_json_sink"
+name = "monitor_out"
+
+[sink_group.sinks.params]
+file = "metrics.ndjson"

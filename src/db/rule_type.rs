@@ -1,3 +1,5 @@
+//! 规则类型与配置类型定义。
+
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 
@@ -11,6 +13,10 @@ pub enum RuleType {
     All,
     Wpl,
     Oml,
+    Windows,
+    Schema,
+    Rule,
+    Scenarios,
     Knowledge,
     Source,
     Sink,
@@ -23,8 +29,10 @@ pub enum RuleType {
 }
 
 impl RuleType {
-    /// 映射到项目校验组件
-    pub fn to_check_component(&self) -> Vec<wp_proj::project::checker::CheckComponent> {
+    /// 映射到 `wparse/wproj` 使用的项目校验组件。
+    ///
+    /// 注意：这套映射只适用于 `wp_proj`，不能用于 `wfusion/wfadm`。
+    pub fn to_wparse_check_components(&self) -> Vec<wp_proj::project::checker::CheckComponent> {
         use wp_proj::project::checker::CheckComponent;
         match self {
             RuleType::All => vec![
@@ -39,6 +47,9 @@ impl RuleType {
             ],
             RuleType::Wpl => vec![CheckComponent::Wpl],
             RuleType::Oml => vec![CheckComponent::Oml],
+            RuleType::Windows | RuleType::Schema | RuleType::Rule | RuleType::Scenarios => {
+                vec![CheckComponent::Engine]
+            }
             RuleType::Knowledge => vec![CheckComponent::Engine], // todo 缺少知识库校验
             RuleType::Source => vec![CheckComponent::Sources],
             RuleType::Sink => vec![CheckComponent::Sinks],

@@ -1,0 +1,14 @@
+version = "1.0"
+
+[sink_group]
+name = "raw_log"
+oml = ["raw_log"]
+parallel = 1
+
+[[sink_group.sinks]]
+name = "raw_log"
+connect = "file_json_sink"
+
+[sink_group.sinks.params]
+base = "./data/out_dat/"
+file = "raw_log.json"

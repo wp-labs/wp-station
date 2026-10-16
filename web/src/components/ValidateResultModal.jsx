@@ -44,6 +44,8 @@ function getStatusInfo(checkResult, t) {
  *   onClose: func - 关闭回调
  *   result: {
  *     filename: string,
+ *     subjectLabel?: string,
+ *     subjectValue?: string,
  *     valid: bool,
  *     message: string?,
  *     details: string[],
@@ -55,15 +57,16 @@ export default function ValidateResultModal({ open, onClose, result }) {
 
   if (!result) return null;
 
-  const { filename, valid, message, details, type } = result;
+  const { filename, subjectLabel, subjectValue, valid, message, details, type } = result;
   const errorMessage = message || (details && details.length > 0 ? details.join('\n') : '');
   const checkResults = analyzeCheckResults(valid, errorMessage);
 
   const hasError = !valid;
-  const statusColor = hasError ? '#ff4d4f' : '#52c41a';
   const statusIcon = hasError ? '✗' : '✓';
   const statusText = hasError ? t('validation.failed') : t('validation.success');
   const typeLabel = type || '';
+  const primaryLabel = subjectLabel || t('validation.fileName');
+  const primaryValue = subjectValue || filename || '—';
 
   const syntaxInfo = getStatusInfo(checkResults.syntax, t);
   const formatInfo = getStatusInfo(checkResults.format, t);
@@ -86,101 +89,68 @@ export default function ValidateResultModal({ open, onClose, result }) {
       width={580}
       className="validate-result-modal"
     >
-      <div>
-        {/* 状态栏 */}
+      <div className="validate-result-layout">
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            marginBottom: '20px',
-            padding: '16px',
-            background: hasError ? '#fff2f0' : '#f6ffed',
-            borderLeft: `3px solid ${statusColor}`,
-            borderRadius: '8px',
-          }}
+          className={`validate-result-summary ${
+            hasError ? 'validate-result-summary--error' : 'validate-result-summary--success'
+          }`}
         >
-          <span style={{ fontSize: '28px', color: statusColor }}>{statusIcon}</span>
-          <div>
-            <div style={{ fontSize: '16px', fontWeight: 600, color: statusColor, marginBottom: '4px' }}>
-              {statusText}
-            </div>
+          <span className="validate-result-summary-icon">{statusIcon}</span>
+          <div className="validate-result-summary-copy">
+            <div className="validate-result-summary-title">{statusText}</div>
             {typeLabel ? (
-              <div style={{ fontSize: '13px', color: '#666' }}>
+              <div className="validate-result-summary-subtitle">
                 {t('validation.conforms', { type: typeLabel })}
               </div>
             ) : null}
           </div>
-        </div>
+          </div>
 
-        {/* 详情表格 */}
-        <div style={{ background: '#fafafa', borderRadius: '8px', padding: '16px', marginBottom: hasError ? '16px' : '0' }}>
-          <table style={{ width: '100%', fontSize: '13px', lineHeight: '2' }}>
-            <tbody>
-              <tr>
-                <td style={{ color: '#666', padding: '4px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                  {t('validation.fileName')}
-                </td>
-                <td style={{ fontWeight: 500, padding: '4px 0' }}>{filename || '—'}</td>
-              </tr>
-              <tr>
-                <td style={{ color: '#666', padding: '4px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                  {t('validation.syntaxCheck')}
-                </td>
-                <td style={{ fontWeight: 500, color: syntaxInfo.color, padding: '4px 0' }}>
-                  {syntaxInfo.text}
-                </td>
-              </tr>
-              <tr>
-                <td style={{ color: '#666', padding: '4px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                  {t('validation.formatCheck')}
-                </td>
-                <td style={{ fontWeight: 500, color: formatInfo.color, padding: '4px 0' }}>
-                  {formatInfo.text}
-                </td>
-              </tr>
-              <tr>
-                <td style={{ color: '#666', padding: '4px 0', whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                  {t('validation.validationTime')}
-                </td>
-                <td style={{ fontWeight: 500, padding: '4px 0' }}>
-                  {new Date().toLocaleString('zh-CN')}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* 错误详情 */}
-        {hasError && errorMessage && (
-          <div
-            style={{
-              background: '#fff2f0',
-              border: '1px solid #ffccc7',
-              borderRadius: '8px',
-              padding: '12px 16px',
-            }}
-          >
-            <div style={{ fontSize: '13px', fontWeight: 600, color: '#ff4d4f', marginBottom: '8px' }}>
-              {t('validation.errorDetail')}
+        <div className="validate-result-grid">
+          <div className="validate-result-item">
+            <div className="validate-result-item-label">{primaryLabel}</div>
+            <div className="validate-result-item-value">{primaryValue}</div>
+          </div>
+          <div className="validate-result-item">
+            <div className="validate-result-item-label">{t('validation.validationTime')}</div>
+            <div className="validate-result-item-value">
+              {new Date().toLocaleString('zh-CN')}
             </div>
-            <pre
-              style={{
-                margin: 0,
-                padding: '12px',
-                background: '#fff',
-                border: '1px solid #ffccc7',
-                borderRadius: '4px',
-                fontSize: '12px',
-                fontFamily: "'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace",
-                lineHeight: '1.6',
-                color: '#333',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                maxHeight: '320px',
-                overflowY: 'auto',
-              }}
+          </div>
+          <div className="validate-result-item">
+            <div className="validate-result-item-label">{t('validation.syntaxCheck')}</div>
+            <div
+              className={`validate-result-item-value validate-result-item-value--status ${
+                checkResults.syntax === 'fail'
+                  ? 'is-fail'
+                  : checkResults.syntax === 'pass'
+                    ? 'is-pass'
+                    : 'is-idle'
+              }`}
             >
+              {syntaxInfo.text}
+            </div>
+          </div>
+          <div className="validate-result-item">
+            <div className="validate-result-item-label">{t('validation.formatCheck')}</div>
+            <div
+              className={`validate-result-item-value validate-result-item-value--status ${
+                checkResults.format === 'fail'
+                  ? 'is-fail'
+                  : checkResults.format === 'pass'
+                    ? 'is-pass'
+                    : 'is-idle'
+              }`}
+            >
+              {formatInfo.text}
+            </div>
+          </div>
+        </div>
+
+        {hasError && errorMessage && (
+          <div className="validate-result-error">
+            <div className="validate-result-error-title">{t('validation.errorDetail')}</div>
+            <pre className="validate-result-error-content">
               {errorMessage}
             </pre>
           </div>

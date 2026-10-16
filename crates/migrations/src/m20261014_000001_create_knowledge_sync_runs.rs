@@ -1,0 +1,179 @@
+use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::sea_query::Expr;
+
+#[derive(DeriveMigrationName)]
+pub struct Migration;
+
+#[derive(DeriveIden)]
+enum GeoRuns {
+    #[sea_orm(iden = "geo_sync_runs")]
+    Table,
+    Id,
+    Status,
+    Stage,
+    FileName,
+    FileHash,
+    DatabaseType,
+    BuildEpoch,
+    RowCount,
+    SourceRowCount,
+    Ipv6SourceRowCount,
+    RowLimit,
+    ProgressRows,
+    ProgressPercent,
+    Error,
+    StartedAt,
+    FinishedAt,
+    LegacyPgRunId,
+}
+
+#[derive(DeriveIden)]
+enum IntelRuns {
+    #[sea_orm(iden = "intel_sync_runs")]
+    Table,
+    Id,
+    Status,
+    Stage,
+    ReadCount,
+    InvalidCount,
+    ExpiredCount,
+    IpCount,
+    DomainCount,
+    Error,
+    StartedAt,
+    FinishedAt,
+    LegacyPgRunId,
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(GeoRuns::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(GeoRuns::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(GeoRuns::Status).string().not_null())
+                    .col(ColumnDef::new(GeoRuns::Stage).string().not_null())
+                    .col(ColumnDef::new(GeoRuns::FileName).string().not_null())
+                    .col(ColumnDef::new(GeoRuns::FileHash).string())
+                    .col(ColumnDef::new(GeoRuns::DatabaseType).string())
+                    .col(ColumnDef::new(GeoRuns::BuildEpoch).big_integer())
+                    .col(ColumnDef::new(GeoRuns::RowCount).big_integer())
+                    .col(ColumnDef::new(GeoRuns::SourceRowCount).big_integer())
+                    .col(ColumnDef::new(GeoRuns::Ipv6SourceRowCount).big_integer())
+                    .col(ColumnDef::new(GeoRuns::RowLimit).big_integer())
+                    .col(
+                        ColumnDef::new(GeoRuns::ProgressRows)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(GeoRuns::ProgressPercent).integer())
+                    .col(ColumnDef::new(GeoRuns::Error).string())
+                    .col(ColumnDef::new(GeoRuns::StartedAt).string().not_null())
+                    .col(ColumnDef::new(GeoRuns::FinishedAt).string())
+                    .col(
+                        ColumnDef::new(GeoRuns::LegacyPgRunId)
+                            .big_integer()
+                            .unique_key(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(IntelRuns::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(IntelRuns::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(IntelRuns::Status).string().not_null())
+                    .col(ColumnDef::new(IntelRuns::Stage).string().not_null())
+                    .col(
+                        ColumnDef::new(IntelRuns::ReadCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(IntelRuns::InvalidCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(IntelRuns::ExpiredCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(IntelRuns::IpCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(IntelRuns::DomainCount)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(ColumnDef::new(IntelRuns::Error).string())
+                    .col(ColumnDef::new(IntelRuns::StartedAt).string().not_null())
+                    .col(ColumnDef::new(IntelRuns::FinishedAt).string())
+                    .col(
+                        ColumnDef::new(IntelRuns::LegacyPgRunId)
+                            .big_integer()
+                            .unique_key(),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_geo_sync_one_running")
+                    .table(GeoRuns::Table)
+                    .col(GeoRuns::Status)
+                    .unique()
+                    .and_where(Expr::col(GeoRuns::Status).eq("running"))
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_intel_sync_one_running")
+                    .table(IntelRuns::Table)
+                    .col(IntelRuns::Status)
+                    .unique()
+                    .and_where(Expr::col(IntelRuns::Status).eq("running"))
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(IntelRuns::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(GeoRuns::Table).to_owned())
+            .await
+    }
+}
