@@ -36,6 +36,58 @@ async fn initializes_asset_job_once_without_running_sync() {
         assert!(status.current_row_count.is_some());
     }
 
+    // 使用可连接的回环地址验证原位修改，随后恢复，避免触及其他测试环境。
+    if config.source_host == "127.0.0.1" || config.source_host == "localhost" {
+        let mut alternate_source = config.clone();
+        alternate_source.source_host = if config.source_host == "localhost" {
+            "127.0.0.1".to_string()
+        } else {
+            "localhost".to_string()
+        };
+        AssetSyncService::connect(alternate_source.clone())
+            .await
+            .expect("应可连接资产目标库")
+            .initialize()
+            .await
+            .expect("应按环境变量修改资产源主机");
+        let options: Vec<String> = sqlx::query_scalar(
+            "SELECT srvoptions FROM pg_foreign_server WHERE srvname='dysec_asset_source'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("应可读取资产源库连接定义");
+        assert!(options.contains(&format!("host={}", alternate_source.source_host)));
+        service.initialize().await.expect("应恢复资产源库主机");
+    }
+
+    let original_mapping: Vec<String> = sqlx::query_scalar(
+        "SELECT umoptions FROM pg_user_mapping WHERE umserver=(SELECT oid FROM pg_foreign_server WHERE srvname='dysec_asset_source') AND umuser=(SELECT oid FROM pg_roles WHERE rolname=current_user)",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("应可读取当前用户映射");
+    let mut wrong_password = config.clone();
+    wrong_password.source_password = "test-secret-not-for-display".to_string();
+    let password_error = AssetSyncService::connect(wrong_password)
+        .await
+        .expect("连接资产目标库时尚不读取资产源库")
+        .initialize()
+        .await
+        .expect_err("错误密码应导致源库验证失败");
+    let password_error = format!("{password_error:#}");
+    assert!(password_error.contains("连接资产源库失败"));
+    assert!(!password_error.contains("test-secret-not-for-display"));
+    let restored_mapping: Vec<String> = sqlx::query_scalar(
+        "SELECT umoptions FROM pg_user_mapping WHERE umserver=(SELECT oid FROM pg_foreign_server WHERE srvname='dysec_asset_source') AND umuser=(SELECT oid FROM pg_roles WHERE rolname=current_user)",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("应可读取回滚后的用户映射");
+    assert!(
+        restored_mapping == original_mapping,
+        "失败时不应修改已有凭据"
+    );
+
     let job_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM cron.job WHERE database=current_database() AND jobname=$1",
     )
@@ -44,6 +96,26 @@ async fn initializes_asset_job_once_without_running_sync() {
     .await
     .expect("应可查询已注册的资产任务");
     assert_eq!(job_count, 1, "重复初始化不应创建第二个定时任务");
+
+    let socket_directories: String = sqlx::query_scalar("SHOW unix_socket_directories")
+        .fetch_one(&pool)
+        .await
+        .expect("应可读取目标库 socket 目录");
+    let expected_host = config.cron_host.as_deref().unwrap_or_else(|| {
+        socket_directories
+            .split(',')
+            .next()
+            .expect("应存在 socket 目录")
+            .trim()
+    });
+    let actual_host: String = sqlx::query_scalar(
+        "SELECT nodename FROM cron.job WHERE database=current_database() AND jobname=$1",
+    )
+    .bind(ASSET_JOB_NAME)
+    .fetch_one(&pool)
+    .await
+    .expect("应可读取任务连接地址");
+    assert_eq!(actual_host, expected_host);
 
     let job_id: i64 = sqlx::query_scalar(
         "SELECT jobid FROM cron.job WHERE database=current_database() AND jobname=$1",
@@ -59,6 +131,7 @@ async fn initializes_asset_job_once_without_running_sync() {
     };
     let mut alternate_config = config.clone();
     alternate_config.schedule = alternate_schedule.to_string();
+    alternate_config.cron_host = Some("localhost".to_string());
     let alternate_service = AssetSyncService::connect(alternate_config)
         .await
         .expect("应可连接本地资产目标库");
@@ -66,6 +139,14 @@ async fn initializes_asset_job_once_without_running_sync() {
         .initialize()
         .await
         .expect("应原位更新任务周期");
+    let changed_host: String = sqlx::query_scalar(
+        "SELECT nodename FROM cron.job WHERE database=current_database() AND jobname=$1",
+    )
+    .bind(ASSET_JOB_NAME)
+    .fetch_one(&pool)
+    .await
+    .expect("应可核对任务连接地址");
+    assert_eq!(changed_host, "localhost");
     let restored = service.initialize().await.expect("应恢复原部署周期");
     assert_eq!(changed.task_schedule.as_deref(), Some(alternate_schedule));
     assert_eq!(
@@ -73,6 +154,14 @@ async fn initializes_asset_job_once_without_running_sync() {
         Some(config.schedule.as_str())
     );
     assert_eq!(restored.schedule_matches, Some(true));
+    let restored_host: String = sqlx::query_scalar(
+        "SELECT nodename FROM cron.job WHERE database=current_database() AND jobname=$1",
+    )
+    .bind(ASSET_JOB_NAME)
+    .fetch_one(&pool)
+    .await
+    .expect("应可核对恢复后的任务连接地址");
+    assert_eq!(restored_host, expected_host);
     let current_job_id: i64 = sqlx::query_scalar(
         "SELECT jobid FROM cron.job WHERE database=current_database() AND jobname=$1",
     )
@@ -161,6 +250,79 @@ async fn converts_host_terminal_and_network_from_local_source() {
     .await
     .expect("检查 IP 与 CIDR 字段归属");
     assert_eq!(missing_source_fields, 0);
+
+    let source_with_public_ip: (String, String, String) = sqlx::query_as(
+        "SELECT asset_id, source_ip, public_ip FROM dblink( \
+           'dysec_asset_source', \
+           'SELECT asset_id::text, btrim(ip)::text, btrim(public_ip)::text \
+            FROM public.asset_subject \
+            WHERE manage_asset_type IN (''HOST'', ''TERMINAL'') \
+              AND NULLIF(btrim(ip), '''') IS NOT NULL \
+              AND NULLIF(btrim(public_ip), '''') IS NOT NULL LIMIT 1' \
+         ) AS source(asset_id text, source_ip text, public_ip text)",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("本地资产副本应包含同时有 ip 和 public_ip 的记录");
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT source_key, asset_id, ip \
+         FROM asset_lookup.asset_subject_exclude_biz_sync \
+         WHERE asset_id = $1 ORDER BY source_key",
+    )
+    .bind(&source_with_public_ip.0)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("读取同一资产的两个地址行");
+    assert_eq!(rows.len(), 2);
+    assert!(rows.contains(&(
+        source_with_public_ip.0.clone(),
+        source_with_public_ip.0.clone(),
+        source_with_public_ip.1.clone(),
+    )));
+    assert!(rows.contains(&(
+        format!("{}:public_ip", source_with_public_ip.0),
+        source_with_public_ip.0.clone(),
+        source_with_public_ip.2.clone(),
+    )));
+    let differing_metadata: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM asset_lookup.asset_subject_exclude_biz_sync private_row \
+         JOIN asset_lookup.asset_subject_exclude_biz_sync public_row \
+           ON public_row.asset_id = private_row.asset_id \
+          AND public_row.source_key = private_row.asset_id || ':public_ip' \
+         WHERE private_row.source_key = private_row.asset_id \
+           AND private_row.asset_id = $1 \
+           AND (private_row.tenant_id, private_row.asset_type, private_row.asset_type_name, \
+                private_row.asset_name, private_row.company_id, private_row.company_name, \
+                private_row.system_id, private_row.system_name) IS DISTINCT FROM \
+               (public_row.tenant_id, public_row.asset_type, public_row.asset_type_name, \
+                public_row.asset_name, public_row.company_id, public_row.company_name, \
+                public_row.system_id, public_row.system_name)",
+    )
+    .bind(&source_with_public_ip.0)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("比较两条地址行的资产属性");
+    assert_eq!(differing_metadata, 0);
+
+    let source_public_count: i64 = sqlx::query_scalar(
+        "SELECT total FROM dblink( \
+           'dysec_asset_source', \
+           'SELECT count(*)::bigint FROM public.asset_subject \
+            WHERE manage_asset_type IN (''HOST'', ''TERMINAL'') \
+              AND NULLIF(btrim(public_ip), '''') IS NOT NULL' \
+         ) AS source(total bigint)",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("统计本地源库公网 IP 行数");
+    let target_public_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM asset_lookup.asset_subject_exclude_biz_sync \
+         WHERE source_key = asset_id || ':public_ip'",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("统计同步后的公网 IP 行数");
+    assert_eq!(target_public_count, source_public_count);
 
     tx.rollback().await.expect("回滚验证事务");
 }

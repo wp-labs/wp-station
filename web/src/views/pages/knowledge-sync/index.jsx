@@ -154,7 +154,6 @@ function KnowledgeSyncPage() {
       : intel.intervalSeconds % 60 === 0
         ? t('knowledgeSync.everyMinutes', { count: intel.intervalSeconds / 60 })
         : t('knowledgeSync.everySeconds', { count: intel.intervalSeconds });
-
   const assetHistoryColumns = [
     { title: t('knowledgeSync.historyId'), dataIndex: 'id', width: 65 },
     { title: t('knowledgeSync.lastRun'), dataIndex: 'status', width: 90,
@@ -167,8 +166,8 @@ function KnowledgeSyncPage() {
       render: (value) => formatTime(value, i18n.language) },
     { title: t('knowledgeSync.historyEnd'), dataIndex: 'finishedAt', width: 155,
       render: (value) => formatTime(value, i18n.language) },
-    { title: t('knowledgeSync.historyMessage'), dataIndex: 'message', ellipsis: true,
-      render: (value) => <Tooltip title={value}><span>{value || '—'}</span></Tooltip> },
+    { title: t('knowledgeSync.historyMessage'), dataIndex: 'message', width: 270,
+      render: (value) => <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value || '—'}</span> },
   ];
   const geoHistoryColumns = [
     { title: t('knowledgeSync.historyId'), dataIndex: 'id', width: 62 },

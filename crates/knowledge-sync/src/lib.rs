@@ -38,7 +38,7 @@ use url::Url;
 const ASSET_BOOTSTRAP_SQL: &str = include_str!("../sql/asset_sync.sql");
 const ASSET_JOB_NAME: &str = "asset_subject_lookup_refresh";
 const ASSET_JOB_COMMAND: &str = "CALL asset_lookup.refresh_asset_subject_lookup();";
-const ASSET_SCHEMA_VERSION: i32 = 5;
+const ASSET_SCHEMA_VERSION: i32 = 6;
 
 /// 资产目标 PostgreSQL 与外部资产源库的服务端配置。
 #[derive(Clone)]
@@ -50,6 +50,7 @@ pub struct AssetSyncConfig {
     pub source_username: String,
     pub source_password: String,
     pub schedule: String,
+    pub cron_host: Option<String>,
     pub reader_role: Option<String>,
 }
 
@@ -98,6 +99,7 @@ impl AssetSyncConfig {
                     .unwrap_or_default()
             });
         let schedule = required_env("WP_KSYNC_ASSET_CRON")?;
+        let cron_host = optional_env("WP_KSYNC_ASSET_CRON_HOST")?;
         let reader_role = optional_env("WP_KSYNC_ASSET_READER_ROLE")?;
 
         Ok(Some(Self {
@@ -108,6 +110,7 @@ impl AssetSyncConfig {
             source_username,
             source_password,
             schedule,
+            cron_host,
             reader_role,
         }))
     }
@@ -147,7 +150,13 @@ impl AssetSyncService {
         validate_asset_objects(&self.pool).await?;
         grant_reader_access(&self.pool, self.config.reader_role.as_deref()).await?;
         let (job, cron_error) = match ensure_pg_cron(&self.pool).await {
-            Ok(()) => match ensure_asset_job(&self.pool, &self.config.schedule).await {
+            Ok(()) => match ensure_asset_job(
+                &self.pool,
+                &self.config.schedule,
+                self.config.cron_host.as_deref(),
+            )
+            .await
+            {
                 Ok(job) => (Some(job), None),
                 Err(error) => (None, Some(format!("资产定时任务初始化失败: {error:#}"))),
             },
@@ -366,6 +375,10 @@ async fn ensure_pg_cron(pool: &PgPool) -> Result<()> {
 }
 
 async fn ensure_asset_server(pool: &PgPool, config: &AssetSyncConfig) -> Result<()> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .context("开启资产源库连接定义更新事务失败")?;
     let options = format!(
         "host {}, port {}, dbname {}",
         quote_literal(&config.source_host),
@@ -375,7 +388,7 @@ async fn ensure_asset_server(pool: &PgPool, config: &AssetSyncConfig) -> Result<
     sqlx::query(&format!(
         "CREATE SERVER IF NOT EXISTS dysec_asset_source FOREIGN DATA WRAPPER dblink_fdw OPTIONS ({options})"
     ))
-    .execute(pool)
+    .execute(&mut *transaction)
     .await
     .context("初始化资产源库连接定义失败")?;
 
@@ -387,22 +400,43 @@ async fn ensure_asset_server(pool: &PgPool, config: &AssetSyncConfig) -> Result<
     sqlx::query(&format!(
         "CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER dysec_asset_source OPTIONS ({mapping_options})"
     ))
-    .execute(pool)
+    .execute(&mut *transaction)
     .await
     .context("初始化资产源库用户映射失败")?;
 
     let server_options: Vec<String> = sqlx::query_scalar(
         "SELECT srvoptions FROM pg_foreign_server WHERE srvname = 'dysec_asset_source'",
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await
     .context("读取资产源库连接定义失败")?;
     let options = option_map(&server_options);
-    if options.get("host") != Some(&config.source_host)
-        || options.get("port") != Some(&config.source_port.to_string())
-        || options.get("dbname") != Some(&config.source_database)
-    {
-        bail!("已存在的资产源库连接定义与部署环境不一致");
+    let mut server_changes = Vec::new();
+    if options.contains_key("hostaddr") {
+        server_changes.push("DROP hostaddr".to_string());
+    }
+    for (name, value) in [
+        ("host", config.source_host.as_str()),
+        ("port", &config.source_port.to_string()),
+        ("dbname", config.source_database.as_str()),
+    ] {
+        if options.get(name).is_none_or(|stored| stored != value) {
+            let action = if options.contains_key(name) {
+                "SET"
+            } else {
+                "ADD"
+            };
+            server_changes.push(format!("{action} {name} {}", quote_literal(value)));
+        }
+    }
+    if !server_changes.is_empty() {
+        sqlx::query(&format!(
+            "ALTER SERVER dysec_asset_source OPTIONS ({})",
+            server_changes.join(", ")
+        ))
+        .execute(&mut *transaction)
+        .await
+        .context("按部署环境更新资产源库地址失败")?;
     }
 
     let mapping_options: Option<Vec<String>> = sqlx::query_scalar(
@@ -412,25 +446,60 @@ async fn ensure_asset_server(pool: &PgPool, config: &AssetSyncConfig) -> Result<
          WHERE fs.srvname = 'dysec_asset_source' \
            AND um.umuser = (SELECT oid FROM pg_roles WHERE rolname = current_user)",
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *transaction)
     .await
     .context("读取资产源库用户映射失败")?;
     let mapping_options = option_map(&mapping_options.unwrap_or_default());
-    if mapping_options.get("user") != Some(&config.source_username)
-        || mapping_options.get("password") != Some(&config.source_password)
-    {
-        bail!("已存在的资产源库用户映射与部署环境不一致");
+    let mut mapping_changes = Vec::new();
+    for (name, value) in [
+        ("user", config.source_username.as_str()),
+        ("password", config.source_password.as_str()),
+    ] {
+        if mapping_options
+            .get(name)
+            .is_none_or(|stored| stored != value)
+        {
+            let action = if mapping_options.contains_key(name) {
+                "SET"
+            } else {
+                "ADD"
+            };
+            mapping_changes.push(format!("{action} {name} {}", quote_literal(value)));
+        }
+    }
+    if !mapping_changes.is_empty() {
+        sqlx::query(&format!(
+            "ALTER USER MAPPING FOR CURRENT_USER SERVER dysec_asset_source OPTIONS ({})",
+            mapping_changes.join(", ")
+        ))
+        .execute(&mut *transaction)
+        .await
+        .context("按部署环境更新资产源库用户映射失败")?;
     }
 
     // 在初始化阶段验证连接，避免 cron 首次运行才发现凭据或网络错误。
     let source_database: String = sqlx::query_scalar(
         "SELECT remote_value FROM dblink('dysec_asset_source', 'SELECT current_database() AS remote_value') AS remote(remote_value text)",
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await
-    .context("连接资产源库失败；请检查服务端环境变量和本地源库副本")?;
+    .context("使用部署环境指定的地址和凭据连接资产源库失败；本次更新已回滚")?;
     if source_database != config.source_database {
-        bail!("资产源库连接实际落入的数据库与部署环境不一致");
+        bail!(
+            "资产源库实际落入数据库 {source_database:?}，部署配置为 {:?}；本次更新已回滚",
+            config.source_database
+        );
+    }
+    transaction
+        .commit()
+        .await
+        .context("提交资产源库连接定义更新失败")?;
+    if !server_changes.is_empty() || !mapping_changes.is_empty() {
+        info!(
+            "资产源库连接配置更新并验证成功: server_options_changed={}, mapping_options_changed={}",
+            server_changes.len(),
+            mapping_changes.len()
+        );
     }
     Ok(())
 }
@@ -555,9 +624,31 @@ async fn grant_reader_access(pool: &PgPool, reader_role: Option<&str>) -> Result
     Ok(())
 }
 
-async fn ensure_asset_job(pool: &PgPool, schedule: &str) -> Result<AssetJob> {
+async fn asset_cron_host(pool: &PgPool, configured_host: Option<&str>) -> Result<String> {
+    if let Some(host) = configured_host {
+        return Ok(host.to_string());
+    }
+    // pg_cron 在数据库容器内建立执行连接，Station Pod 的文件系统路径不参与连接。
+    let socket_directories: String = sqlx::query_scalar("SHOW unix_socket_directories")
+        .fetch_one(pool)
+        .await
+        .context("读取 PostgreSQL Unix socket 目录失败")?;
+    socket_directories
+        .split(',')
+        .map(str::trim)
+        .find(|directory| !directory.is_empty())
+        .map(str::to_string)
+        .context("PostgreSQL 未配置 Unix socket 目录，请设置 WP_KSYNC_ASSET_CRON_HOST")
+}
+
+async fn ensure_asset_job(
+    pool: &PgPool,
+    schedule: &str,
+    configured_host: Option<&str>,
+) -> Result<AssetJob> {
+    let cron_host = asset_cron_host(pool, configured_host).await?;
     let jobs = sqlx::query(
-        "SELECT jobid, jobname, schedule, command, active \
+        "SELECT jobid, jobname, schedule, command, active, nodename \
          FROM cron.job \
          WHERE database = current_database() \
            AND (jobname = $1 OR command = $2) \
@@ -573,7 +664,7 @@ async fn ensure_asset_job(pool: &PgPool, schedule: &str) -> Result<AssetJob> {
         bail!("发现多个资产同步 cron 任务，停止自动初始化");
     }
     if let Some(job) = jobs.first() {
-        let existing = AssetJob {
+        let mut existing = AssetJob {
             job_id: job.try_get("jobid")?,
             name: job
                 .try_get::<Option<String>, _>("jobname")?
@@ -581,47 +672,89 @@ async fn ensure_asset_job(pool: &PgPool, schedule: &str) -> Result<AssetJob> {
             schedule: job.try_get("schedule")?,
             active: job.try_get("active")?,
         };
-        if existing.schedule != schedule {
-            sqlx::query("SELECT cron.alter_job($1, schedule => $2)")
-                .bind(existing.job_id)
-                .bind(schedule)
-                .execute(pool)
+        let existing_host: String = job.try_get("nodename")?;
+        let needs_update = existing.schedule != schedule || existing_host != cron_host;
+        if needs_update {
+            let mut tx = pool
+                .begin()
                 .await
-                .context("更新 pg_cron 资产任务周期失败")?;
-            let updated_schedule: String = sqlx::query_scalar(
-                "SELECT schedule FROM cron.job WHERE jobid=$1 AND database=current_database()",
+                .context("开始更新资产 pg_cron 任务失败")?;
+            if existing.schedule != schedule {
+                sqlx::query("SELECT cron.alter_job($1, schedule => $2)")
+                    .bind(existing.job_id)
+                    .bind(schedule)
+                    .execute(&mut *tx)
+                    .await
+                    .context("更新 pg_cron 资产任务周期失败")?;
+            }
+            if existing_host != cron_host {
+                let updated = sqlx::query(
+                    "UPDATE cron.job SET nodename=$2 WHERE jobid=$1 AND database=current_database()",
+                )
+                .bind(existing.job_id)
+                .bind(&cron_host)
+                .execute(&mut *tx)
+                .await
+                .context("更新 pg_cron 资产任务连接地址失败")?;
+                if updated.rows_affected() != 1 {
+                    bail!("更新 pg_cron 资产任务连接地址时未找到目标任务");
+                }
+            }
+            let (updated_schedule, updated_host): (String, String) = sqlx::query_as(
+                "SELECT schedule, nodename FROM cron.job WHERE jobid=$1 AND database=current_database()",
             )
             .bind(existing.job_id)
-            .fetch_one(pool)
+            .fetch_one(&mut *tx)
             .await
-            .context("核对 pg_cron 资产任务周期失败")?;
-            if updated_schedule != schedule {
-                bail!("pg_cron 资产任务周期更新后与部署配置不一致");
+            .context("核对 pg_cron 资产任务配置失败")?;
+            if updated_schedule != schedule || updated_host != cron_host {
+                bail!("pg_cron 资产任务更新后与部署配置不一致");
             }
+            tx.commit().await.context("提交资产 pg_cron 任务配置失败")?;
             info!(
-                "更新资产 pg_cron 周期成功: job_id={}, schedule={schedule}",
-                existing.job_id
+                "更新资产 pg_cron 任务成功: job_id={}, schedule={}, host={}",
+                existing.job_id, schedule, cron_host
             );
-            return Ok(AssetJob {
-                schedule: updated_schedule,
-                ..existing
-            });
+            existing.schedule = updated_schedule;
         }
         if !existing.active {
             warn!("资产 cron 任务已存在但停用: job_id={}", existing.job_id);
+        } else if !needs_update {
+            info!(
+                "复用资产 pg_cron 任务: job_id={}, schedule={}, host={}",
+                existing.job_id, schedule, cron_host
+            );
         }
         return Ok(existing);
     }
 
+    let mut tx = pool
+        .begin()
+        .await
+        .context("开始创建资产 pg_cron 任务失败")?;
     let job_id: i64 = sqlx::query_scalar("SELECT cron.schedule($1, $2, $3)")
         .bind(ASSET_JOB_NAME)
         .bind(schedule)
         .bind(ASSET_JOB_COMMAND)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await
         .context("创建 pg_cron 资产同步任务失败")?;
-
-    info!("创建资产 pg_cron 任务成功: job_id={job_id}, schedule={schedule}");
+    sqlx::query("UPDATE cron.job SET nodename=$2 WHERE jobid=$1 AND database=current_database()")
+        .bind(job_id)
+        .bind(&cron_host)
+        .execute(&mut *tx)
+        .await
+        .context("设置 pg_cron 资产任务连接地址失败")?;
+    let actual_host: String = sqlx::query_scalar("SELECT nodename FROM cron.job WHERE jobid=$1")
+        .bind(job_id)
+        .fetch_one(&mut *tx)
+        .await
+        .context("核对新建资产 pg_cron 任务连接地址失败")?;
+    if actual_host != cron_host {
+        bail!("新建资产 pg_cron 任务连接地址与配置不一致");
+    }
+    tx.commit().await.context("提交资产 pg_cron 任务失败")?;
+    info!("创建资产 pg_cron 任务成功: job_id={job_id}, schedule={schedule}, host={cron_host}");
     Ok(AssetJob {
         job_id,
         name: ASSET_JOB_NAME.to_string(),

@@ -121,15 +121,16 @@ BEGIN
             'dysec_asset_source'
         );
 
-        -- 网段只取 data.cidr，HOST 和 TERMINAL 只取 ip 字段。
+        -- 网段只取 data.cidr；HOST 和 TERMINAL 的 ip/public_ip 各生成独立查询行。
         INSERT INTO pg_temp.asset_subject_exclude_biz_tmp (
             source_key, network, asset_id, tenant_id, asset_type, asset_type_name,
             asset_name, ip_type, start_ip_num, end_ip_num, ip, company_id,
             company_name, system_id, system_name
         )
         SELECT
-            src.asset_id,
-            CASE WHEN src.manage_asset_type = 'NET_WORK' THEN src.network_text ELSE NULL END,
+            CASE WHEN address.kind = 'public_ip'
+                 THEN src.asset_id || ':public_ip' ELSE src.asset_id END,
+            CASE WHEN address.kind = 'network' THEN address.address_text ELSE NULL END,
             src.asset_id,
             COALESCE(src.tenant_id, '0'),
             src.manage_asset_type,
@@ -138,7 +139,7 @@ BEGIN
             CASE WHEN family(bounds.start_addr) = 6 THEN 'ipv6' ELSE 'ipv4' END,
             asset_lookup.inet_to_num(bounds.start_addr),
             asset_lookup.inet_to_num(bounds.end_addr),
-            CASE WHEN src.manage_asset_type IN ('HOST', 'TERMINAL') THEN src.source_ip ELSE NULL END,
+            CASE WHEN address.kind IN ('ip', 'public_ip') THEN address.address_text ELSE NULL END,
             src.company_id,
             src.company_name,
             src.system_id,
@@ -154,6 +155,7 @@ BEGIN
                 asset_name::text,
                 tenant_id::text,
                 NULLIF(btrim(ip), '')::text AS source_ip,
+                NULLIF(btrim(public_ip), '')::text AS public_ip,
                 NULLIF(btrim(data ->> 'cidr'), '')::text AS network_text,
                 NULLIF(responsible_org::text, '') AS company_id,
                 COALESCE(NULLIF(responsible_org_name::text, ''),
@@ -168,28 +170,33 @@ BEGIN
         ) AS src (
             asset_id text, manage_asset_type text, manage_asset_type_name text,
             asset_type_name text, asset_name text, tenant_id text,
-            source_ip text, network_text text, company_id text,
+            source_ip text, public_ip text, network_text text, company_id text,
             company_name text, system_id text, system_name text
         )
         CROSS JOIN LATERAL (
+            VALUES
+                ('network', CASE WHEN src.manage_asset_type = 'NET_WORK' THEN src.network_text END),
+                ('ip', CASE WHEN src.manage_asset_type IN ('HOST', 'TERMINAL') THEN src.source_ip END),
+                ('public_ip', CASE WHEN src.manage_asset_type IN ('HOST', 'TERMINAL') THEN src.public_ip END)
+        ) AS address(kind, address_text)
+        CROSS JOIN LATERAL (
             SELECT
                 CASE
-                    WHEN src.manage_asset_type IN ('HOST', 'TERMINAL')
-                        THEN host(src.source_ip::inet)::inet
-                    WHEN src.network_text LIKE '%-%'
-                        THEN btrim(split_part(src.network_text, '-', 1))::inet
-                    ELSE network(src.network_text::inet)::inet
+                    WHEN address.kind IN ('ip', 'public_ip')
+                        THEN host(address.address_text::inet)::inet
+                    WHEN address.address_text LIKE '%-%'
+                        THEN btrim(split_part(address.address_text, '-', 1))::inet
+                    ELSE network(address.address_text::inet)::inet
                 END AS start_addr,
                 CASE
-                    WHEN src.manage_asset_type IN ('HOST', 'TERMINAL')
-                        THEN host(src.source_ip::inet)::inet
-                    WHEN src.network_text LIKE '%-%'
-                        THEN btrim(split_part(src.network_text, '-', 2))::inet
-                    ELSE broadcast(src.network_text::inet)
+                    WHEN address.kind IN ('ip', 'public_ip')
+                        THEN host(address.address_text::inet)::inet
+                    WHEN address.address_text LIKE '%-%'
+                        THEN btrim(split_part(address.address_text, '-', 2))::inet
+                    ELSE broadcast(address.address_text::inet)
                 END AS end_addr
         ) AS bounds
-        WHERE (src.manage_asset_type IN ('HOST', 'TERMINAL') AND src.source_ip IS NOT NULL)
-           OR (src.manage_asset_type = 'NET_WORK' AND src.network_text IS NOT NULL);
+        WHERE address.address_text IS NOT NULL;
 
         PERFORM public.dblink_disconnect('dysec_asset_conn');
 

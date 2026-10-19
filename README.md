@@ -124,7 +124,13 @@ Geo 与情报运行记录使用 Station 自身的 SQLite `station.db`；启用�
 
 ### 资产同步
 
-Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；已有任务的周期与部署环境变量不同时，原位更新周期，启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 字段和 `NET_WORK` 的 `data.cidr` 字段，把 IP 和网段转换为数值区间。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总数、HOST / TERMINAL / NET_WORK 数、IPv4 / IPv6 数。资产历史直接读取 `pg_cron` 执行结果。
+资产任务执行连接默认使用目标 PostgreSQL 报告的第一个 Unix socket 目录。Station 创建或检查已有任务时会校正 `cron.job.nodename`；如需其他连接地址，可设置 `WP_KSYNC_ASSET_CRON_HOST`。该路径属于 PostgreSQL 服务端，不是 Station Pod 的挂载路径。
+
+已有 `dysec_asset_source` 与部署环境变量不同时，Station 启动时原位更新主机、端口、库名和用户映射；使用新配置连接源库成功后才提交更新。验证失败会回滚并在页面显示连接错误，原有定义继续可用。历史中的 `connection failed` 是 pg_cron 在建立执行连接前记录的摘要，更具体的认证或网络原因需查看 PostgreSQL 服务端日志。
+
+Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；已有任务的周期与部署环境变量不同时，原位更新周期，启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 和 `public_ip`，以及 `NET_WORK` 的 `data.cidr`，把 IP 和网段转换为数值区间。同一资产同时有 `ip` 和 `public_ip` 时写入两行，资产属性相同，地址分别写入 `ip` 字段；公网地址行的内部 `source_key` 带 `:public_ip` 后缀。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总行数、HOST / TERMINAL / NET_WORK 行数、IPv4 / IPv6 行数。资产历史直接读取 `pg_cron` 执行结果。
+
+启动日志以 INFO 汇总三类知识库的配置、对象和任务状态，并分别列出最近执行结果与最近成功时间。`startup_sync=false` 表示启动只初始化对象和调度器；最近执行结果属于历史任务，不表示此次启动已同步。
 
 ### Geo 导入
 
@@ -146,6 +152,7 @@ Station 启动时只初始化运行记录和定时器。到达周期边界后，
 | `WP_KSYNC_ASSET_SOURCE_DATABASE` | 资产源 PostgreSQL 数据库名，其他连接参数默认取自目标 URL |
 | `WP_KSYNC_ASSET_SOURCE_HOST` / `PORT` / `USERNAME` / `PASSWORD` | 可选覆盖项，仅在资产源连接参数与目标库不同时使用 |
 | `WP_KSYNC_ASSET_CRON` | 资产 `pg_cron` 表达式，例如 `*/5 * * * *` |
+| `WP_KSYNC_ASSET_CRON_HOST` | 可选；资产任务在 PostgreSQL 服务端使用的连接地址，默认取目标库第一个 Unix socket 目录 |
 | `WP_KSYNC_ASSET_READER_ROLE` | 可选的目标库只读角色 |
 | `WP_KSYNC_MMDB_DIR` / `WP_KSYNC_MMDB_WORK_DIR` | MMDB 扫描目录与导入临时目录 |
 | `WP_KSYNC_GEO_MAX_ROWS` | 仅用于本地快速验证的 Geo 行数上限 |

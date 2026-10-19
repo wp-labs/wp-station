@@ -1,6 +1,6 @@
 [package]
 name = "wp-station"
-version = "0.3.10" #@gxl:set(version)
+version = "0.3.11" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
 

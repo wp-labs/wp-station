@@ -28,6 +28,7 @@ pub struct KnowledgeSyncState {
 impl KnowledgeSyncState {
     /// 启动时分别初始化资产与 Geo，不让单项故障阻断 Station。
     pub async fn initialize(station_sqlite_url: Option<&str>) -> Self {
+        info!("知识库同步启动检查开始: startup_sync=false");
         let (asset_service, asset_startup_status) = initialize_asset().await;
         let run_store = match station_sqlite_url {
             Some(url) => match open_run_store(url).await {
@@ -64,6 +65,15 @@ impl KnowledgeSyncState {
         }
         let (geo_service, geo_startup_status) = initialize_geo(run_store.as_ref()).await;
         let (intel_service, intel_startup_status) = initialize_intel(run_store.as_ref()).await;
+        info!(
+            "知识库同步启动检查完成: asset_configured={}, asset_cron_active={:?}, geo_configured={}, geo_index_ready={}, intel_configured={}, intel_timer_started={}",
+            asset_startup_status.configured,
+            asset_startup_status.task_active,
+            geo_startup_status.configured,
+            geo_startup_status.index_ready,
+            intel_startup_status.configured,
+            intel_startup_status.configured && intel_startup_status.error.is_none()
+        );
         Self {
             asset_service,
             asset_startup_status,
@@ -165,13 +175,17 @@ async fn initialize_intel(
 ) -> (Option<IntelSyncService>, IntelSyncStatus) {
     let config = match IntelSyncConfig::from_env() {
         Ok(Some(config)) => config,
-        Ok(None) => return (None, IntelSyncStatus::unconfigured()),
+        Ok(None) => {
+            info!("情报同步未配置，跳过定时器初始化");
+            return (None, IntelSyncStatus::unconfigured());
+        }
         Err(error) => {
             warn!("情报同步环境配置无效: error={}", error);
             return (None, IntelSyncStatus::unavailable(error.to_string()));
         }
     };
     let Some(run_store) = run_store else {
+        warn!("情报同步初始化失败: error=Station SQLite 运行记录库不可用");
         return (
             None,
             IntelSyncStatus::unavailable("Station SQLite 运行记录库不可用"),
@@ -188,8 +202,15 @@ async fn initialize_intel(
         Ok(status) => {
             service.spawn_timer();
             info!(
-                "情报同步定时器已创建: interval_seconds={:?}",
-                status.interval_seconds
+                "情报同步初始化完成，定时器已启动: interval_seconds={:?}, ip_count={:?}, domain_count={:?}, latest_run_status={:?}, latest_success_at={:?}, startup_sync=false",
+                status.interval_seconds,
+                status.ip_count,
+                status.domain_count,
+                status.latest_run.as_ref().map(|run| run.status.as_str()),
+                status
+                    .latest_success_run
+                    .as_ref()
+                    .and_then(|run| run.finished_at)
             );
             (Some(service), status)
         }
@@ -206,7 +227,10 @@ async fn initialize_intel(
 async fn initialize_asset() -> (Option<AssetSyncService>, AssetSyncStatus) {
     let config = match AssetSyncConfig::from_env() {
         Ok(Some(config)) => config,
-        Ok(None) => return (None, AssetSyncStatus::unconfigured()),
+        Ok(None) => {
+            info!("资产同步未配置，跳过对象和定时任务初始化");
+            return (None, AssetSyncStatus::unconfigured());
+        }
         Err(error) => {
             warn!("资产同步环境配置无效: error={}", error);
             return (None, AssetSyncStatus::unavailable(error.to_string()));
@@ -222,9 +246,23 @@ async fn initialize_asset() -> (Option<AssetSyncService>, AssetSyncStatus) {
     match service.initialize().await {
         Ok(status) => {
             info!(
-                "资产同步初始化完成: database={}, rows={:?}, cron_active={:?}",
-                status.database, status.current_row_count, status.task_active
+                "资产同步对象初始化完成: database={}, source_verified=true, rows={:?}, cron_task={:?}, cron_active={:?}, schedule={:?}, startup_sync=false",
+                status.database,
+                status.current_row_count,
+                status.task_name,
+                status.task_active,
+                status.task_schedule
             );
+            info!(
+                "资产同步历史状态: latest_run_status={:?}, latest_run_finished_at={:?}, latest_success_at={:?}, latest_written_count={:?}",
+                status.latest_run_status,
+                status.latest_run_finished_at,
+                status.latest_success_at,
+                status.latest_written_count
+            );
+            if let Some(error) = &status.error {
+                warn!("资产定时任务初始化异常: error={}", error);
+            }
             (Some(service), status)
         }
         Err(error) => {
@@ -240,13 +278,17 @@ async fn initialize_asset() -> (Option<AssetSyncService>, AssetSyncStatus) {
 async fn initialize_geo(run_store: Option<&RunStore>) -> (Option<GeoSyncService>, GeoSyncStatus) {
     let config = match GeoSyncConfig::from_env() {
         Ok(Some(config)) => config,
-        Ok(None) => return (None, GeoSyncStatus::unconfigured()),
+        Ok(None) => {
+            info!("Geo 同步未配置，跳过目标表检查");
+            return (None, GeoSyncStatus::unconfigured());
+        }
         Err(error) => {
             warn!("Geo 环境配置无效: error={}", error);
             return (None, GeoSyncStatus::unavailable(error.to_string()));
         }
     };
     let Some(run_store) = run_store else {
+        warn!("Geo 初始化失败: error=Station SQLite 运行记录库不可用");
         return (
             None,
             GeoSyncStatus::unavailable("Station SQLite 运行记录库不可用"),
@@ -262,8 +304,12 @@ async fn initialize_geo(run_store: Option<&RunStore>) -> (Option<GeoSyncService>
     match service.initialize().await {
         Ok(status) => {
             info!(
-                "Geo 状态检查完成: table_exists={}, rows={:?}",
-                status.table_exists, status.current_row_count
+                "Geo 初始化检查完成: table_exists={}, index_ready={}, rows={:?}, mmdb_version={:?}, latest_run_status={:?}, startup_import=false",
+                status.table_exists,
+                status.index_ready,
+                status.current_row_count,
+                status.database_type,
+                status.latest_run.as_ref().map(|run| run.status.as_str())
             );
             (Some(service), status)
         }
@@ -289,18 +335,24 @@ pub struct KnowledgeSyncStatusResponse {
 pub async fn get_knowledge_sync_status_logic(
     state: &KnowledgeSyncState,
 ) -> KnowledgeSyncStatusResponse {
-    let asset = if state.asset_startup_status.error.is_some()
-        && state.asset_startup_status.current_row_count.is_none()
-    {
-        state.asset_startup_status.clone()
-    } else {
-        match &state.asset_service {
-            Some(service) => service
-                .status()
-                .await
-                .unwrap_or_else(|error| AssetSyncStatus::unavailable(error.to_string())),
-            None => state.asset_startup_status.clone(),
-        }
+    let asset = match &state.asset_service {
+        Some(service) => match service.status().await {
+            Ok(mut status) => {
+                // 初始化失败时仍读取已有任务历史，同时保留真正阻断初始化的错误。
+                if let Some(error) = &state.asset_startup_status.error {
+                    status.error = Some(error.clone());
+                }
+                status
+            }
+            Err(error) => {
+                let mut status = state.asset_startup_status.clone();
+                if status.error.is_none() {
+                    status = AssetSyncStatus::unavailable(format!("{error:#}"));
+                }
+                status
+            }
+        },
+        None => state.asset_startup_status.clone(),
     };
     let geo = if state.geo_startup_status.error.is_some() {
         state.geo_startup_status.clone()
