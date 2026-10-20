@@ -231,6 +231,19 @@
     "enabledSources": "Enabled Sources",
     "enabledSinks": "Enabled Business Sinks",
     "category": "Category",
+    "wfusionCategory": {
+      "forward": "Forward & Preparation",
+      "alert": "Alert Rules",
+      "stat": "Statistics Rules"
+    },
+    "group": "Group",
+    "businessCount": "Rule Count",
+    "businessNames": {
+      "alert": "Alert Rules",
+      "forward": "Forward & Preparation",
+      "stat": "Statistics Rules"
+    },
+    "ruleCategory": "Rule Category",
     "count": "Count",
     "fileName": "File Name",
     "ruleNames": "Rules in File",
@@ -238,9 +251,6 @@
     "logTypeCount": "Log Type",
     "windowStructure": "Window Structure",
     "associationRule": "Correlation Rule",
-    "wfusionContentType": "Content Type",
-    "ruleView": "Rules",
-    "windowView": "Windows",
     "logStatus": "Log Status",
     "sourceOverview": "Sources",
     "sinkOverview": "Sinks",
@@ -250,7 +260,7 @@
     "sinkEmpty": "No sink configuration available",
     "logTypeList": "Log Type List",
     "searchPlaceholder": "Search device type or log type",
-    "searchFileOrRulePlaceholder": "Search file name or rule name",
+    "searchFileOrRulePlaceholder": "Search group, business name or rule",
     "searchEmpty": "No matching integration data",
     "moreLogTypes": "{{count}} more log types",
     "empty": "No integration data available",

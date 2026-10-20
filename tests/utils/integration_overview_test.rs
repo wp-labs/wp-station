@@ -227,3 +227,49 @@ fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
         vec!["ssh_brute_force".to_string()]
     );
 }
+
+#[test]
+fn test_wfusion_rule_metadata_and_business_categories() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let layout = RepoLayout {
+        models_root: temp_dir.path().join("project_models"),
+        infra_root: temp_dir.path().join("project_infra"),
+        connectors_root: temp_dir.path().join("project_infra"),
+    };
+    let root = layout.models_root.join("models/rules/http");
+    write_file(
+        &root.join("http_forward.wfl"),
+        "// @group: HTTP\n// @name: 日志转发\nrule http_forward {}\n",
+    );
+    write_file(
+        &root.join("http_alert.wfl"),
+        "// @group: HTTP\n// @name: 威胁告警\n// 流程：feed → sdm_alert。\nrule detect {}\nrule alert {}\n",
+    );
+    write_file(
+        &root.join("http_stat.wfl"),
+        "// @group: 统计\n// @name: 流量统计\nrule stat {}\n",
+    );
+    write_file(
+        &root.join("http_join.wfl"),
+        "// @group: HTTP\n// @name: 请求关联\nrule join {}\n",
+    );
+
+    let overview = load_integration_rule_overview_from_layout(SystemKind::Wfusion, &layout)
+        .expect("load wfusion rules");
+    assert_eq!(overview.association_rule_count, 4);
+    let by_name = |name: &str| {
+        overview
+            .association_rules
+            .iter()
+            .find(|item| item.name == name)
+            .unwrap()
+    };
+    assert_eq!(by_name("http_forward.wfl").category, "forward");
+    assert_eq!(by_name("http_join.wfl").category, "forward");
+    assert_eq!(by_name("http_alert.wfl").category, "alert");
+    assert_eq!(by_name("http_stat.wfl").category, "stat");
+    assert_eq!(by_name("http_alert.wfl").group, "HTTP");
+    assert_eq!(by_name("http_alert.wfl").display_name, "威胁告警");
+    assert_eq!(by_name("http_alert.wfl").description, "feed → sdm_alert。");
+    assert_eq!(by_name("http_alert.wfl").rule_names.len(), 2);
+}

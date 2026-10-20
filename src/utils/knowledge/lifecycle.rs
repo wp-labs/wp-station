@@ -202,8 +202,8 @@ fn build_knowledge_context(layout: &RepoLayout) -> Result<Option<KnowledgeContex
 
     let knowledge_root = root.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     if !knowledge_root.exists() {
-        warn!(
-            "项目中未找到知识库目录，跳过初始化: {}",
+        info!(
+            "项目未配置知识库目录，跳过初始化: {}",
             knowledge_root.display()
         );
         return Ok(None);

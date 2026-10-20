@@ -290,14 +290,62 @@ fn visit_named_rule_files(
         let name = format_named_rule_name(&relative);
         let content = fs::read_to_string(&path).map_err(AppError::internal)?;
         let rule_names = extract_rule_names(&content);
+        let display_name = file_annotation(&content, "@name:").unwrap_or_else(|| name.clone());
+        let group = file_annotation(&content, "@group:").unwrap_or_else(|| {
+            relative
+                .parent()
+                .and_then(|part| part.to_str())
+                .unwrap_or_default()
+                .to_string()
+        });
+        let description = file_annotation(&content, "流程：").unwrap_or_default();
+        let category = if extension == ".wfl" {
+            classify_wfusion_rule_file(&relative, &content).to_string()
+        } else {
+            "window".to_string()
+        };
         files.push(IntegrationRuleFlatItem {
             key,
             name,
             rule_names,
+            group,
+            display_name,
+            category,
+            description,
         });
     }
 
     Ok(())
+}
+
+/// 文件头的展示注释只负责页面名称，不影响 WFL 的执行语义。
+fn file_annotation(content: &str, marker: &str) -> Option<String> {
+    content.lines().take(30).find_map(|line| {
+        line.trim()
+            .strip_prefix("//")?
+            .trim()
+            .strip_prefix(marker)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+/// 按业务文件分类；关联文件属于转发后的数据准备，不计入告警或统计。
+fn classify_wfusion_rule_file(relative: &Path, content: &str) -> &'static str {
+    let stem = relative
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if stem.ends_with("_forward") || stem.ends_with("_join") {
+        "forward"
+    } else if stem.ends_with("_stat") || content.contains("yield collect_volume_stat") {
+        "stat"
+    } else if stem.ends_with("_alert") || content.contains("yield sdm_alert (") {
+        "alert"
+    } else {
+        "forward"
+    }
 }
 
 fn format_named_rule_name(relative: &Path) -> String {

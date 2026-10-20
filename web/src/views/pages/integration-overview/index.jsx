@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Input, Table, Tag, message } from 'antd';
+import { Input, Table, Tag, message } from 'antd';
 import {
   ApartmentOutlined,
   ApiOutlined,
@@ -719,9 +719,8 @@ function IntegrationOverviewPage() {
   const isWfusionSystem = currentSystem === 'wfusion';
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
-  const [windowStructureItems, setWindowStructureItems] = useState([]);
   const [associationRuleItems, setAssociationRuleItems] = useState([]);
-  const [wfusionView, setWfusionView] = useState('rules');
+  const [wfusionCategory, setWfusionCategory] = useState('alert');
   const [activeSection, setActiveSection] = useState('overview');
   const [detailSearch, setDetailSearch] = useState('');
   const [sourceItems, setSourceItems] = useState([]);
@@ -743,9 +742,6 @@ function IntegrationOverviewPage() {
           logTypes: mergeLogTypesByName(item.logTypes),
         })),
       );
-      setWindowStructureItems(
-        Array.isArray(ruleOverview?.windowStructures) ? ruleOverview.windowStructures : [],
-      );
       setAssociationRuleItems(
         Array.isArray(ruleOverview?.associationRules) ? ruleOverview.associationRules : [],
       );
@@ -763,46 +759,43 @@ function IntegrationOverviewPage() {
   }, [loadOverview]);
 
   useEffect(() => {
-    if (isWfusionSystem) {
-      setWfusionView('rules');
-    }
-  }, [currentSystem, isWfusionSystem]);
+    setWfusionCategory('alert');
+  }, [currentSystem]);
 
   const summary = useMemo(
     () => ({
-      deviceTypeCount: isWfusionSystem ? windowStructureItems.length : rows.length,
-      logTypeCount: isWfusionSystem
-        ? associationRuleItems.length
-        : rows.reduce((total, item) => total + item.logTypes.length, 0),
+      deviceTypeCount: rows.length,
+      logTypeCount: rows.reduce((total, item) => total + item.logTypes.length, 0),
+      forwardCount: associationRuleItems.filter((item) => item.category === 'forward').length,
+      alertCount: associationRuleItems.filter((item) => item.category === 'alert').length,
+      statCount: associationRuleItems.filter((item) => item.category === 'stat').length,
       sourceCount: sourceItems.filter((item) => item.enabled === true).length,
       sinkCount: sinkItems.length,
     }),
-    [associationRuleItems.length, isWfusionSystem, rows, sinkItems.length, sourceItems, windowStructureItems.length],
+    [associationRuleItems, rows, sinkItems.length, sourceItems],
   );
 
   const wfusionRows = useMemo(() => {
-    const buildRows = (items, category, prefix) =>
-      items.map((item) => ({
-        key: `${prefix}:${item.key}`,
-        category,
+    const groups = new Map();
+    associationRuleItems.filter((item) => item.category === wfusionCategory).forEach((item) => {
+      const group = item.group || '—';
+      if (!groups.has(group)) {
+        groups.set(group, { key: group, group, rules: [] });
+      }
+      groups.get(group).rules.push({
+        key: item.key,
+        name: item.displayName || item.name,
         fileName: item.name,
         ruleNames: Array.isArray(item.ruleNames) ? item.ruleNames : [],
-      }));
-
-    if (wfusionView === 'windows') {
-      return buildRows(
-        windowStructureItems,
-        t('integrationOverview.windowStructure'),
-        'wfs',
-      );
-    }
-
-    return buildRows(
-      associationRuleItems,
-      t('integrationOverview.associationRule'),
-      'wfl',
-    );
-  }, [associationRuleItems, t, wfusionView, windowStructureItems]);
+      });
+    });
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        rules: group.rules.sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN')),
+      }))
+      .sort((left, right) => left.group.localeCompare(right.group, 'zh-Hans-CN'));
+  }, [associationRuleItems, wfusionCategory]);
 
   const filteredDetailRows = useMemo(() => {
     const query = detailSearch.trim().toLocaleLowerCase();
@@ -814,8 +807,11 @@ function IntegrationOverviewPage() {
     return detailRows.filter((item) => {
       if (isWfusionSystem) {
         return (
-          String(item.fileName || '').toLocaleLowerCase().includes(query) ||
-          item.ruleNames.some((name) => String(name).toLocaleLowerCase().includes(query))
+          String(item.group || '').toLocaleLowerCase().includes(query) ||
+          item.rules.some((rule) =>
+            String(rule.name).toLocaleLowerCase().includes(query) ||
+            String(rule.fileName).toLocaleLowerCase().includes(query) ||
+            rule.ruleNames.some((name) => String(name).toLocaleLowerCase().includes(query)))
         );
       }
 
@@ -839,47 +835,34 @@ function IntegrationOverviewPage() {
           render: (_, __, index) => index + 1,
         },
         {
-          title: t('integrationOverview.category'),
-          dataIndex: 'category',
-          key: 'category',
-          width: 160,
-          render: (category) => (
+          title: t('integrationOverview.group'),
+          dataIndex: 'group',
+          key: 'group',
+          width: 220,
+          render: (group) => (
             <Tag className="integration-overview-device-tag" bordered={false}>
-              {category}
+              {group}
             </Tag>
           ),
         },
         {
-          title: t('integrationOverview.fileName'),
-          dataIndex: 'fileName',
-          key: 'fileName',
-          width: 280,
-          render: (fileName) => (
-            <span className="integration-overview-file-name" title={fileName}>
-              {fileName}
-            </span>
-          ),
+          title: t('integrationOverview.businessCount'),
+          dataIndex: 'rules',
+          key: 'businessCount',
+          width: 120,
+          render: (rules) => rules.length,
         },
         {
-          title: t('integrationOverview.ruleNames'),
-          dataIndex: 'ruleNames',
-          key: 'ruleNames',
-          render: (ruleNames) => (
-            <div className="integration-overview-rule-list">
-              {ruleNames.length > 0 ? (
-                ruleNames.map((ruleName) => (
-                  <Tag
-                    key={ruleName}
-                    className="integration-overview-rule-tag"
-                    bordered={false}
-                    title={ruleName}
-                  >
-                    {ruleName}
-                  </Tag>
-                ))
-              ) : (
-                <span className="integration-overview-rule-empty">-</span>
-              )}
+          title: t(`integrationOverview.businessNames.${wfusionCategory}`),
+          dataIndex: 'rules',
+          key: 'businessNames',
+          render: (rules) => (
+            <div className="integration-overview-log-list">
+              {rules.map((rule) => (
+                <span key={rule.key} className="integration-overview-log-item" title={rule.fileName}>
+                  <span className="integration-overview-log-primary">{rule.name}</span>
+                </span>
+              ))}
             </div>
           ),
         },
@@ -888,14 +871,14 @@ function IntegrationOverviewPage() {
         {
           title: '序号',
           key: 'index',
-          width: 80,
+          width: 56,
           render: (_, __, index) => index + 1,
         },
         {
           title: t('integrationOverview.deviceType'),
           dataIndex: 'deviceType',
           key: 'deviceType',
-          width: 180,
+          width: 110,
           render: (deviceType) => (
             <Tag className="integration-overview-device-tag" bordered={false}>
               {deviceType}
@@ -906,7 +889,7 @@ function IntegrationOverviewPage() {
           title: t('integrationOverview.logTypeCount'),
           dataIndex: 'logTypes',
           key: 'logTypeCount',
-          width: 120,
+          width: 105,
           render: (logTypes) => logTypes.length,
         },
         {
@@ -1026,19 +1009,21 @@ function IntegrationOverviewPage() {
     </section>
   );
 
-  const summaryCards = [
+  const summaryCards = isWfusionSystem ? [
+    { key: 'forward', label: t('integrationOverview.wfusionCategory.forward'), value: summary.forwardCount },
+    { key: 'alert', label: t('integrationOverview.wfusionCategory.alert'), value: summary.alertCount },
+    { key: 'stat', label: t('integrationOverview.wfusionCategory.stat'), value: summary.statCount },
+    { key: 'source', label: t('integrationOverview.enabledSources'), value: summary.sourceCount },
+    { key: 'sink', label: t('integrationOverview.enabledSinks'), value: summary.sinkCount },
+  ] : [
     {
       key: 'device',
-      label: isWfusionSystem
-        ? t('integrationOverview.coveredWindowStructures')
-        : t('integrationOverview.coveredDeviceTypes'),
+      label: t('integrationOverview.coveredDeviceTypes'),
       value: summary.deviceTypeCount,
     },
     {
       key: 'log',
-      label: isWfusionSystem
-        ? t('integrationOverview.coveredAssociationRules')
-        : t('integrationOverview.coveredLogTypes'),
+      label: t('integrationOverview.coveredLogTypes'),
       value: summary.logTypeCount,
     },
     {
@@ -1116,35 +1101,22 @@ function IntegrationOverviewPage() {
             </>
           ) : (
             <>
-              {isWfusionSystem ? (
-                <div className="integration-overview-wfusion-toolbar">
-                  <span className="integration-overview-wfusion-toolbar-label">
-                    {t('integrationOverview.wfusionContentType')}
-                  </span>
-                  <div
-                    className="integration-overview-wfusion-switch"
-                    role="group"
-                    aria-label={t('integrationOverview.wfusionContentType')}
-                  >
-                    <Button
-                      type={wfusionView === 'rules' ? 'primary' : 'default'}
-                      aria-pressed={wfusionView === 'rules'}
-                      onClick={() => setWfusionView('rules')}
-                    >
-                      {t('integrationOverview.ruleView')}
-                    </Button>
-                    <Button
-                      type={wfusionView === 'windows' ? 'primary' : 'default'}
-                      aria-pressed={wfusionView === 'windows'}
-                      onClick={() => setWfusionView('windows')}
-                    >
-                      {t('integrationOverview.windowView')}
-                    </Button>
+              <div className="integration-overview-detail-toolbar">
+                {isWfusionSystem && (
+                  <div className="integration-overview-category-tabs" role="group" aria-label={t('integrationOverview.ruleCategory')}>
+                    {['alert', 'forward', 'stat'].map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        className={wfusionCategory === category ? 'is-active' : ''}
+                        aria-pressed={wfusionCategory === category}
+                        onClick={() => setWfusionCategory(category)}
+                      >
+                        {t(`integrationOverview.wfusionCategory.${category}`)}
+                      </button>
+                    ))}
                   </div>
-                </div>
-              ) : null}
-
-              <div className="integration-overview-detail-search">
+                )}
                 <Input.Search
                   allowClear
                   value={detailSearch}
@@ -1160,14 +1132,14 @@ function IntegrationOverviewPage() {
 
               <Table
                 className="release-table integration-overview-table"
-                key={`${currentSystem}-${isWfusionSystem ? wfusionView : 'wparse'}`}
+                key={currentSystem}
                 rowKey="key"
                 loading={loading}
                 columns={columns}
                 dataSource={filteredDetailRows}
-                scroll={{ x: 1080 }}
-                pagination={{
-                  pageSize: isWfusionSystem ? 20 : 10,
+                scroll={{ x: isWfusionSystem ? 800 : 1080 }}
+                pagination={isWfusionSystem ? false : {
+                  pageSize: 10,
                   showSizeChanger: false,
                   hideOnSinglePage: true,
                 }}

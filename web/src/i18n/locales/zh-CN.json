@@ -346,6 +346,19 @@
     "enabledSources": "已启用输入源",
     "enabledSinks": "已启用业务输出源",
     "category": "类别",
+    "wfusionCategory": {
+      "forward": "转发与预处理",
+      "alert": "告警规则",
+      "stat": "统计规则"
+    },
+    "group": "业务分组",
+    "businessCount": "规则数",
+    "businessNames": {
+      "alert": "告警规则",
+      "forward": "转发与预处理",
+      "stat": "统计规则"
+    },
+    "ruleCategory": "规则类别",
     "count": "数量",
     "fileName": "文件名",
     "ruleNames": "文件中的规则",
@@ -353,9 +366,6 @@
     "logTypeCount": "日志类型",
     "windowStructure": "窗口结构",
     "associationRule": "关联分析规则",
-    "wfusionContentType": "内容类型",
-    "ruleView": "规则",
-    "windowView": "窗口",
     "logStatus": "日志情况",
     "sourceOverview": "输入源",
     "sinkOverview": "输出源",
@@ -365,7 +375,7 @@
     "sinkEmpty": "暂无可展示的输出源",
     "logTypeList": "日志类型列表",
     "searchPlaceholder": "搜索设备类型或日志类型",
-    "searchFileOrRulePlaceholder": "搜索文件名或规则名",
+    "searchFileOrRulePlaceholder": "搜索分组、业务名称或规则名",
     "searchEmpty": "没有匹配的接入情况",
     "moreLogTypes": "另有 {{count}} 个日志类型",
     "empty": "暂无可展示的接入情况",

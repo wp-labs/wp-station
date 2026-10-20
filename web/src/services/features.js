@@ -41,6 +41,10 @@ export async function fetchIntegrationRuleOverview(system) {
       key: item?.key || '',
       name: item?.name || '',
       ruleNames: Array.isArray(item?.rule_names) ? item.rule_names : [],
+      group: item?.group || '',
+      displayName: item?.display_name || item?.name || '',
+      category: item?.category || '',
+      description: item?.description || '',
     }));
 
   return {

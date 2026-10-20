@@ -50,6 +50,10 @@ pub struct IntegrationRuleFlatItem {
     pub key: String,
     pub name: String,
     pub rule_names: Vec<String>,
+    pub group: String,
+    pub display_name: String,
+    pub category: String,
+    pub description: String,
 }
 
 /// 规则侧单个设备类型摘要。
