@@ -17,7 +17,7 @@ use std::{
 use crate::constants::project::{
     DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_OML, DIR_RULES, DIR_RUNTIME, DIR_SCENARIOS,
     DIR_SCHEMAS, DIR_SINK_D, DIR_SINKS, DIR_SOURCE_D, DIR_SOURCES, DIR_TOPOLOGY, DIR_WPL,
-    FILE_OML_ADM, FILE_WFUSION, FILE_WINDOWS, FILE_WPARSE, FILE_WPGEN, FILE_WPL_PARSE,
+    FILE_KNOWDB, FILE_OML_ADM, FILE_WFUSION, FILE_WINDOWS, FILE_WPARSE, FILE_WPGEN, FILE_WPL_PARSE,
     FILE_WPL_SAMPLE,
 };
 use crate::db::RuleType;
@@ -133,6 +133,7 @@ pub fn resolve_dir_for_rule(layout: &RepoLayout, rule_type: RuleType) -> PathBuf
         RuleType::Wpl
         | RuleType::Oml
         | RuleType::Windows
+        | RuleType::WfusionKnowdb
         | RuleType::Schema
         | RuleType::Rule
         | RuleType::Scenarios
@@ -188,6 +189,7 @@ fn rule_target_path(
             .join(file_name)
             .join(FILE_OML_ADM)),
         RuleType::Windows => wfusion_windows_path(project_dir, file_name),
+        RuleType::WfusionKnowdb => wfusion_knowdb_path(project_dir, file_name),
         RuleType::Schema => wfusion_schema_read_path(project_dir, file_name),
         RuleType::Rule => wfusion_rule_read_path(project_dir, file_name),
         RuleType::Scenarios => wfusion_scenario_read_path(project_dir, file_name),
@@ -272,6 +274,19 @@ fn wfusion_windows_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, 
     }
 
     Ok(project_dir.join(DIR_MODELS).join(FILE_WINDOWS))
+}
+
+/// WFusion 的知识库配置只有一个固定文件，禁止通过文件名访问其他 schema。
+fn wfusion_knowdb_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    if file_name.trim() != FILE_KNOWDB {
+        return Err(AppError::validation(
+            "wfusion knowdb 配置文件固定为 knowdb.toml",
+        ));
+    }
+    Ok(project_dir
+        .join(DIR_MODELS)
+        .join(DIR_SCHEMAS)
+        .join(FILE_KNOWDB))
 }
 
 fn wfusion_rule_read_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {

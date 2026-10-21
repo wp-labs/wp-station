@@ -1,6 +1,6 @@
 //! 知识库数据同步状态 API。
 
-use actix_web::{HttpResponse, get, post, web};
+use actix_web::{HttpResponse, delete, get, post, web};
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -60,6 +60,16 @@ pub async fn list_intel_runs(
 ) -> Result<HttpResponse, AppError> {
     let (limit, offset) = query.bounds()?;
     Ok(HttpResponse::Ok().json(state.intel_history(limit, offset).await?))
+}
+
+#[delete("/api/knowledge-sync/runs/{kind}/history")]
+/// 清空指定类别的执行历史。
+pub async fn clear_sync_runs(
+    state: web::Data<KnowledgeSyncState>,
+    kind: web::Path<String>,
+) -> Result<HttpResponse, AppError> {
+    let deleted = state.clear_history(&kind).await?;
+    Ok(HttpResponse::Ok().json(serde_json::json!({ "deleted": deleted })))
 }
 
 #[get("/api/knowledge-sync/mmdb-files")]

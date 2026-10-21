@@ -320,6 +320,31 @@ async fn test_import_project_archive_supports_models_only_directory() {
 }
 
 #[tokio::test]
+async fn test_import_project_archive_accepts_late_wpl_rule() {
+    setup_db().await;
+    let source_dir = legacy_import_dir("archive-late-wpl");
+    copy_dir(test_models_root().join("models"), source_dir.join("models"));
+    write_file(
+        source_dir.join("models/wpl/late_demo/parse.wpl"),
+        r#"package late_demo {
+    #[late, tag(log_type: "runtime_k8s_pod")]
+    rule fallback { (chars:name) }
+}"#,
+    );
+
+    let preview = preview_project_archive_logic(
+        SystemKind::Wparse,
+        "late-wpl.tar.gz",
+        build_archive_with_dirs(&source_dir, &["models"]),
+    )
+    .await
+    .expect("preview archive with late WPL rule");
+    assert_eq!(preview.summary.imported_dirs, vec!["models".to_string()]);
+
+    let _ = fs::remove_dir_all(source_dir);
+}
+
+#[tokio::test]
 async fn test_import_project_archive_supports_conf_only_directory() {
     setup_db().await;
     let source_dir = legacy_import_dir("archive-conf-only");
@@ -502,18 +527,13 @@ use "../rules/sql_injection_source_alert.wfl"
 
 #[duration=10s]
 scenario ssh_brute_force_alert_case<seed=42> {
-    traffic {
+    background {
         stream ssh_login gen 1/s
     }
-    injection {
-        hit<100%> ssh_login {
-            source_ip seq {
-                use(source_ip="192.168.1.100", target_user="root", outcome="failed") with(3)
-            }
+    inject {
+        hit<source_ip: 1> for ssh_brute_force_alert ssh_login {
+            use({"occur_time": 1700000000000, "source_ip": "192.168.1.100", "target_user": "root", "outcome": "failed"}) x 3
         }
-    }
-    expect {
-        hit(ssh_brute_force_alert) >= 100%
     }
 }
 "#,

@@ -43,7 +43,6 @@ pub async fn update_device_logic(req: UpdateDeviceRequest) -> Result<DeviceUpdat
     info!("更新设备: id={}, ip={}, port={}", req.id, req.ip, req.port);
 
     let device_id = req.id;
-    let token = req.token.clone();
 
     let result = async move {
         let device = NewDevice {
@@ -65,9 +64,7 @@ pub async fn update_device_logic(req: UpdateDeviceRequest) -> Result<DeviceUpdat
     if result.is_ok() {
         let is_online = check_device_health(device_id).await;
 
-        let message = if token.is_empty() {
-            Some("设备 Token 未配置，无法验证连接".to_string())
-        } else if !is_online {
+        let message = if !is_online {
             Some("连接失败，请检查 IP、端口和 Token 是否正确".to_string())
         } else {
             Some("设备连接成功".to_string())

@@ -454,7 +454,7 @@ fn output_record_to_event(record: &OutputRecord) -> Event {
     let mut fields: EngineHashMap<_, _> = EngineHashMap::default();
     fields.insert(
         PIPE_EVENT_TIME_FIELD.to_string().into(),
-        Value::Number(record.event_time_nanos as f64),
+        Value::Int(record.event_time_nanos),
     );
     for (name, value) in &record.yield_fields {
         fields.insert(name.to_string().into(), value.clone());
@@ -466,7 +466,8 @@ fn event_time_nanos(event: &Event, time_field: Option<&str>) -> i64 {
     time_field
         .and_then(|field| event.fields.get(field))
         .and_then(|value| match value {
-            Value::Number(value) => Some(*value as i64),
+            Value::Int(value) => Some(*value),
+            Value::Float(value) => Some(*value as i64),
             _ => None,
         })
         .unwrap_or_default()
@@ -482,7 +483,7 @@ fn json_to_event_with_time_fields(
             if time_fields.contains(key)
                 && let Some(nanos) = parse_json_timestamp_nanos(value)
             {
-                fields.insert(key.clone().into(), Value::Number(nanos as f64));
+                fields.insert(key.clone().into(), Value::Int(nanos));
                 continue;
             }
 
@@ -503,7 +504,10 @@ fn json_value_to_engine_value(value: &serde_json::Value) -> Option<Value> {
     match value {
         serde_json::Value::Null => None,
         serde_json::Value::Bool(value) => Some(Value::Bool(*value)),
-        serde_json::Value::Number(value) => value.as_f64().map(Value::Number),
+        serde_json::Value::Number(value) => value
+            .as_i64()
+            .map(Value::Int)
+            .or_else(|| value.as_f64().map(Value::Float)),
         serde_json::Value::String(value) => Some(Value::Str(value.clone().into())),
         serde_json::Value::Array(values) => Some(Value::Array(
             values

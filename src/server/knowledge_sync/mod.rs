@@ -168,6 +168,29 @@ impl KnowledgeSyncState {
             .await
             .map_err(AppError::internal)
     }
+
+    /// 按类别清空执行历史，不删除同步任务或正式数据。
+    pub async fn clear_history(&self, kind: &str) -> Result<u64, AppError> {
+        let deleted = match kind {
+            "asset" => self
+                .asset_service
+                .as_ref()
+                .ok_or_else(|| AppError::validation("资产同步未配置"))?
+                .clear_history()
+                .await
+                .map_err(AppError::internal)?,
+            "intel" => self
+                .intel_service
+                .as_ref()
+                .ok_or_else(|| AppError::validation("情报同步未配置"))?
+                .clear_history()
+                .await
+                .map_err(AppError::internal)?,
+            _ => return Err(AppError::validation("无效的同步历史类型")),
+        };
+        info!("知识库同步历史清空完成: kind={}, deleted={}", kind, deleted);
+        Ok(deleted)
+    }
 }
 
 async fn initialize_intel(

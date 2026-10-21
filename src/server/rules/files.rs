@@ -26,7 +26,13 @@ use super::{
     split_wpl_virtual_file, system_time_to_rfc3339,
 };
 
+/// 缺少文件时仅在编辑器展示此模板；不在启动或读取时写入仓库。
+const WFUSION_KNOWDB_DEFAULT: &str = "version = 2\nbase_dir = \".\"\n\n[cache]\nenabled = false\n";
+
 fn ensure_rule_type_supported(system: SystemKind, rule_type: RuleType) -> Result<(), AppError> {
+    if matches!(rule_type, RuleType::WfusionKnowdb) && !matches!(system, SystemKind::Wfusion) {
+        return Err(AppError::validation("knowdb.toml 仅用于 wfusion"));
+    }
     if matches!(system, SystemKind::Wfusion) && matches!(rule_type, RuleType::Knowledge) {
         return Err(AppError::validation("wfusion 不支持 knowledge 配置"));
     }
@@ -34,7 +40,11 @@ fn ensure_rule_type_supported(system: SystemKind, rule_type: RuleType) -> Result
     if matches!(system, SystemKind::Wparse)
         && matches!(
             rule_type,
-            RuleType::Windows | RuleType::Schema | RuleType::Rule | RuleType::Scenarios
+            RuleType::Windows
+                | RuleType::WfusionKnowdb
+                | RuleType::Schema
+                | RuleType::Rule
+                | RuleType::Scenarios
         )
     {
         return Err(AppError::validation("wparse 不支持该规则类型"));
@@ -150,7 +160,17 @@ pub async fn get_rule_content_logic(
             };
             serde_json::to_value(resp).map_err(AppError::internal)
         } else {
-            Err(AppError::not_found("规则配置"))
+            if matches!(rule_type, RuleType::WfusionKnowdb) {
+                let resp = RuleContentResponse {
+                    rule_type,
+                    file,
+                    content: Some(WFUSION_KNOWDB_DEFAULT.to_string()),
+                    last_modified: None,
+                };
+                serde_json::to_value(resp).map_err(AppError::internal)
+            } else {
+                Err(AppError::not_found("规则配置"))
+            }
         }
     } else {
         debug!("查询所有规则配置: rule_type={}", rule_type.as_ref());
@@ -180,6 +200,11 @@ pub async fn create_rule_file_logic(
 ) -> Result<(), AppError> {
     info!("创建规则文件: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
+    if matches!(rule_type, RuleType::WfusionKnowdb) {
+        return Err(AppError::validation(
+            "knowdb.toml 为固定配置，请使用保存操作",
+        ));
+    }
 
     let normalized_file = if matches!(rule_type, RuleType::Wpl) {
         let (base_name, _) = split_wpl_virtual_file(&file);
@@ -227,6 +252,9 @@ pub async fn delete_rule_file_logic(
 ) -> Result<(), AppError> {
     info!("删除规则文件: rule_type={:?}, file={}", rule_type, file);
     ensure_rule_type_supported(system, rule_type)?;
+    if matches!(rule_type, RuleType::WfusionKnowdb) {
+        return Err(AppError::validation("knowdb.toml 为固定配置，不支持删除"));
+    }
 
     let normalized_file = if matches!(rule_type, RuleType::Wpl) {
         let (base_name, _) = split_wpl_virtual_file(&file);
@@ -293,6 +321,9 @@ pub async fn save_rule_logic(
     };
 
     let content = content.ok_or_else(|| AppError::validation("content 不能为空"))?;
+    if matches!(rule_type, RuleType::WfusionKnowdb) && content.trim().is_empty() {
+        return Err(AppError::validation("knowdb.toml 不能保存为空文件"));
+    }
     let layout = repo_layout(system);
 
     let target_file_cloned = target_file.clone();

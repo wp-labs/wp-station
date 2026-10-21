@@ -155,6 +155,16 @@ fn test_warp_check_record_invalid_package() {
 }
 
 #[test]
+fn test_warp_check_record_accepts_late_annotation() {
+    let wpl = r#"package demo {
+        #[late, tag(log_type: "runtime_k8s_pod")]
+        rule fallback { (chars:name) }
+    }"#;
+    let record = warp_check_record(wpl, "sample").expect("parse rule with late annotation");
+    assert_eq!(record.items[0].get_name(), "name");
+}
+
+#[test]
 fn test_warp_check_record_returns_detailed_rule_parse_error() {
     let wpl = r#"
         package demo {

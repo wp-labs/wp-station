@@ -17,6 +17,7 @@ export const RuleType = Object.freeze({
   WPL: 'wpl',
   OML: 'oml',
   WINDOWS: 'windows',
+  WFUSION_KNOWDB: 'wfusion_knowdb',
   SCHEMA: 'schema',
   RULE: 'rule',
   SCENARIOS: 'scenarios',
@@ -258,11 +259,12 @@ export async function fetchRuleConfig(options) {
     type === RuleType.WPL ||
     type === RuleType.OML ||
     type === RuleType.WINDOWS ||
+    type === RuleType.WFUSION_KNOWDB ||
     type === RuleType.SCHEMA ||
     type === RuleType.RULE ||
     type === RuleType.SCENARIOS
   ) {
-    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : type === RuleType.WFUSION_KNOWDB ? 'knowdb.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }
@@ -714,6 +716,8 @@ export async function validateRuleConfig(options) {
       targetFile = await resolveDefaultConfigFile(RuleType.PARSE, system);
     } else if (type === RuleType.WINDOWS) {
       targetFile = 'windows.toml';
+    } else if (type === RuleType.WFUSION_KNOWDB) {
+      targetFile = 'knowdb.toml';
     } else {
       targetFile = `${type}.toml`;
     }
@@ -843,11 +847,12 @@ export async function saveRuleConfig(options) {
     type === RuleType.WPL ||
     type === RuleType.OML ||
     type === RuleType.WINDOWS ||
+    type === RuleType.WFUSION_KNOWDB ||
     type === RuleType.SCHEMA ||
     type === RuleType.RULE ||
     type === RuleType.SCENARIOS
   ) {
-    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : type === RuleType.WFUSION_KNOWDB ? 'knowdb.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }

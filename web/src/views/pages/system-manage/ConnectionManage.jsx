@@ -120,7 +120,7 @@ function ConnectionManage() {
       name: record.name || '',
       ip: record.ip || '',
       port: String(record.port || ''),
-      token: record.token || '',
+      token: '',
       remark: record.remark || '',
     });
     setModalOpen(true);
@@ -213,7 +213,7 @@ function ConnectionManage() {
       message.warning(t('connectionManage.portInvalid'));
       return false;
     }
-    if (!token.trim()) {
+    if (!token.trim() && !editRecord?.hasToken) {
       message.warning(t('connectionManage.tokenRequired'));
       return false;
     }
@@ -323,11 +323,6 @@ function ConnectionManage() {
   /**
    * 渲染单个连接卡片
    */
-  const renderMaskedToken = (value = '') => {
-    if (!value) return '—';
-    return '*'.repeat(Math.max(value.length, 6));
-  };
-
   const renderConnectionCard = (record) => (
     <Card
       key={record.id}
@@ -381,7 +376,7 @@ function ConnectionManage() {
         </div>
 
         <div style={{ fontSize: '13px', color: '#8c8c8c' }}>
-          {t('connectionManage.token')}: {renderMaskedToken(record.token)}
+          {t('connectionManage.token')}: {record.hasToken ? t('connectionManage.tokenConfigured') : '—'}
         </div>
 
         {/* 版本信息 */}
@@ -538,11 +533,11 @@ function ConnectionManage() {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', color: '#666' }}>
-              {t('connectionManage.token')} *
+              {t('connectionManage.token')}{editRecord?.hasToken ? '' : ' *'}
             </label>
             <Input.Password
               value={formValues.token}
-              placeholder={t('connectionManage.tokenPlaceholder')}
+              placeholder={editRecord?.hasToken ? t('connectionManage.tokenKeepPlaceholder') : t('connectionManage.tokenPlaceholder')}
               onChange={(e) => setFormValues({ ...formValues, token: e.target.value })}
               visibilityToggle={false}
             />

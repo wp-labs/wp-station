@@ -19,6 +19,7 @@ fn cleanup_rule(rule_type: RuleType, file: &str) {
         RuleType::Wpl => remove_project_path(format!("models/wpl/{file}")),
         RuleType::Oml => remove_project_path(format!("models/oml/{file}")),
         RuleType::Windows => remove_project_path("models/windows.toml"),
+        RuleType::WfusionKnowdb => remove_project_path("models/schemas/knowdb.toml"),
         RuleType::Schema => remove_project_path(format!("models/schemas/{file}")),
         RuleType::Rule => remove_project_path(format!("models/rules/{file}")),
         RuleType::Scenarios => remove_project_path(format!("models/scenarios/{file}")),

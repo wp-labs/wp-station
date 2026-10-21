@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Col, Descriptions, Modal, Progress, Row, Select, Spin, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { fetchAssetRuns, fetchGeoRuns, fetchIntelRuns, fetchKnowledgeSyncStatus, fetchMmdbFiles, startGeoImport } from '@/services/knowledge_sync';
+import { clearSyncRuns, fetchAssetRuns, fetchGeoRuns, fetchIntelRuns, fetchKnowledgeSyncStatus, fetchMmdbFiles, startGeoImport } from '@/services/knowledge_sync';
 
 const HISTORY_MODAL_LAYOUT = {
   asset: { width: 1120 },
@@ -39,6 +39,8 @@ function KnowledgeSyncPage() {
   const [historyPageSize, setHistoryPageSize] = useState(10);
   const [history, setHistory] = useState({ items: [], total: 0 });
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [historyClearing, setHistoryClearing] = useState(false);
 
   const loadStatus = useCallback(async (showError = true) => {
     try {
@@ -101,13 +103,44 @@ function KnowledgeSyncPage() {
       })
       .finally(() => { if (active) setHistoryLoading(false); });
     return () => { active = false; };
-  }, [historyKind, historyPage, historyPageSize, t]);
+  }, [historyKind, historyPage, historyPageSize, historyRefresh, t]);
 
   const openHistory = (kind) => {
     setHistory({ items: [], total: 0 });
     setHistoryPage(1);
     setHistoryPageSize(10);
     setHistoryKind(kind);
+  };
+
+  const confirmClearHistory = () => {
+    const kind = historyKind;
+    if (kind !== 'asset' && kind !== 'intel') return;
+    const title = kind === 'asset' ? t('knowledgeSync.assetHistory') : t('knowledgeSync.intelHistory');
+    Modal.confirm({
+      title: t('knowledgeSync.clearHistoryConfirmTitle'),
+      content: t('knowledgeSync.clearHistoryConfirmContent', { name: title }),
+      okText: t('knowledgeSync.clearHistory'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setHistoryClearing(true);
+        try {
+          await clearSyncRuns(kind);
+          setHistory({ items: [], total: 0 });
+          setHistoryPage(1);
+          setHistoryRefresh((value) => value + 1);
+          await loadStatus(false);
+          message.success(t('knowledgeSync.clearHistorySuccess'));
+        } catch (error) {
+          message.error(t('knowledgeSync.clearHistoryFailed', {
+            message: error?.response?.data?.error?.message || error?.message || t('common.unknownError'),
+          }));
+          throw error;
+        } finally {
+          setHistoryClearing(false);
+        }
+      },
+    });
   };
 
   const refresh = () => {
@@ -423,7 +456,14 @@ function KnowledgeSyncPage() {
         </section>
       </article>
       <Modal
-        title={historyKind === 'asset' ? t('knowledgeSync.assetHistory') : historyKind === 'geo' ? t('knowledgeSync.geoHistory') : t('knowledgeSync.intelHistory')}
+        title={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
+          <span>{historyKind === 'asset' ? t('knowledgeSync.assetHistory') : historyKind === 'geo' ? t('knowledgeSync.geoHistory') : t('knowledgeSync.intelHistory')}</span>
+          {(historyKind === 'asset' || historyKind === 'intel') && (
+            <Button danger size="small" disabled={!history.total || historyLoading} loading={historyClearing} onClick={confirmClearHistory}>
+              {t('knowledgeSync.clearHistory')}
+            </Button>
+          )}
+        </div>}
         open={Boolean(historyKind)}
         onCancel={() => setHistoryKind(null)}
         maskClosable

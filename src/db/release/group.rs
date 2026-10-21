@@ -24,6 +24,7 @@ impl ReleaseGroup {
             RuleType::Wpl
             | RuleType::Oml
             | RuleType::Windows
+            | RuleType::WfusionKnowdb
             | RuleType::Schema
             | RuleType::Rule
             | RuleType::Scenarios

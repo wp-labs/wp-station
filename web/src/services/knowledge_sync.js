@@ -148,6 +148,15 @@ export async function fetchIntelRuns(page = 1, pageSize = 20) {
   return { total: payload.total || 0, items: (payload.items || []).map(mapIntelRun) };
 }
 
+/** 清空指定类别的同步执行历史。 */
+export async function clearSyncRuns(kind) {
+  if (!['asset', 'intel'].includes(kind)) {
+    throw new Error('无效的同步历史类型');
+  }
+  const response = await httpRequest.delete(`/knowledge-sync/runs/${kind}/history`);
+  return response?.deleted ?? response?.data?.deleted ?? 0;
+}
+
 /** 列出固定目录中的 MMDB 文件。 */
 export async function fetchMmdbFiles() {
   const response = await httpRequest.get('/knowledge-sync/mmdb-files');

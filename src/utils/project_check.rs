@@ -62,7 +62,7 @@ impl ProjectCheckTarget {
                 RuleType::Rule => "rules",
                 RuleType::Scenarios => "scenarios",
                 // `windows.toml` 暂无独立的 what 选项，继续回退到整体校验。
-                RuleType::Windows => "all",
+                RuleType::Windows | RuleType::WfusionKnowdb => "all",
                 RuleType::Wpl | RuleType::Oml | RuleType::Wpgen | RuleType::Knowledge => "all",
             },
         }

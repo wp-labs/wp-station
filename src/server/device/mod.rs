@@ -50,6 +50,7 @@ pub struct UpdateDeviceRequest {
     pub ip: String,
     pub port: i32,
     /// 设备访问令牌，仅用于设备连接。
+    #[serde(default)]
     pub token: String,
     pub remark: Option<String>,
 }
@@ -57,7 +58,22 @@ pub struct UpdateDeviceRequest {
 // ============ 响应结构体 ============
 
 /// 设备分页列表响应。
-pub type DeviceListResponse = PageResponse<Device>;
+pub type DeviceListResponse = PageResponse<DevicePublic>;
+
+/// 对外设备信息只提供 Token 配置状态，不返回 Token 或密文。
+#[derive(Serialize)]
+pub struct DevicePublic {
+    #[serde(flatten)]
+    pub device: Device,
+    pub has_token: bool,
+}
+
+impl From<Device> for DevicePublic {
+    fn from(device: Device) -> Self {
+        let has_token = !device.token.is_empty();
+        Self { device, has_token }
+    }
+}
 
 /// 创建设备成功响应。
 #[derive(Serialize)]
@@ -76,7 +92,7 @@ pub struct DeviceUpdateResult {
 /// 手动刷新设备状态后的结果。
 #[derive(Serialize)]
 pub struct DeviceRefreshResult {
-    pub device: Device,
+    pub device: DevicePublic,
     pub health_error: Option<String>,
 }
 

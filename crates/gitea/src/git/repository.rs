@@ -190,8 +190,8 @@ impl GitRepository {
         };
 
         // 先添加新增/修改文件，再同步已跟踪文件的删除状态，效果等价于 `git add -A`。
-        index.add_all(&["*"], git2::IndexAddOption::DEFAULT, Some(&mut filter))?;
-        index.update_all(&["*"], Some(&mut filter))?;
+        index.add_all(["*"], git2::IndexAddOption::DEFAULT, Some(&mut filter))?;
+        index.update_all(["*"], Some(&mut filter))?;
 
         // 写入索引
         index.write()?;
@@ -698,10 +698,8 @@ impl GitRepository {
         let tag_names = self.raw_repo().tag_names(None)?;
         let mut tags = Vec::new();
 
-        for tag_name in tag_names.iter() {
-            if let Some(name) = tag_name {
-                tags.push(name.to_string());
-            }
+        for name in tag_names.iter().flatten() {
+            tags.push(name.to_string());
         }
 
         Ok(tags)

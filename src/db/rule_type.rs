@@ -14,6 +14,7 @@ pub enum RuleType {
     Wpl,
     Oml,
     Windows,
+    WfusionKnowdb,
     Schema,
     Rule,
     Scenarios,
@@ -47,7 +48,11 @@ impl RuleType {
             ],
             RuleType::Wpl => vec![CheckComponent::Wpl],
             RuleType::Oml => vec![CheckComponent::Oml],
-            RuleType::Windows | RuleType::Schema | RuleType::Rule | RuleType::Scenarios => {
+            RuleType::Windows
+            | RuleType::WfusionKnowdb
+            | RuleType::Schema
+            | RuleType::Rule
+            | RuleType::Scenarios => {
                 vec![CheckComponent::Engine]
             }
             RuleType::Knowledge => vec![CheckComponent::Engine], // todo 缺少知识库校验

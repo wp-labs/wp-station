@@ -9,6 +9,45 @@ use wp_station::utils::{
     write_rule_content,
 };
 
+#[test]
+fn test_wfusion_knowdb_is_optional_and_has_a_fixed_path() {
+    let root = tempfile::tempdir().expect("create project root");
+    let layout = wp_station::server::RepoLayout {
+        models_root: root.path().to_path_buf(),
+        infra_root: root.path().to_path_buf(),
+        connectors_root: root.path().to_path_buf(),
+    };
+    let rule_type = RuleType::WfusionKnowdb;
+
+    assert!(
+        read_rule_content(&layout, rule_type, "knowdb.toml")
+            .expect("read missing optional config")
+            .is_none()
+    );
+    assert!(
+        write_rule_content(
+            &layout,
+            rule_type,
+            "another.toml",
+            "[cache]\nenabled = false"
+        )
+        .is_err()
+    );
+
+    write_rule_content(
+        &layout,
+        rule_type,
+        "knowdb.toml",
+        "[cache]\nenabled = false",
+    )
+    .expect("write fixed config");
+    let saved = read_rule_content(&layout, rule_type, "knowdb.toml")
+        .expect("read fixed config")
+        .expect("config exists");
+    assert_eq!(saved.0, "[cache]\nenabled = false");
+    assert!(root.path().join("models/schemas/knowdb.toml").is_file());
+}
+
 #[tokio::test]
 async fn test_create_and_read_rule_project_file() {
     setup_db().await;

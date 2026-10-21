@@ -264,6 +264,7 @@ fn filter_snapshot_by_import_scope(
                     crate::db::RuleType::Wpl
                         | crate::db::RuleType::Oml
                         | crate::db::RuleType::Windows
+                        | crate::db::RuleType::WfusionKnowdb
                         | crate::db::RuleType::Schema
                         | crate::db::RuleType::Rule
                         | crate::db::RuleType::Scenarios

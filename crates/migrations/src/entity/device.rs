@@ -13,6 +13,7 @@ pub struct Model {
     pub port: i32,
     pub remark: Option<String>,
     pub status: String,
+    #[serde(skip_serializing)]
     pub token: String,
     pub client_version: Option<String>,
     pub config_version: Option<String>,

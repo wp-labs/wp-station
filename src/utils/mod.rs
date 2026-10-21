@@ -6,6 +6,7 @@
 
 pub mod assist_service;
 pub mod config_templates;
+pub mod device_token;
 pub mod display;
 pub mod health_check;
 pub mod integration_overview;

@@ -862,10 +862,12 @@ impl GeoSyncService {
                 &source,
                 &snapshot,
                 &tsv,
-                &progress,
-                &ipv4_progress,
-                &ipv6_progress,
-                &percent,
+                GeoExportProgress {
+                    rows: &progress,
+                    ipv4_rows: &ipv4_progress,
+                    ipv6_rows: &ipv6_progress,
+                    percent: &percent,
+                },
                 max_rows,
             )
         })
@@ -1039,14 +1041,18 @@ fn geo_stage_name(id: i64) -> String {
     format!("ip_geo_stage_{id}")
 }
 
+struct GeoExportProgress<'a> {
+    rows: &'a AtomicU64,
+    ipv4_rows: &'a AtomicU64,
+    ipv6_rows: &'a AtomicU64,
+    percent: &'a AtomicU64,
+}
+
 fn snapshot_and_export(
     source: &Path,
     snapshot: &Path,
     tsv: &Path,
-    progress: &AtomicU64,
-    ipv4_progress: &AtomicU64,
-    ipv6_progress: &AtomicU64,
-    percent: &AtomicU64,
+    progress: GeoExportProgress<'_>,
     max_rows: Option<u64>,
 ) -> Result<(String, String, i64, i64, i64, i64)> {
     let before = fs::metadata(source).context("读取 MMDB 文件属性失败")?;
@@ -1066,7 +1072,9 @@ fn snapshot_and_export(
         hasher.update(&buffer[..len]);
         copied_bytes += len as u64;
         if before.len() > 0 {
-            percent.store((copied_bytes * 3 / before.len()).min(3), Ordering::Relaxed);
+            progress
+                .percent
+                .store((copied_bytes * 3 / before.len()).min(3), Ordering::Relaxed);
         }
     }
     output.flush().context("保存 MMDB 快照失败")?;
@@ -1093,7 +1101,9 @@ fn snapshot_and_export(
         let lookup = result.context("读取 MMDB 网段失败")?;
         source_rows += 1;
         if source_rows % 4096 == 0 {
-            ipv4_progress.store(source_rows as u64, Ordering::Relaxed);
+            progress
+                .ipv4_rows
+                .store(source_rows as u64, Ordering::Relaxed);
         }
         if source_rows % 8192 == 0 {
             std::thread::sleep(Duration::from_millis(1));
@@ -1105,7 +1115,9 @@ fn snapshot_and_export(
         // MMDB 不提供网段总数；此值表示已扫描的 IPv4 地址空间比例，并非耗时预测。
         let scanned = 3 + u64::from(u32::from(network.network())) * 32 / u64::from(u32::MAX);
         if source_rows % 4096 == 0 {
-            percent.fetch_max(scanned.min(34), Ordering::Relaxed);
+            progress
+                .percent
+                .fetch_max(scanned.min(34), Ordering::Relaxed);
         }
         let Some(offset) = lookup.offset() else {
             continue;
@@ -1130,12 +1142,14 @@ fn snapshot_and_export(
         writer.write_all(b"\n").context("写入 Geo 导入数据失败")?;
         exported += 1;
         if exported % 1000 == 0 {
-            progress.store(exported as u64, Ordering::Relaxed);
+            progress.rows.store(exported as u64, Ordering::Relaxed);
         }
     }
     writer.flush().context("保存 Geo 导入数据失败")?;
-    progress.store(exported as u64, Ordering::Relaxed);
-    ipv4_progress.store(source_rows as u64, Ordering::Relaxed);
+    progress.rows.store(exported as u64, Ordering::Relaxed);
+    progress
+        .ipv4_rows
+        .store(source_rows as u64, Ordering::Relaxed);
     // IPv6 只统计网段，不解码记录，也不写入目标库。
     let mut ipv6_rows = 0i64;
     if reader.metadata.ip_version == 6 && max_rows.is_none() {
@@ -1144,13 +1158,17 @@ fn snapshot_and_export(
             if matches!(lookup.network()?, IpNetwork::V6(_)) {
                 ipv6_rows += 1;
                 if ipv6_rows % 4096 == 0 {
-                    ipv6_progress.store(ipv6_rows as u64, Ordering::Relaxed);
+                    progress
+                        .ipv6_rows
+                        .store(ipv6_rows as u64, Ordering::Relaxed);
                 }
             }
         }
     }
-    ipv6_progress.store(ipv6_rows as u64, Ordering::Relaxed);
-    percent.store(35, Ordering::Relaxed);
+    progress
+        .ipv6_rows
+        .store(ipv6_rows as u64, Ordering::Relaxed);
+    progress.percent.store(35, Ordering::Relaxed);
     Ok((
         hash,
         database_type,

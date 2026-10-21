@@ -288,6 +288,8 @@ pub enum DbError {
 
     #[error("数据库错误: {0}")]
     Db(#[from] sea_orm::DbErr),
+    #[error("设备 Token 加密处理失败: {0}")]
+    Token(String),
 }
 
 pub type DbResult<T> = std::result::Result<T, DbError>;
@@ -307,6 +309,7 @@ impl From<DbError> for AppError {
                 AppError::NotFound(format!("{} 不存在或已删除", entity))
             }
             DbError::Db(db_err) => AppError::internal(db_err),
+            DbError::Token(message) => AppError::internal(message),
         }
     }
 }

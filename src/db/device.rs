@@ -5,8 +5,9 @@
 
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
+use crate::utils::device_token;
 use chrono::{DateTime, Utc};
-use sea_orm::{Condition, QueryOrder, Set, entity::prelude::*};
+use sea_orm::{Condition, QueryOrder, Set, TransactionTrait, entity::prelude::*};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 use wp_station_migrations::entity::device::{ActiveModel, Column, Entity, Model};
@@ -15,6 +16,39 @@ use crate::utils::SystemKind;
 
 /// 设备实体模型。
 pub type Device = Model;
+
+fn decrypt_device(mut device: Device) -> DbResult<Device> {
+    device.token = device_token::decrypt(&device.token).map_err(DbError::Token)?;
+    Ok(device)
+}
+
+/// 启动时原位加密旧明文，并验证现有密文可由当前密钥解开。
+/// 全部检查和写入在一个事务中完成，失败时不会留下部分迁移结果。
+pub async fn migrate_plaintext_device_tokens() -> DbResult<usize> {
+    let db = get_pool();
+    let transaction = db.inner().begin().await?;
+    let devices = Entity::find().all(&transaction).await?;
+    let mut migrated = 0;
+    for device in devices {
+        if device.token.is_empty() {
+            continue;
+        }
+        if device_token::is_encrypted(&device.token) {
+            device_token::decrypt(&device.token).map_err(DbError::Token)?;
+            continue;
+        }
+        if device_token::is_unknown_envelope(&device.token) {
+            return Err(DbError::Token("存在未知版本的设备 Token 密文".to_string()));
+        }
+        let encrypted = device_token::encrypt(&device.token).map_err(DbError::Token)?;
+        let mut active: ActiveModel = device.into();
+        active.token = Set(encrypted);
+        active.update(&transaction).await?;
+        migrated += 1;
+    }
+    transaction.commit().await?;
+    Ok(migrated)
+}
 
 /// 设备状态枚举
 #[derive(
@@ -81,7 +115,7 @@ pub async fn find_all_devices() -> DbResult<Vec<Device>> {
         .await?;
 
     debug!("查询所有设备成功: count={}", devices.len());
-    Ok(devices)
+    devices.into_iter().map(decrypt_device).collect()
 }
 
 /// 按系统查询设备，用于发布弹窗和系统维度的设备管理。
@@ -89,13 +123,13 @@ pub async fn find_devices_by_system(system: SystemKind) -> DbResult<Vec<Device>>
     let pool = get_pool();
     let db = pool.inner();
 
-    Entity::find()
+    let devices = Entity::find()
         .filter(Column::System.eq(system.as_ref()))
         .filter(Column::Status.ne(DeviceStatus::Deleted.as_ref()))
         .order_by_desc(Column::CreatedAt)
         .all(db)
-        .await
-        .map_err(Into::into)
+        .await?;
+    devices.into_iter().map(decrypt_device).collect()
 }
 
 /// 分页查询设备列表，支持按关键字搜索（匹配 name/ip/remark）
@@ -148,6 +182,10 @@ pub async fn find_devices_page(
         .await?;
 
     debug!("分页查询设备成功: count={}, total={}", items.len(), total);
+    let items = items
+        .into_iter()
+        .map(decrypt_device)
+        .collect::<DbResult<_>>()?;
     Ok((items, total as i64))
 }
 
@@ -161,7 +199,7 @@ pub async fn find_device_by_id(id: i32) -> DbResult<Option<Device>> {
         .one(db)
         .await?;
 
-    Ok(device)
+    device.map(decrypt_device).transpose()
 }
 
 /// 根据 ID 列表批量查询设备
@@ -179,7 +217,7 @@ pub async fn find_devices_by_ids(ids: &[i32]) -> DbResult<Vec<Device>> {
         .all(db)
         .await?;
 
-    Ok(devices)
+    devices.into_iter().map(decrypt_device).collect()
 }
 
 /// 创建设备
@@ -196,7 +234,7 @@ pub async fn create_device(new_device: NewDevice) -> DbResult<i32> {
         ip: Set(new_device.ip),
         port: Set(new_device.port),
         remark: Set(new_device.remark),
-        token: Set(new_device.token),
+        token: Set(device_token::encrypt(&new_device.token).map_err(DbError::Token)?),
         status: Set(new_device.status.unwrap_or_default().as_ref().to_string()),
         client_version: Set(None),
         config_version: Set(None),
@@ -236,7 +274,9 @@ pub async fn update_device(id: i32, device: NewDevice) -> DbResult<()> {
     active_model.ip = Set(device.ip);
     active_model.port = Set(device.port);
     active_model.remark = Set(device.remark);
-    active_model.token = Set(device.token);
+    if !device.token.is_empty() {
+        active_model.token = Set(device_token::encrypt(&device.token).map_err(DbError::Token)?);
+    }
     active_model.health_error = Set(None);
     active_model.updated_at = Set(Utc::now());
 

@@ -76,6 +76,8 @@ password = "<本地 Gitea 密码>"
 
 `project_models` 和 `project_infra` 默认位于当前工作目录。常规配置支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`。知识库同步的数据库、Redis、Doris 地址及凭据只由部署环境变量注入，不写入 `config/config.toml`，也不在页面编辑。
 
+设备连接 Token 使用 AES-256-GCM 加密后保存在 Station 数据库。默认使用程序内置的固定密钥，启动无需配置密钥；可选用 `WP_STATION_DEVICE_TOKEN_KEY` 覆盖，值为 **32 字节随机密钥的 Base64 编码**（可用 `openssl rand -base64 32` 生成一次并保存）。首次启动会在一个事务内把已有明文 Token 原位加密，以后启动会验证已有密文。**已加密数据必须继续使用原密钥**：曾用环境密钥加密的库，移除环境变量后无法用内置密钥解密，Station 会停止启动而不会改写密文。内置密钥随程序分发，只用于避免数据库直接存放明文；如需防止持有程序文件的人解密数据库，应使用独立的部署密钥。设备列表与刷新接口只返回 `has_token` 状态，编辑连接时 Token 留空表示沿用原值。
+
 本机同时验证资产、Geo 和情报同步时，可在项目根目录执行以下示例。先启动本地 PostgreSQL、Doris 和 Redis，并在 PostgreSQL 中准备 `dysec-asset.public.asset_subject` 的本地副本、`pg_cron`、`dblink` 和 `btree_gist`；将待导入的 MMDB 放进 `mmdb/`。示例密码仅适用于本地测试。
 
 ```bash
@@ -112,7 +114,7 @@ npm run dev
 
 ## 知识库同步
 
-顶部的 **知识库同步** 菜单（`/knowledge-sync`）展示任务状态、数量、周期、异常和历史。连接信息由服务端读取；页面只提供 MMDB 文件选择与导入操作。
+顶部的 **知识库同步** 菜单（`/knowledge-sync`）展示任务状态、数量、周期、异常和历史。连接信息由服务端读取；页面提供 MMDB 文件选择与导入操作，资产和情报历史弹窗可确认后清空执行记录。Geo 导入历史不提供清空操作。
 
 | 数据 | 触发方式 | 查询数据 | 历史记录 |
 | --- | --- | --- | --- |
@@ -148,6 +150,7 @@ Station 启动时只初始化运行记录和定时器。到达周期边界后，
 
 | 参数 | 用途 |
 | --- | --- |
+| `WP_STATION_DEVICE_TOKEN_KEY` | 可选；覆盖程序内置密钥，值为 32 字节随机密钥的 Base64 编码；同一数据库需持续使用同一密钥 |
 | `WP_KSYNC_TARGET_URL` | 资产和 Geo 共用的目标 PostgreSQL URL；资产源复用其中的主机、端口及凭据 |
 | `WP_KSYNC_ASSET_SOURCE_DATABASE` | 资产源 PostgreSQL 数据库名，其他连接参数默认取自目标 URL |
 | `WP_KSYNC_ASSET_SOURCE_HOST` / `PORT` / `USERNAME` / `PASSWORD` | 可选覆盖项，仅在资产源连接参数与目标库不同时使用 |

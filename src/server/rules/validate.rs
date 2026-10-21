@@ -10,6 +10,9 @@ use crate::utils::{SystemKind, compose_repo_layout_into, write_rule_content_in_p
 use super::{ValidateRuleResponse, repo_layout};
 
 fn ensure_rule_type_supported(system: SystemKind, rule_type: RuleType) -> Result<(), AppError> {
+    if matches!(rule_type, RuleType::WfusionKnowdb) && !matches!(system, SystemKind::Wfusion) {
+        return Err(AppError::validation("knowdb.toml 仅用于 wfusion"));
+    }
     if matches!(system, SystemKind::Wfusion) && matches!(rule_type, RuleType::Knowledge) {
         return Err(AppError::validation("wfusion 不支持 knowledge 配置"));
     }
@@ -17,7 +20,11 @@ fn ensure_rule_type_supported(system: SystemKind, rule_type: RuleType) -> Result
     if matches!(system, SystemKind::Wparse)
         && matches!(
             rule_type,
-            RuleType::Windows | RuleType::Schema | RuleType::Rule | RuleType::Scenarios
+            RuleType::Windows
+                | RuleType::WfusionKnowdb
+                | RuleType::Schema
+                | RuleType::Rule
+                | RuleType::Scenarios
         )
     {
         return Err(AppError::validation("wparse 不支持该规则类型"));

@@ -236,6 +236,30 @@ impl IntelSyncService {
         })
     }
 
+    /// 仅清空情报任务执行记录，Redis 正式情报集合保持不变。
+    pub async fn clear_history(&self) -> Result<u64> {
+        let mut transaction = self
+            .target
+            .begin()
+            .await
+            .context("开启情报历史清理事务失败")?;
+        let running: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM intel_sync_runs WHERE status='running')",
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
+        if running {
+            bail!("情报同步正在执行，完成后才能清空历史");
+        }
+        let deleted = sqlx::query("DELETE FROM intel_sync_runs")
+            .execute(&mut *transaction)
+            .await
+            .context("清空情报同步历史失败")?
+            .rows_affected();
+        transaction.commit().await.context("提交情报历史清理失败")?;
+        Ok(deleted)
+    }
+
     /// 按 Unix 时间边界对齐周期；启动时等待下一个边界，同一进程仅执行一个任务。
     pub fn spawn_timer(&self) {
         let service = self.clone();

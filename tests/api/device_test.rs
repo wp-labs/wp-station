@@ -69,6 +69,24 @@ async fn test_device_crud_flow_via_api() {
     .await
     .expect("seed device");
 
+    let list_req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/devices?system=wparse&keyword={}&page=1&page_size=10",
+            create_body.name.as_deref().unwrap()
+        ))
+        .to_request();
+    let list_resp = test::call_service(&app, list_req).await;
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let list_body: serde_json::Value = test::read_body_json(list_resp).await;
+    let listed = list_body["items"]
+        .as_array()
+        .expect("device list")
+        .iter()
+        .find(|item| item["id"] == device_id)
+        .expect("created device in list");
+    assert_eq!(listed["has_token"], true);
+    assert!(listed.get("token").is_none());
+
     let update_req = test::TestRequest::put()
         .uri("/api/devices")
         .set_json(&UpdateDeviceRequest {
@@ -78,7 +96,7 @@ async fn test_device_crud_flow_via_api() {
             ip: create_body.ip.clone(),
             port: create_body.port + 1,
             remark: Some("updated via api".to_string()),
-            token: create_body.token.clone(),
+            token: String::new(),
         })
         .to_request();
     let update_resp = test::call_service(&app, update_req).await;

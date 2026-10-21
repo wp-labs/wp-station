@@ -2265,6 +2265,16 @@ body:not(.login-page) .connection-page-wrapper {
   color: #fff;
 }
 
+.repo-optional-note {
+  margin: 8px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(42, 99, 255, 0.06);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .integration-overview-log-list {
   display: flex;
   flex-wrap: wrap;

@@ -8,7 +8,7 @@ use std::{
 use crate::constants::project::{
     DIR_CONF, DIR_CONNECTORS, DIR_KNOWLEDGE, DIR_MODELS, DIR_OML, DIR_RULES, DIR_SCENARIOS,
     DIR_SCHEMAS, DIR_SINK_D, DIR_SINKS, DIR_SOURCE_D, DIR_SOURCES, DIR_TOPOLOGY, DIR_WPL,
-    FILE_OML_ADM, FILE_WFUSION, FILE_WINDOWS, FILE_WPARSE, FILE_WPGEN, FILE_WPL_PARSE,
+    FILE_KNOWDB, FILE_OML_ADM, FILE_WFUSION, FILE_WINDOWS, FILE_WPARSE, FILE_WPGEN, FILE_WPL_PARSE,
     FILE_WPL_SAMPLE,
 };
 use crate::db::RuleType;
@@ -33,6 +33,7 @@ pub fn load_project_snapshot(project_root: &Path) -> Result<ProjectSnapshot, App
     load_wpl_rules(project_root, &mut snapshot)?;
     load_oml_rules(project_root, &mut snapshot)?;
     load_wfusion_windows(project_root, &mut snapshot)?;
+    load_wfusion_knowdb(project_root, &mut snapshot)?;
     load_wfusion_schema_rules(project_root, &mut snapshot)?;
     load_wfusion_rules(project_root, &mut snapshot)?;
     load_wfusion_scenarios(project_root, &mut snapshot)?;
@@ -51,6 +52,7 @@ pub fn load_project_snapshot_from_repo_layout(
     load_wpl_rules(&layout.models_root, &mut snapshot)?;
     load_oml_rules(&layout.models_root, &mut snapshot)?;
     load_wfusion_windows(&layout.models_root, &mut snapshot)?;
+    load_wfusion_knowdb(&layout.models_root, &mut snapshot)?;
     load_wfusion_schema_rules(&layout.models_root, &mut snapshot)?;
     load_wfusion_rules(&layout.models_root, &mut snapshot)?;
     load_wfusion_scenarios(&layout.models_root, &mut snapshot)?;
@@ -345,6 +347,27 @@ fn load_wfusion_windows(
         snapshot.add_rule(
             RuleType::Windows,
             FILE_WINDOWS.to_string(),
+            Some(content),
+            None,
+            None,
+        );
+    }
+    Ok(())
+}
+
+/// 配置可缺失；快照仅收录实际存在的固定知识库文件。
+fn load_wfusion_knowdb(
+    project_root: &Path,
+    snapshot: &mut ProjectSnapshot,
+) -> Result<(), AppError> {
+    let path = project_root
+        .join(DIR_MODELS)
+        .join(DIR_SCHEMAS)
+        .join(FILE_KNOWDB);
+    if let Some(content) = super::read_file_if_exists(&path)? {
+        snapshot.add_rule(
+            RuleType::WfusionKnowdb,
+            FILE_KNOWDB.to_string(),
             Some(content),
             None,
             None,

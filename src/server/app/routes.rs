@@ -98,6 +98,7 @@ pub(super) fn configure_api_services(cfg: &mut web::ServiceConfig) {
         .service(api::list_asset_runs)
         .service(api::list_geo_runs)
         .service(api::list_intel_runs)
+        .service(api::clear_sync_runs)
         .service(api::list_mmdb_files)
         .service(api::start_geo_import)
         .service(api::get_geo_import_run)

@@ -7,7 +7,7 @@ use crate::utils::SystemKind;
 use crate::utils::check_device_health_with_detail;
 use crate::utils::pagination::PageQuery;
 
-use super::{DeviceListResponse, DeviceRefreshResult};
+use super::{DeviceListResponse, DevicePublic, DeviceRefreshResult};
 
 /// 获取设备列表（支持关键字搜索 + 分页）。
 pub async fn list_devices_logic(
@@ -25,11 +25,16 @@ pub async fn list_devices_logic(
         total, page, page_size
     );
 
-    Ok(DeviceListResponse::from_db(items, total, page, page_size))
+    Ok(DeviceListResponse::from_db(
+        items.into_iter().map(DevicePublic::from).collect(),
+        total,
+        page,
+        page_size,
+    ))
 }
 
 /// 获取在线设备列表（`status == active`，供发布弹窗使用）。
-pub async fn list_online_devices_logic(system: SystemKind) -> Result<Vec<Device>, AppError> {
+pub async fn list_online_devices_logic(system: SystemKind) -> Result<Vec<DevicePublic>, AppError> {
     debug!("获取在线设备列表");
 
     let all = find_devices_by_system(system).await?;
@@ -39,7 +44,7 @@ pub async fn list_online_devices_logic(system: SystemKind) -> Result<Vec<Device>
         .collect();
 
     debug!("获取在线设备列表成功: count={}", online.len());
-    Ok(online)
+    Ok(online.into_iter().map(DevicePublic::from).collect())
 }
 
 /// 手动刷新设备在线状态。
@@ -56,7 +61,7 @@ pub async fn refresh_device_status_logic(device_id: i32) -> Result<DeviceRefresh
 
     let refreshed = find_device_by_id(device_id).await?.unwrap_or(existing);
     Ok(DeviceRefreshResult {
-        device: refreshed,
+        device: refreshed.into(),
         health_error: health.error_message,
     })
 }

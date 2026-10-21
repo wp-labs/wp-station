@@ -261,6 +261,47 @@ impl AssetSyncService {
             .collect::<Result<Vec<_>>>()?;
         Ok(RunHistory { items, total })
     }
+
+    /// 删除本站资产任务的 pg_cron 执行记录，保留同步摘要和正式数据。
+    pub async fn clear_history(&self) -> Result<u64> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .context("开启资产历史清理事务失败")?;
+        let cron_available: bool =
+            sqlx::query_scalar("SELECT to_regclass('cron.job_run_details') IS NOT NULL")
+                .fetch_one(&mut *transaction)
+                .await?;
+        let mut deleted = 0;
+        if cron_available {
+            let job_id: Option<i64> = sqlx::query_scalar(
+                "SELECT jobid FROM cron.job WHERE database=current_database() AND jobname=$1 ORDER BY jobid LIMIT 1",
+            )
+            .bind(ASSET_JOB_NAME)
+            .fetch_optional(&mut *transaction)
+            .await?;
+            if let Some(job_id) = job_id {
+                let running: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM cron.job_run_details WHERE jobid=$1 AND status IN ('running', 'starting'))",
+                )
+                .bind(job_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+                if running {
+                    bail!("资产同步正在执行，完成后才能清空历史");
+                }
+                deleted = sqlx::query("DELETE FROM cron.job_run_details WHERE jobid=$1")
+                    .bind(job_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .context("清空资产 pg_cron 执行记录失败")?
+                    .rows_affected();
+            }
+        }
+        transaction.commit().await.context("提交资产历史清理失败")?;
+        Ok(deleted)
+    }
 }
 
 /// 分页历史结果。

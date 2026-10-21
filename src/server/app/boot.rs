@@ -7,6 +7,7 @@
 //! - 默认目录和默认配置补齐
 //! - 后台任务启动
 
+use crate::db::device::migrate_plaintext_device_tokens;
 use crate::db::{DeviceStatus, find_all_devices, get_pool, init_pool};
 use crate::server::sync::ensure_project_repositories;
 use crate::server::{
@@ -59,6 +60,20 @@ pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<Kno
             std::io::Error::other(format!("数据库迁移失败: {}", e))
         })?;
     info!("数据库迁移完成");
+
+    let key_source = crate::utils::device_token::initialize_key().map_err(|error| {
+        error!("设备 Token 加密密钥初始化失败: error={}", error);
+        std::io::Error::other(error)
+    })?;
+    let migrated = migrate_plaintext_device_tokens().await.map_err(|error| {
+        error!("设备 Token 加密迁移失败: error={}", error);
+        std::io::Error::other(error)
+    })?;
+    info!(
+        "设备 Token 加密检查完成: key_source={}, migrated={}",
+        key_source.as_str(),
+        migrated
+    );
 
     preload_admin_api_tls(setting)?;
 

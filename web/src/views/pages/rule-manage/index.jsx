@@ -36,6 +36,7 @@ const EMPTY_KNOWLEDGE_DATASET = Object.freeze({
 });
 const INTEGRATION_OVERVIEW_KEY = 'integration-overview';
 const WFUSION_WINDOWS_FILE = 'windows.toml';
+const WFUSION_KNOWDB_FILE = 'knowdb.toml';
 const WFUSION_GLOBAL_RULE_FILE = '_global.wfl';
 
 const buildKnowledgeFileList = (datasets, configFile, keyword) => {
@@ -569,6 +570,7 @@ function RuleManagePage() {
   // 跟踪内容是否已修改
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
+  const [wfusionKnowdbMissing, setWfusionKnowdbMissing] = useState(false);
   // 跟踪 wpl/oml 列表当前悬停的文件名，用于展示删除按钮
   const [hoveredRepoFile, setHoveredRepoFile] = useState('');
   const [wplSearch, setWplSearch] = useState('');
@@ -598,7 +600,7 @@ function RuleManagePage() {
     isKnowledgeMode &&
     Boolean(knowledgeConfigFile) &&
     activeKnowledgeDataset === knowledgeConfigFile;
-  const isFixedRuleMode = activeKey === RuleType.WINDOWS;
+  const isFixedRuleMode = activeKey === RuleType.WINDOWS || activeKey === RuleType.WFUSION_KNOWDB;
   const activeTreeRuleType = isTreeRuleType(activeKey) ? activeKey : null;
   const isRepoMode = isWplEditorMode || Boolean(activeTreeRuleType);
   const treeSectionTitle =
@@ -647,7 +649,7 @@ function RuleManagePage() {
 
   useEffect(() => {
     const allowedKeys = isWfusionSystem
-      ? [RuleType.WINDOWS, RuleType.SCHEMA, RuleType.RULE, RuleType.SCENARIOS]
+      ? [RuleType.WINDOWS, RuleType.WFUSION_KNOWDB, RuleType.RULE, RuleType.SCHEMA, RuleType.SCENARIOS]
       : [RuleType.WPL, RuleType.OML, RuleType.KNOWLEDGE, INTEGRATION_OVERVIEW_KEY];
 
     if (!allowedKeys.includes(activeKey)) {
@@ -733,7 +735,7 @@ function RuleManagePage() {
       options.type = RuleType.WPL;
       options.file = targetFile;
     } else if (isFixedRuleMode) {
-      options.file = WFUSION_WINDOWS_FILE;
+      options.file = activeKey === RuleType.WFUSION_KNOWDB ? WFUSION_KNOWDB_FILE : WFUSION_WINDOWS_FILE;
     } else if (activeTreeRuleType) {
       if (!activeOmlFile) {
         setContent('');
@@ -794,6 +796,9 @@ function RuleManagePage() {
         const newContent = response.content || '';
         setContent(newContent);
         setOriginalContent(newContent);
+        if (activeKey === RuleType.WFUSION_KNOWDB) {
+          setWfusionKnowdbMissing(!response.lastModified);
+        }
         setHasUnsavedChanges(false);
       }
     } catch (error) {
@@ -1497,6 +1502,9 @@ function RuleManagePage() {
           file: fileInfo.file,
           content: currentContent,
         });
+        if (activeKey === RuleType.WFUSION_KNOWDB) {
+          setWfusionKnowdbMissing(false);
+        }
         if (isWplEditorMode) {
           updateWplOverviewCacheForFile(fileInfo.file, currentContent);
         }
@@ -1782,6 +1790,7 @@ function RuleManagePage() {
     wpl: 'WPL',
     oml: 'OML',
     windows: 'Windows',
+    wfusion_knowdb: 'Knowdb',
     schema: 'Schema',
     rule: 'Rule',
     scenarios: 'Scenarios',
@@ -1794,6 +1803,7 @@ function RuleManagePage() {
       wpl: t('ruleManage.wplConfig'),
       oml: t('ruleManage.omlConfig'),
       windows: t('ruleManage.windowsConfig'),
+      wfusion_knowdb: t('ruleManage.wfusionKnowdbConfig'),
       schema: t('ruleManage.schemasConfig'),
       rule: t('ruleManage.rulesConfig'),
       scenarios: t('ruleManage.scenariosConfig'),
@@ -1809,7 +1819,8 @@ function RuleManagePage() {
       return { file: normalized, display: formatWplDisplayName(normalized, wplParseFile) };
     }
     if (isFixedRuleMode) {
-      return { file: WFUSION_WINDOWS_FILE, display: WFUSION_WINDOWS_FILE };
+      const file = activeKey === RuleType.WFUSION_KNOWDB ? WFUSION_KNOWDB_FILE : WFUSION_WINDOWS_FILE;
+      return { file, display: file };
     }
     if (activeTreeRuleType) {
       const displayName =
@@ -1877,12 +1888,10 @@ function RuleManagePage() {
             </button>
             <button
               type="button"
-              className={`side-item ${activeKey === RuleType.SCHEMA ? 'is-active' : ''}`}
-              onClick={() => handleNavigation(RuleType.SCHEMA, () => {
-                prepareTreeRuleNavigation(RuleType.SCHEMA);
-              })}
+              className={`side-item ${activeKey === RuleType.WFUSION_KNOWDB ? 'is-active' : ''}`}
+              onClick={() => handleNavigation(RuleType.WFUSION_KNOWDB)}
             >
-              {t('ruleManage.schemasConfig')}
+              {t('ruleManage.wfusionKnowdbConfig')}
             </button>
             <button
               type="button"
@@ -1892,6 +1901,15 @@ function RuleManagePage() {
               })}
             >
               {t('ruleManage.rulesConfig')}
+            </button>
+            <button
+              type="button"
+              className={`side-item ${activeKey === RuleType.SCHEMA ? 'is-active' : ''}`}
+              onClick={() => handleNavigation(RuleType.SCHEMA, () => {
+                prepareTreeRuleNavigation(RuleType.SCHEMA);
+              })}
+            >
+              {t('ruleManage.schemasConfig')}
             </button>
             <button
               type="button"
@@ -2310,7 +2328,7 @@ function RuleManagePage() {
 	        ) : isFixedRuleMode ? (
           <div className="repo-content">
             <div className="repo-toolbar">
-              <div className="repo-path">{WFUSION_WINDOWS_FILE}</div>
+              <div className="repo-path">{getCurrentFileInfo().display}</div>
               <div className="editor-actions">
                 {showFormatButton ? (
                   <button type="button" className="btn ghost" onClick={handleFormat}>
@@ -2325,6 +2343,9 @@ function RuleManagePage() {
                 </button>
               </div>
             </div>
+            {activeKey === RuleType.WFUSION_KNOWDB && wfusionKnowdbMissing && (
+              <div className="repo-optional-note">{t('ruleManage.wfusionKnowdbMissing')}</div>
+            )}
             <div className="repo-view">
               <CodeEditor
                 className="code-area code-area--large repo-doc is-visible"

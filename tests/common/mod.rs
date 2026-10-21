@@ -33,7 +33,13 @@ fn init_test_environment() {
             std::env::set_var("WARP_STATION_SKIP_RULE_CHECK", "1");
             std::env::set_var("WARP_STATION_SKIP_SANDBOX", "1");
             std::env::set_var("WP_STATION_TEST_WORKSPACE_ROOT", &base);
+            std::env::remove_var("WP_STATION_DEVICE_TOKEN_KEY");
         }
+        assert_eq!(
+            wp_station::utils::device_token::initialize_key()
+                .expect("initialize test device token key"),
+            wp_station::utils::device_token::KeySource::BuiltIn,
+        );
         base
     });
 }
