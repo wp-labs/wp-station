@@ -21,6 +21,14 @@ pub struct Model {
     pub next_poll_at: Option<DateTimeUtc>,
     #[sea_orm(default_value = 0)]
     pub poll_attempts: i32,
+    #[sea_orm(default_value = 1)]
+    pub attempt_no: i32,
+    #[sea_orm(default_value = "publish")]
+    pub operation: String,
+    pub previous_group_version: Option<String>,
+    pub request_summary: Option<String>,
+    pub response_status: Option<String>,
+    pub response_summary: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub completed_at: Option<DateTimeUtc>,

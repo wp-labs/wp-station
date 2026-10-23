@@ -1,7 +1,6 @@
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
-
 /// Gitea创建仓库请求结构体
 #[derive(Serialize)]
 pub struct CreateRepoRequest {
@@ -29,10 +28,20 @@ pub struct CreateRepoResponse {
     pub clone_url: String,
     pub ssh_url: String,
     pub html_url: String,
+    #[serde(default)]
+    pub empty: bool,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RepoResponse {
+    pub clone_url: String,
+    pub ssh_url: String,
+    pub html_url: String,
+    #[serde(default)]
+    pub empty: bool,
 }
 
 impl GiteaApiClient {
-
     /// 创建带用户名和密码的Gitea API客户端实例
     pub fn with_credentials(base_url: &str, username: &str, password: &str) -> Self {
         Self {
@@ -41,7 +50,7 @@ impl GiteaApiClient {
             password: password.to_string(),
         }
     }
-    
+
     /// 在指定仓库中基于 target 创建一个新的 git tag
     ///
     /// `target` 可以是分支名（如 "master"）、提交 SHA 等，Gitea 会解析为目标提交。
@@ -57,7 +66,7 @@ impl GiteaApiClient {
             return Err("必须提供用户名和密码".into());
         }
 
-        let client = Client::new();
+        let client = Client::builder().no_proxy().build()?;
 
         let req = CreateTagRequest {
             tag_name: tag_name.to_string(),
@@ -68,10 +77,7 @@ impl GiteaApiClient {
         // POST /api/v1/repos/{owner}/{repo}/tags
         let url = format!(
             "{}/api/v1/repos/{}/{}{}",
-            self.base_url,
-            self.user_name,
-            repo_name,
-            "/tags",
+            self.base_url, self.user_name, repo_name, "/tags",
         );
 
         let response = client
@@ -91,15 +97,18 @@ impl GiteaApiClient {
     }
 
     /// 专门用于用户名密码认证的仓库创建方法
-    pub async fn create_repo_with_credentials(&self, repo_name: &str) -> Result<CreateRepoResponse, Box<dyn std::error::Error>> {
+    pub async fn create_repo_with_credentials(
+        &self,
+        repo_name: &str,
+    ) -> Result<CreateRepoResponse, Box<dyn std::error::Error>> {
         // 确保用户名和密码已提供
         if self.user_name.is_empty() || self.password.is_empty() {
             return Err("必须提供用户名和密码".into());
         }
-        
+
         // 创建HTTP客户端
-        let client = Client::new();
-        
+        let client = Client::builder().no_proxy().build()?;
+
         // 准备最小化请求数据
         let req = CreateRepoRequest {
             name: repo_name.to_string(),
@@ -107,27 +116,74 @@ impl GiteaApiClient {
             private: false,
             auto_init: false,
         };
-        
+
         // 构建请求并设置基本认证
         let request = client
             .post(format!("{}/api/v1/user/repos", self.base_url))
             .basic_auth(&self.user_name, Some(&self.password))
             .json(&req);
-        
+
         // 发送请求
         let response = request.send().await?;
-        
+
         // 检查响应状态
         if response.status().is_success() {
             // 解析响应
             let repo_info: CreateRepoResponse = response.json().await?;
-            
+
             // 返回HTTPS URL，用于用户名密码认证的Git操作
             Ok(repo_info)
         } else {
             let status = response.status();
             let text = response.text().await?;
             Err(format!("创建远程仓库失败: {} - {}", status, text).into())
+        }
+    }
+
+    /// 查询当前用户下的仓库信息。
+    pub async fn get_repo(
+        &self,
+        repo_name: &str,
+    ) -> Result<Option<RepoResponse>, Box<dyn std::error::Error>> {
+        if self.user_name.is_empty() || self.password.is_empty() {
+            return Err("必须提供用户名和密码".into());
+        }
+
+        let client = Client::builder().no_proxy().build()?;
+        let url = format!(
+            "{}/api/v1/repos/{}/{}",
+            self.base_url, self.user_name, repo_name
+        );
+        let response = client
+            .get(&url)
+            .basic_auth(&self.user_name, Some(&self.password))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(Some(response.json().await?))
+        } else if response.status() == StatusCode::NOT_FOUND {
+            Ok(None)
+        } else {
+            let status = response.status();
+            let response_headers = response
+                .headers()
+                .iter()
+                .filter(|(name, _)| {
+                    matches!(
+                        name.as_str(),
+                        "server" | "via" | "x-cache" | "content-type" | "content-length"
+                    )
+                })
+                .map(|(name, value)| format!("{}={}", name, value.to_str().unwrap_or("<invalid>")))
+                .collect::<Vec<_>>()
+                .join(",");
+            let text = response.text().await?;
+            Err(format!(
+                "查询远程仓库失败: url={}, status={}, headers=[{}], body={}",
+                url, status, response_headers, text
+            )
+            .into())
         }
     }
 
@@ -138,8 +194,11 @@ impl GiteaApiClient {
             return Err("必须提供用户名和密码".into());
         }
 
-        let client = Client::new();
-        let url = format!("{}/api/v1/repos/{}/{}", self.base_url, self.user_name, repo_name);
+        let client = Client::builder().no_proxy().build()?;
+        let url = format!(
+            "{}/api/v1/repos/{}/{}",
+            self.base_url, self.user_name, repo_name
+        );
 
         let response = client
             .delete(url)

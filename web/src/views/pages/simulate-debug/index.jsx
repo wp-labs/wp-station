@@ -35,7 +35,6 @@ import ManualTicketModal from './components/ManualTicketModal';
  * 1. 日志解析
  * 2. 记录转换
  * 3. 知识库状态查询
- * 4. 性能测试
  * 对应原型：pages/views/simulate-debug/simulate-parse.html
  */
 
@@ -51,12 +50,14 @@ const DEFAULT_EXAMPLES = [
   },
 ];
 
-const DEFAULT_PROVIDER_SQL = 'select * from your_table limit 20;';
-
-const buildKnowledgeDefaultSql = (tableName) => {
+const buildKnowledgeDefaultSql = (dataset) => {
+  const tableName =
+    dataset && typeof dataset === 'object' ? dataset.tagName || dataset.value : dataset;
+  const suggestedSql =
+    dataset && typeof dataset === 'object' ? String(dataset.suggestedSql || '').trim() : '';
   if (!tableName) return '';
-  if (['postgres', 'mysql'].includes(String(tableName).toLowerCase())) {
-    return DEFAULT_PROVIDER_SQL;
+  if (suggestedSql) {
+    return suggestedSql;
   }
   return `select * from ${tableName} limit 20;`;
 };
@@ -67,6 +68,14 @@ const buildTypedName = (i18nT, type, number) => {
   const spacer = useNoSpace ? '' : ' ';
   return `${prefix}${spacer}${number}`;
 };
+
+const getErrorMessage = (error, fallback) => (
+  error?.response?.data?.error?.message
+  || error?.data?.error?.message
+  || error?.responseData?.error?.message
+  || error?.message
+  || fallback
+);
 
 const shouldNormalizeTypedName = (name) => {
   if (!name) return true;
@@ -159,8 +168,8 @@ function SimulateDebugPage() {
         currentRule,
       });
       message.success(t('assistTask.aiSubmitQueued'));
-    } catch {
-      message.error(t('assistTask.submitFailed'));
+    } catch (error) {
+      message.error(getErrorMessage(error, t('assistTask.submitFailed')));
     }
   };
 
@@ -186,7 +195,7 @@ function SimulateDebugPage() {
       });
       message.success(t('assistTask.manualSubmitQueued'));
     } catch (error) {
-      message.error(t('assistTask.submitFailed'));
+      message.error(getErrorMessage(error, t('assistTask.submitFailed')));
     }
   };
 
@@ -223,7 +232,11 @@ function SimulateDebugPage() {
 
       let parseResultForTransform = null;
       if (parseResponse?.fields) {
-        parseResultForTransform = { fields: parseResponse.fields, formatJson: parseResponse.formatJson };
+        parseResultForTransform = {
+          fields: parseResponse.fields,
+          formatJson: parseResponse.formatJson,
+          multipleLogs: parseResponse.multipleLogs,
+        };
         setTransformParseResult(parseResultForTransform);
       }
 
@@ -409,25 +422,6 @@ function SimulateDebugPage() {
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeInitialized, setKnowledgeInitialized] = useState(false);
 
-  // 性能测试相关状态
-  const EXAMPLE_LOG = `222.133.52.20 - - [06/Aug/2019:12:12:19 +0800] "GET /nginx-logo.png HTTP/1.1" 200 368 "http://119.122.1.4/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36" "-"`;
-  const [performanceSample, setPerformanceSample] = useState(EXAMPLE_LOG);
-  const [performanceConfig, setPerformanceConfig] = useState(`version = "1.0"
-
-[main_conf]
-gen_ref = "sample_gen"
-gen_speed = 100000
-gen_count = 1000000
-gen_secs = 0
-gen_parallel = 1
-out_ref = "out_file"
-
-[main_conf.log_conf]
-level = "warn,ctrl=info,launch=info,klib=info"
-output = "Console"
-output_path = "./logs/"`);
-  const [performanceResult, setPerformanceResult] = useState(null);
-
   // 规则文件管理状态
   const [wplModalVisible, setWplModalVisible] = useState(false);
   const [wplFiles, setWplFiles] = useState([]);
@@ -467,7 +461,11 @@ output_path = "./logs/"`);
       setResult(response);
       // 同步更新转换页的解析结果（使用原始数据用于转换）
       if (response?.fields) {
-        setTransformParseResult({ fields: response.fields, formatJson: response.formatJson });
+        setTransformParseResult({
+          fields: response.fields,
+          formatJson: response.formatJson,
+          multipleLogs: response.multipleLogs,
+        });
       }
     } catch (error) {
       setParseError(error); // 将错误存储到状态中
@@ -487,8 +485,12 @@ output_path = "./logs/"`);
     // 拉取示例列表，供用户选择
     setExamplesLoading(true);
     try {
-      const data = await fetchDebugExamples();
-      const list = data && typeof data === 'object' ? Object.values(data) : [];
+      const data = await fetchDebugExamples('wparse');
+      const list = Array.isArray(data)
+        ? data
+        : data && typeof data === 'object'
+          ? Object.values(data)
+          : [];
       if (Array.isArray(list) && list.length > 0) {
         setExamples(list);
         setExamplesLoaded(true);
@@ -566,7 +568,11 @@ output_path = "./logs/"`);
       });
       setExampleParseResult(response);
       if (response?.fields) {
-        setExampleTransformParseResult({ fields: response.fields, formatJson: response.formatJson });
+        setExampleTransformParseResult({
+          fields: response.fields,
+          formatJson: response.formatJson,
+          multipleLogs: response.multipleLogs,
+        });
       }
     } catch (error) {
       setExampleParseError(error);
@@ -712,14 +718,16 @@ output_path = "./logs/"`);
       if (datasets.length > 0) {
         setKnowledgeDatasets(datasets);
         setKnowledgeTable((currentTable) => {
-          const nextTable =
-            currentTable && datasets.includes(currentTable) ? currentTable : datasets[0];
+          const nextDataset =
+            currentTable && datasets.some((dataset) => dataset.tagName === currentTable)
+              ? datasets.find((dataset) => dataset.tagName === currentTable)
+              : datasets[0];
           setKnowledgeSql((currentSql) =>
             currentSql && currentSql.trim()
               ? currentSql
-              : buildKnowledgeDefaultSql(nextTable),
+              : buildKnowledgeDefaultSql(nextDataset),
           );
-          return nextTable;
+          return nextDataset?.tagName || '';
         });
       } else {
         setKnowledgeDatasets([]);
@@ -744,8 +752,9 @@ output_path = "./logs/"`);
    * 处理知识库表切换
    */
   const handleKnowledgeTableChange = (tableName) => {
+    const selectedDataset = knowledgeDatasets.find((dataset) => dataset.tagName === tableName);
     setKnowledgeTable(tableName);
-    setKnowledgeSql(buildKnowledgeDefaultSql(tableName));
+    setKnowledgeSql(buildKnowledgeDefaultSql(selectedDataset || tableName));
     setKnowledgeResult(null);
   };
 
@@ -757,10 +766,12 @@ output_path = "./logs/"`);
       const datasets = await fetchDebugKnowledgeDatasets();
       if (datasets.length > 0) {
         setKnowledgeDatasets(datasets);
-        const nextTable = datasets.includes(knowledgeTable) ? knowledgeTable : datasets[0];
-        if (nextTable !== knowledgeTable) {
-          setKnowledgeTable(nextTable);
-          setKnowledgeSql(buildKnowledgeDefaultSql(nextTable));
+        const nextDataset = datasets.some((dataset) => dataset.tagName === knowledgeTable)
+          ? datasets.find((dataset) => dataset.tagName === knowledgeTable)
+          : datasets[0];
+        if ((nextDataset?.tagName || '') !== knowledgeTable) {
+          setKnowledgeTable(nextDataset?.tagName || '');
+          setKnowledgeSql(buildKnowledgeDefaultSql(nextDataset));
           setKnowledgeResult(null);
         }
         setKnowledgeInitialized(true);
@@ -788,7 +799,9 @@ output_path = "./logs/"`);
     }
     setKnowledgeLoading(true);
     try {
-      const result = await executeKnowledgeSql(knowledgeTable, knowledgeSql);
+      const selectedDataset =
+        knowledgeDatasets.find((dataset) => dataset.tagName === knowledgeTable) || knowledgeTable;
+      const result = await executeKnowledgeSql(selectedDataset, knowledgeSql);
       setKnowledgeResult(result);
       if (result.fields.length > 0) {
         message.success('查询成功');
@@ -796,7 +809,8 @@ output_path = "./logs/"`);
         message.warning('未找到数据');
       }
     } catch (error) {
-      const sourceName = knowledgeTable || '默认数据源';
+      const selectedDataset = knowledgeDatasets.find((dataset) => dataset.tagName === knowledgeTable);
+      const sourceName = selectedDataset?.tagName || knowledgeTable || '默认数据源';
       message.error(`查询失败（${sourceName}）：${error?.message || error}`);
     } finally {
       setKnowledgeLoading(false);
@@ -1198,13 +1212,6 @@ output_path = "./logs/"`);
         >
           {t('simulateDebug.tabs.knowledge')}
         </button>
-        <button
-          type="button"
-          className={`side-item ${activeKey === 'performance' ? 'is-active' : ''}`}
-          onClick={() => setActiveKey('performance')}
-        >
-          {t('simulateDebug.tabs.performance')}
-        </button>
 
         <h2 style={{ marginTop: "20px" }}>{t('simulateDebug.workspace.mode')}</h2>
         <button
@@ -1304,7 +1311,7 @@ output_path = "./logs/"`);
                   </div>
                 <CodeEditor
                   key={`log-${workspaceMode}-${activeLogInstance?.id || activeLogIndex}`}
-                  className="code-area"
+                  className="code-area code-area--log-input"
                   language="json"
                   theme="vscodeDark"
                   value={inputValue}
@@ -1315,7 +1322,7 @@ output_path = "./logs/"`);
                 <div className="split-layout">
                   <div className="split-col">
                     <div className="panel-block panel-block--fill">
-                      <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                      <div className="block-header" style={{ alignItems: 'center' }}>
                         <div style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <h3>{t('simulateDebug.parseRule.title')}</h3>
                           {workspaceMode === 'workspace' && (
@@ -1328,13 +1335,12 @@ output_path = "./logs/"`);
                               onRemove={removeWplInstance}
                               onRename={renameWplInstance}
                               inline
-                              inlineMaxWidth="400px"
                               showAddButton={false}
                               collapseThreshold={6}
                             />
                           )}
                         </div>
-                        <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
+                        <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
                           {workspaceMode === 'workspace' && (
                             <button
                               type="button"
@@ -1437,6 +1443,11 @@ output_path = "./logs/"`);
                           </span>
                         </label>
                       </div>
+                      {result?.multipleLogs && (
+                        <div className="parse-result-hint" role="status">
+                          {t('simulateDebug.parseResult.onlyFirstNonEmptyLog')}
+                        </div>
+                      )}
                       <div className={`mode-content ${viewMode === 'table' ? 'is-active' : ''}`}>
                         {parseError ? (
                           renderParseError()
@@ -1465,30 +1476,31 @@ output_path = "./logs/"`);
                         {parseError ? (
                           renderParseError()
                         ) : result ? (
-                          <SyntaxHighlighter
-                            className="code-block"
-                            language="json"
-                            style={oneDark}
-                            customStyle={{ 
-                              margin: 0, 
-                              background: '#0f172a',
-                              maxWidth: '100%',
-                              width: '100%',
-                              overflowX: 'hidden'
-                            }}
-                            codeTagProps={{ style: { background: 'transparent' } }}
-                            wrapLines
-                            lineProps={{ style: { background: 'transparent' } }}
-                            wrapLongLines
-                          >
-                            {formatJsonForDisplay(result.formatJson, {
-                              ...result,
-                              fields: filterFieldsByShowEmpty(
-                                processFieldsForDisplay(result.fields, result.formatJson),
-                                showEmpty
-                              ),
-                            })}
-                          </SyntaxHighlighter>
+                          <div className="json-result-scroll">
+                            <SyntaxHighlighter
+                              className="code-block"
+                              language="json"
+                              style={oneDark}
+                              customStyle={{
+                                margin: 0,
+                                background: '#0f172a',
+                                width: '100%',
+                                minWidth: 0,
+                              }}
+                              codeTagProps={{ style: { background: 'transparent' } }}
+                              wrapLines
+                              lineProps={{ style: { background: 'transparent' } }}
+                              wrapLongLines
+                            >
+                              {formatJsonForDisplay(result.formatJson, {
+                                ...result,
+                                fields: filterFieldsByShowEmpty(
+                                  processFieldsForDisplay(result.fields, result.formatJson),
+                                  showEmpty
+                                ),
+                              })}
+                            </SyntaxHighlighter>
+                          </div>
                         ) : (
                           <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                             {t('simulateDebug.parseResult.clickToParse')}
@@ -1506,7 +1518,7 @@ output_path = "./logs/"`);
               <div className="split-layout transform-layout">
                 <div className="split-col transform-col">
                   <div className="panel-block panel-block--stretch panel-block--fill">
-                    <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                    <div className="block-header" style={{ alignItems: 'center' }}>
                       <div style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <h3>{t('simulateDebug.omlInput.title')}</h3>
                         {workspaceMode === 'workspace' && (
@@ -1519,13 +1531,12 @@ output_path = "./logs/"`);
                             onRemove={removeOmlInstance}
                             onRename={renameOmlInstance}
                             inline
-                            inlineMaxWidth="400px"
                             showAddButton={false}
                             collapseThreshold={6}
                           />
                         )}
                       </div>
-                      <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
+                      <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
                         {workspaceMode === 'workspace' && (
                           <button
                             type="button"
@@ -1539,7 +1550,7 @@ output_path = "./logs/"`);
                             {t('multipleInstances.addInstance')}
                           </button>
                         )}
-                        <button type="button" className="btn primary" onClick={omlFormat}>
+                        <button type="button" className="btn ghost" onClick={omlFormat}>
                           {t('simulateDebug.omlInput.format')}
                         </button>
                         <button
@@ -1640,30 +1651,31 @@ output_path = "./logs/"`);
                       }`}
                     >
                       {transformParseResult ? (
-                        <SyntaxHighlighter
-                          className="code-block"
-                          language="json"
-                          style={oneDark}
-                          customStyle={{ 
-                            margin: 0, 
-                            background: '#0f172a',
-                            maxWidth: '100%',
-                            width: '100%',
-                            overflowX: 'hidden'
-                          }}
-                          codeTagProps={{ style: { background: 'transparent' } }}
-                          wrapLines
-                          lineProps={{ style: { background: 'transparent' } }}
-                          wrapLongLines
-                        >
-                          {formatJsonForDisplay(transformParseResult.formatJson, {
-                            ...transformParseResult,
-                            fields: filterFieldsByShowEmpty(
-                              processFieldsForDisplay(transformParseResult.fields, transformParseResult.formatJson),
-                              transformParseShowEmpty
-                            ),
-                          })}
-                        </SyntaxHighlighter>
+                        <div className="json-result-scroll">
+                          <SyntaxHighlighter
+                            className="code-block"
+                            language="json"
+                            style={oneDark}
+                            customStyle={{
+                              margin: 0,
+                              background: '#0f172a',
+                              width: '100%',
+                              minWidth: 0,
+                            }}
+                            codeTagProps={{ style: { background: 'transparent' } }}
+                            wrapLines
+                            lineProps={{ style: { background: 'transparent' } }}
+                            wrapLongLines
+                          >
+                            {formatJsonForDisplay(transformParseResult.formatJson, {
+                              ...transformParseResult,
+                              fields: filterFieldsByShowEmpty(
+                                processFieldsForDisplay(transformParseResult.fields, transformParseResult.formatJson),
+                                transformParseShowEmpty
+                              ),
+                            })}
+                          </SyntaxHighlighter>
+                        </div>
                       ) : (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                           {t('simulateDebug.parseResult.willShowHere')}
@@ -1745,35 +1757,36 @@ output_path = "./logs/"`);
                       {transformError ? (
                         renderTransformError()
                       ) : transformResult ? (
-                        <SyntaxHighlighter
-                          className="code-block"
-                          language="json"
-                          style={oneDark}
-                          customStyle={{ 
-                            margin: 0, 
-                            background: '#0f172a',
-                            maxWidth: '100%',
-                            width: '100%',
-                            overflowX: 'hidden'
-                          }}
-                          codeTagProps={{ style: { background: 'transparent' } }}
-                          wrapLines
-                          lineProps={{ style: { background: 'transparent' } }}
-                          wrapLongLines
-                        >
-                          {formatJsonForDisplay(
-                            transformResult.formatJson,
-                            {
-                              ...transformResult,
-                              fields: filterFieldsByShowEmpty(
-                                transformResult.fields,
-                                transformResultShowEmpty
-                              ),
-                            },
-                            parsed =>
-                              transformResultShowEmpty ? parsed : filterEmptyFields(parsed)
-                          )}
-                        </SyntaxHighlighter>
+                        <div className="json-result-scroll">
+                          <SyntaxHighlighter
+                            className="code-block"
+                            language="json"
+                            style={oneDark}
+                            customStyle={{
+                              margin: 0,
+                              background: '#0f172a',
+                              width: '100%',
+                              minWidth: 0,
+                            }}
+                            codeTagProps={{ style: { background: 'transparent' } }}
+                            wrapLines
+                            lineProps={{ style: { background: 'transparent' } }}
+                            wrapLongLines
+                          >
+                            {formatJsonForDisplay(
+                              transformResult.formatJson,
+                              {
+                                ...transformResult,
+                                fields: filterFieldsByShowEmpty(
+                                  transformResult.fields,
+                                  transformResultShowEmpty
+                                ),
+                              },
+                              parsed =>
+                                transformResultShowEmpty ? parsed : filterEmptyFields(parsed)
+                            )}
+                          </SyntaxHighlighter>
+                        </div>
                       ) : (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                           {t('simulateDebug.convertResult.willShowHere')}
@@ -1813,8 +1826,12 @@ output_path = "./logs/"`);
                           >
                             {knowledgeDatasets.length > 0 ? (
                               knowledgeDatasets.map((dataset) => (
-                                <option key={dataset} value={dataset}>
-                                  {dataset}
+                                <option key={dataset.tagName} value={dataset.tagName}>
+                                  {`${dataset.label}（${
+                                    dataset.sourceKind === 'provider'
+                                      ? t('simulateDebug.knowledge.sourceRemote')
+                                      : t('simulateDebug.knowledge.sourceLocal')
+                                  }）`}
                                 </option>
                               ))
                             ) : (
@@ -1892,91 +1909,6 @@ output_path = "./logs/"`);
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 性能测试页面 */}
-              {activeKey === 'performance' && (
-                <div className="split-layout performance-layout">
-                  <div className="split-col performance-col performance-col--left">
-                    <div className="panel-block">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.sampleData')}</h3>
-                        <div className="block-actions">
-                          <button
-                            type="button"
-                            className="btn primary"
-                            onClick={async () => {
-                              setLoading(true);
-                              try {
-                                // 模拟性能测试
-                                await new Promise((resolve) => setTimeout(resolve, 2000));
-                                setPerformanceResult(`== Sinks ==
-business   | /sink/benchmark/[0]                      | ././out/benchmark.dat                                        | 1000
-infras     | monitor/[0]                              | ././data/out_dat/monitor.dat                                 | 0
-infras     | default/[0]                              | ././data/out_dat/default.dat                                 | 0
-infras     | error/[0]                                | ././data/out_dat/error.dat                                   | 0
-infras     | intercept/[0]                            | ././data/out_dat/intercept.dat                               | 0
-infras     | miss/[0]                                 | ././data/out_dat/miss.dat                                    | 0
-infras     | residue/[0]                              | ././data/out_dat/residue.dat                                 | 0
--- total lines: 1000
-validate: PASS
-
-| Group           | Sink | Total | Actual | Ratio | Expect    | Verdict |
-|-----------------|------|-------|--------|-------|-----------|---------|
-| /sink/benchmark | [0]  |  1000 |  1000  |   1   |   1±0.01  |    OK   |
-| monitor         | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| default         | [0]  |  1000 |    0   |   0   |   0±0.02  |    OK   |
-| error           | [0]  |  1000 |    0   |   0   | 0.01±0.02 |    OK   |
-| intercept       | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| miss            | [0]  |  1000 |    0   |   0   |  [0 ~ 2]  |    OK   |
-| residue         | [0]  |  1000 |    0   |   0   |     -     |    -    |`);
-                              } finally {
-                                setLoading(false);
-                              }
-                            }}
-                            disabled={loading}
-                          >
-                            {loading ? t('simulateDebug.performance.testing') : t('simulateDebug.performance.test')}
-                          </button>
-                        </div>
-                      </div>
-                      <CodeEditor
-                        className="code-area"
-                        value={performanceSample}
-                        onChange={(value) => setPerformanceSample(value)}
-                        language="toml"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                    <div className="panel-block panel-block--stretch">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.dataGenConfig')}</h3>
-                      </div>
-                      <CodeEditor
-                        className="code-area code-area--large"
-                        value={performanceConfig}
-                        onChange={(value) => setPerformanceConfig(value)}
-                        language="toml"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                  </div>
-                  <div className="split-col performance-col performance-col--right">
-                    <div className="panel-block panel-block--stretch">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.executionResult')}</h3>
-                        <p className="block-desc">{t('simulateDebug.performance.outputDesc')}</p>
-                      </div>
-                      {performanceResult ? (
-                        <pre className="code-block code-block--scroll">{performanceResult}</pre>
-                      ) : (
-                        <pre className="code-block code-block--scroll" style={{ color: '#999' }}>
-                          {t('simulateDebug.performance.clickToTest')}
-                        </pre>
-                      )}
                     </div>
                   </div>
                 </div>

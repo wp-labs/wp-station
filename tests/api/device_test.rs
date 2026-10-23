@@ -1,15 +1,17 @@
 use crate::common::{rand_suffix, setup_db};
 use actix_web::{App, http::StatusCode, test};
-use rand::Rng;
+use rand::RngExt;
 use wp_station::db::{DeviceStatus, NewDevice, create_device as create_device_record};
 use wp_station::server::{CreateDeviceRequest, UpdateDeviceRequest};
+use wp_station::utils::SystemKind;
 
 fn device_payload() -> CreateDeviceRequest {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     CreateDeviceRequest {
+        system: SystemKind::Wparse,
         name: Some(format!("api-device-{}", rand_suffix())),
         ip: "127.0.0.1".to_string(),
-        port: rng.gen_range(2000..9000),
+        port: rng.random_range(2000..9000),
         remark: Some("api integration".to_string()),
         token: format!("token-{}", rand_suffix()),
     }
@@ -29,13 +31,13 @@ async fn test_list_devices_endpoints() {
     .await;
 
     let list_req = test::TestRequest::get()
-        .uri("/api/devices?page=1&page_size=5")
+        .uri("/api/devices?system=wparse&page=1&page_size=5")
         .to_request();
     let list_resp = test::call_service(&app, list_req).await;
     assert_eq!(list_resp.status(), StatusCode::OK);
 
     let online_req = test::TestRequest::get()
-        .uri("/api/devices/online")
+        .uri("/api/devices/online?system=wparse")
         .to_request();
     let online_resp = test::call_service(&app, online_req).await;
     assert_eq!(online_resp.status(), StatusCode::OK);
@@ -56,6 +58,7 @@ async fn test_device_crud_flow_via_api() {
 
     let create_body = device_payload();
     let device_id = create_device_record(NewDevice {
+        system: SystemKind::Wparse,
         name: create_body.name.clone(),
         ip: create_body.ip.clone(),
         port: create_body.port,
@@ -66,15 +69,34 @@ async fn test_device_crud_flow_via_api() {
     .await
     .expect("seed device");
 
+    let list_req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/devices?system=wparse&keyword={}&page=1&page_size=10",
+            create_body.name.as_deref().unwrap()
+        ))
+        .to_request();
+    let list_resp = test::call_service(&app, list_req).await;
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let list_body: serde_json::Value = test::read_body_json(list_resp).await;
+    let listed = list_body["items"]
+        .as_array()
+        .expect("device list")
+        .iter()
+        .find(|item| item["id"] == device_id)
+        .expect("created device in list");
+    assert_eq!(listed["has_token"], true);
+    assert!(listed.get("token").is_none());
+
     let update_req = test::TestRequest::put()
         .uri("/api/devices")
         .set_json(&UpdateDeviceRequest {
             id: device_id,
+            system: SystemKind::Wparse,
             name: Some(format!("updated-{}", rand_suffix())),
             ip: create_body.ip.clone(),
             port: create_body.port + 1,
             remark: Some("updated via api".to_string()),
-            token: create_body.token.clone(),
+            token: String::new(),
         })
         .to_request();
     let update_resp = test::call_service(&app, update_req).await;

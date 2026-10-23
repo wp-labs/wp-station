@@ -1,0 +1,26 @@
+use "auth.wfs"
+
+// 同一来源 IP 对同一账号连续登录失败 3 次，输出一条暴力破解告警。
+rule ssh_brute_force_alert {
+  events {
+    failed : ssh_login
+      && outcome == "failed"
+  }
+
+  match<source_ip,target_user:1m:fixed> {
+    on event { failed | count >= 3; }
+  } -> score(80.0)
+
+  entity(ip, failed.source_ip)
+
+  yield security_alerts (
+    alert_name = "SSH 暴力破解",
+    source_ip = failed.source_ip,
+    target_user = failed.target_user,
+    failed_count = count(failed)
+  )
+
+  limits {
+    max_instances = 1000;
+  }
+}

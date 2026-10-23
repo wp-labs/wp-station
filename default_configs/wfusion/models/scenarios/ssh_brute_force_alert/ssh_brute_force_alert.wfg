@@ -1,0 +1,21 @@
+use "../schemas/auth.wfs"
+use "../rules/ssh_brute_force_alert.wfl"
+
+#[duration=10s]
+scenario ssh_brute_force_alert_case<seed=42> {
+  traffic {
+    stream ssh_login gen 1/s
+  }
+
+  injection {
+    hit<100%> ssh_login {
+      source_ip seq {
+        use(source_ip="192.168.1.100", target_user="root", outcome="failed") with(3)
+      }
+    }
+  }
+
+  expect {
+    hit(ssh_brute_force_alert) >= 100%
+  }
+}

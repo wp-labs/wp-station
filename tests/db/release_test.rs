@@ -4,12 +4,13 @@ use wp_station::db::{
     NewRelease, ReleaseStatus, create_release, find_all_releases, find_latest_draft_release,
     find_release_by_id, touch_release_as_draft, update_release_status,
 };
+use wp_station::utils::SystemKind;
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
 
 async fn cleanup_releases(prefix: &str) {
     let pool = wp_station::db::get_pool();
     let _ = ReleaseEntity::delete_many()
-        .filter(ReleaseColumn::Version.like(&format!("%{}%", prefix)))
+        .filter(ReleaseColumn::Version.like(format!("%{}%", prefix)))
         .exec(pool.inner())
         .await;
 }
@@ -21,6 +22,7 @@ async fn test_release_crud_flow() {
     let version = format!("{}-v0", prefix);
 
     let release = NewRelease {
+        system: SystemKind::Wparse,
         version: version.clone(),
         release_group: "models".to_string(),
         pipeline: Some("auto".to_string()),
@@ -42,6 +44,7 @@ async fn test_release_crud_flow() {
         .expect("update status");
 
     let (items, total) = find_all_releases(
+        Some(SystemKind::Wparse),
         1,
         10,
         Some("auto"),
@@ -60,6 +63,7 @@ async fn test_release_crud_flow() {
 
     let draft_version = format!("{}-draft", prefix);
     let draft_id = create_release(NewRelease {
+        system: SystemKind::Wparse,
         version: draft_version.clone(),
         release_group: "draft".to_string(),
         pipeline: Some("draft".to_string()),
@@ -70,7 +74,7 @@ async fn test_release_crud_flow() {
     .await
     .expect("create draft");
 
-    let draft = find_latest_draft_release()
+    let draft = find_latest_draft_release(SystemKind::Wparse)
         .await
         .expect("find draft")
         .expect("draft exists");

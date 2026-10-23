@@ -19,10 +19,16 @@ pub struct AiAnalyzeRequest {
 #[derive(Debug, Deserialize, Default)]
 pub struct AssistResultData {
     pub task_id: Option<String>,
+    pub status: Option<String>,
+    pub source: Option<String>,
     pub wpl_suggestion: Option<String>,
     pub oml_suggestion: Option<String>,
     pub explanation: Option<String>,
     pub error_message: Option<String>,
+    pub error: Option<String>,
+    pub execution_log: Option<String>,
+    pub callback_status: Option<String>,
+    pub callback_error: Option<String>,
 }
 
 /// Assist 远端结果响应
@@ -84,6 +90,7 @@ pub struct AssistService {
 }
 
 impl AssistService {
+    /// 创建 Assist HTTP 客户端。
     pub fn new() -> Result<Self, AssistServiceError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))

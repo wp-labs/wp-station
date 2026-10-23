@@ -1,0 +1,23 @@
+[window_defaults]
+evict_interval = "30s"
+max_window_bytes = "256MB"
+max_total_bytes = "2GB"
+evict_policy = "time_first"
+watermark = "5s"
+allowed_lateness = "8760h"
+late_policy = "drop"
+
+[window.xy_system_ssh_log]
+mode = "local"
+max_window_bytes = "256MB"
+over_cap = "2h"
+
+[window.other_logs]
+mode = "local"
+max_window_bytes = "256MB"
+over_cap = "2h"
+
+[window.security_alerts]
+mode = "local"
+max_window_bytes = "16MB"
+over_cap = "0s"

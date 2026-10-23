@@ -6,6 +6,7 @@ const { Text } = Typography;
 
 const STATUS_COLOR = {
   success: 'green',
+  success_not_passed: 'orange',
   failed: 'red',
   running: 'blue',
   queued: 'default',
@@ -85,7 +86,11 @@ function SandboxHistoryList({
           const duration =
             item.duration_ms != null ? `${(item.duration_ms / 1000).toFixed(1)}s` : '--';
           const isActive = item.task_id === activeTaskId;
-          const statusColor = STATUS_COLOR[item.status] || 'default';
+          const displayStatus =
+            item.status === 'success' && item.passed !== true
+              ? 'success_not_passed'
+              : item.status;
+          const statusColor = STATUS_COLOR[displayStatus] || 'default';
           return (
             <div
               key={item.task_id}
@@ -101,7 +106,7 @@ function SandboxHistoryList({
               <Space direction="vertical" size={2} style={{ width: '100%' }}>
                 <Space align="center" size="small">
                   <Tag color={statusColor}>
-                    {t(`sandbox.statusLabel.${item.status}`, { defaultValue: item.status })}
+                    {t(`sandbox.statusLabel.${displayStatus}`, { defaultValue: displayStatus })}
                   </Tag>
                   <Text strong>{startText}</Text>
                 </Space>
