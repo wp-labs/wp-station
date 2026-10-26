@@ -20,7 +20,7 @@ config = "0.15.23"
 toml = "1.1.2"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0.18"
-orion-error = "0.8.1"
+orion-error = "0.9.0"
 strum = { version = "0.28.0", features = ["derive"] }
 anyhow = "~1"
 lazy_static = "1.4"
