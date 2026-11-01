@@ -35,7 +35,7 @@ jobs:
             can-run: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -97,7 +97,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download amd64 artifact
         uses: actions/download-artifact@v7
@@ -210,7 +210,7 @@ jobs:
             artifact_arch: aarch64-linux-gnu
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -283,7 +283,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Extract changelog
         id: changelog
@@ -393,7 +393,7 @@ jobs:
       HOST_SSH: ${{ secrets.HOST_SSH }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Resolve deploy target
         id: deploy_target
