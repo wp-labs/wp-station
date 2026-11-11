@@ -412,6 +412,7 @@ function SimulateDebugPage() {
   const [examplesLoading, setExamplesLoading] = useState(false);
   const [examplesLoaded, setExamplesLoaded] = useState(false);
   const examplesFetchedRef = useRef(false); // 防止严格模式导致的重复请求
+  const [loadingWorkspaceExample, setLoadingWorkspaceExample] = useState(false);
 
   // 知识库相关状态
   const [knowledgeDatasets, setKnowledgeDatasets] = useState([]);
@@ -449,15 +450,12 @@ function SimulateDebugPage() {
    * 处理测试/解析按钮点击
    * 调用服务层解析日志
    */
-  const handleTest = async () => {
+  const runParse = async (logs, rules) => {
     setLoading(true);
     setParseError(null); // 重置错误状态
     try {
       // 调用服务层解析日志（使用对象参数）
-      const response = await parseLogs({
-        logs: inputValue,
-        rules: ruleValue,
-      });
+      const response = await parseLogs({ logs, rules });
       setResult(response);
       // 同步更新转换页的解析结果（使用原始数据用于转换）
       if (response?.fields) {
@@ -473,6 +471,8 @@ function SimulateDebugPage() {
       setLoading(false);
     }
   };
+
+  const handleTest = () => runParse(inputValue, ruleValue);
 
   /**
    * 展示示例列表，按需拉取数据（默认展开，不再折叠）
@@ -578,6 +578,37 @@ function SimulateDebugPage() {
       setExampleParseError(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 示例接口按名称排序读取 default_configs/wparse，工作区只取第一组输入。
+  const handleLoadWorkspaceExample = async () => {
+    setLoadingWorkspaceExample(true);
+    try {
+      const data = await fetchDebugExamples('wparse');
+      const example = Array.isArray(data) ? data[0] : Object.values(data || {})[0];
+      if (!example?.wpl_code || !example?.sample_data) {
+        message.warning(t('simulateDebug.examples.noDefaultExample'));
+        return;
+      }
+
+      updateActiveLogInstance({
+        log: example.sample_data,
+        parseResult: null,
+        parseError: null,
+        transformParseResult: null,
+      });
+      updateActiveWplInstance({ wpl: example.wpl_code });
+      // 示例用于试验，避免“保存规则”误写到此前选中的项目文件。
+      setCurrentWplFile('');
+      setSelectedWplFile('');
+      message.success(t('simulateDebug.examples.defaultExampleLoaded', { name: example.name }));
+      // 状态更新尚未反映到编辑器时，直接用本次获取的内容解析。
+      await runParse(example.sample_data, example.wpl_code);
+    } catch (error) {
+      message.error(`${t('simulateDebug.examples.fetchError')}：${getErrorMessage(error, String(error))}`);
+    } finally {
+      setLoadingWorkspaceExample(false);
     }
   };
 
@@ -1299,6 +1330,16 @@ function SimulateDebugPage() {
                             : t('multipleInstances.addInstance')}
                         >
                           {t('multipleInstances.addInstance')}
+                        </button>
+                      )}
+                      {workspaceMode === 'workspace' && (
+                        <button
+                          type="button"
+                          className="btn primary"
+                          onClick={handleLoadWorkspaceExample}
+                          disabled={loadingWorkspaceExample}
+                        >
+                          {t('simulateDebug.examples.loadFirst')}
                         </button>
                       )}
                       <button type="button" className="btn ghost" onClick={handleBase64Decode}>

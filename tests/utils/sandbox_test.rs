@@ -428,7 +428,7 @@ fn sandbox_prepare_creates_wfusion_source_overlay() {
 }
 
 #[test]
-fn sandbox_wfusion_business_sinks_keep_yield_file_names() {
+fn sandbox_wfusion_business_sinks_receive_all_windows() {
     let runtime = tokio::runtime::Runtime::new().expect("create runtime");
     runtime.block_on(setup_db());
 
@@ -462,14 +462,21 @@ sync = true
     let content = fs::read_to_string(
         workspace
             .project_dir
-            .join("topology/sinks/business.d/sdm_alert.toml"),
+            .join("topology/sinks/business.d/all.toml"),
     )
     .expect("read sandbox business sink");
 
     assert!(content.contains("connect = \"file_json_sink\""));
     assert!(content.contains("base = \"./data/out_dat/\""));
-    assert!(content.contains("file = \"sdm_alert.json\""));
+    assert!(content.contains("file = \"all.json\""));
 
+    assert!(content.contains("windows = [\"*\"]"));
+    assert!(
+        !workspace
+            .project_dir
+            .join("topology/sinks/business.d/sdm_alert.toml")
+            .exists()
+    );
     let _ = fs::remove_dir_all(workspace.root);
 }
 
@@ -715,4 +722,44 @@ fn wparse_runtime_output_advisory_files_do_not_affect_pass() {
     assert!(conclusion.suspected_files.is_empty());
 
     fs::remove_dir_all(&base).unwrap();
+}
+
+#[test]
+fn sandbox_wfusion_all_json_counts_as_success_output() {
+    let base = tempfile::tempdir().unwrap();
+    let out = base.path().join("data/out_dat");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(out.join("all.json"), "{}\n{}\n").unwrap();
+    fs::write(out.join("sdm_alert.json"), "").unwrap();
+    let log = base.path().join("wfusion.log");
+    fs::write(&log, "").unwrap();
+    let analysis = analyse_runtime_output(SystemKind::Wfusion, base.path(), &log, 2).unwrap();
+    assert_eq!(analysis.metrics.output_count, 2);
+    assert!(analysis.passed);
+}
+
+#[test]
+fn sandbox_wfusion_counts_sent_events_without_generated_duplicates() {
+    let root = tempfile::tempdir().unwrap();
+    let log = root.path().join("wfgen.log");
+    fs::write(
+        &log,
+        "Generated 100 events\nSent 10 events\nGenerated 200 events\nSent 20 events\n",
+    )
+    .unwrap();
+    let (count, _) =
+        wp_station::server::sandbox::analyze::analyse_generator_result(SystemKind::Wfusion, &log)
+            .unwrap();
+    assert_eq!(count, 30);
+}
+
+#[test]
+fn sandbox_wfusion_summary_lists_scenarios_and_actual_sent_counts() {
+    let root = tempfile::tempdir().unwrap();
+    let log = root.path().join("wfgen.log");
+    fs::write(&log, "--- 场景: /tmp/project/models/scenarios/a.wfg\nGenerated 100 events\nSent 3 events\n--- 场景: /tmp/project/models/scenarios/b.wfg\nSent 4 events\n").unwrap();
+    let summary = wp_station::server::sandbox::analyze::wfusion_scenario_summary(&log);
+    assert!(summary.contains("a.wfg：发送 3 条消息"));
+    assert!(summary.contains("b.wfg：发送 4 条消息"));
+    assert!(summary.contains("合计：2 个场景，发送 7 条消息"));
 }

@@ -814,22 +814,22 @@ export function WfusionRuleEditorContent() {
     }
   };
 
-  const handleParse = async () => {
+  const runParse = async (events, wfs, wfl, applyResult) => {
     setLoading(true);
     try {
       const nextResult = await parseWfusionRuleEditor({
-        eventsNdjson,
-        wfs: wfsCode,
-        wfl: wflCode,
+        eventsNdjson: events,
+        wfs,
+        wfl,
       });
-      setResult(nextResult);
+      applyResult(nextResult);
       if (nextResult?.success) {
         message.success(t('wfusionRuleEditor.success'));
       } else {
         message.warning(t('wfusionRuleEditor.failed'));
       }
     } catch (error) {
-      setResult({
+      applyResult({
         success: false,
         stage: 'replay',
         diagnostics: [
@@ -847,6 +847,8 @@ export function WfusionRuleEditorContent() {
     }
   };
 
+  const handleParse = () => runParse(eventsNdjson, wfsCode, wflCode, setResult);
+
   const handleApplyExample = (example) => {
     if (!example) {
       return;
@@ -861,19 +863,29 @@ export function WfusionRuleEditorContent() {
     setWorkspaceMode('examples');
   };
 
-  const handleLoadExample = () => {
-    if (examples.length > 0) {
-      handleApplyExample(examples[0]);
-      return;
-    }
-    setExampleDraft({
-      eventsNdjson: SAMPLE_EVENTS,
-      wfsCode: SAMPLE_WFS,
-      wflCode: SAMPLE_WFL,
-      result: null,
-    });
-    setWorkspaceMode('examples');
-    setSelectedExample(t('wfusionRuleEditor.fallbackExample'));
+  const handleLoadExample = async () => {
+    const example = examples[0] || {
+      name: t('wfusionRuleEditor.fallbackExample'),
+      sample_data: SAMPLE_EVENTS,
+      wfs_code: SAMPLE_WFS,
+      wfl_code: SAMPLE_WFL,
+    };
+    const events = example.sample_data || '';
+    const wfs = example.wfs_code || '';
+    const wfl = example.wfl_code || '';
+    eventWorkspace.updateActiveInstance({ log: events });
+    wfsWorkspace.updateActiveInstance({ wpl: wfs });
+    wflWorkspace.updateActiveInstance({ oml: wfl, parseResult: null, parseError: null });
+    // 工作区状态尚未提交，直接用本次加载的内容试跑，结果仍写回工作区。
+    await runParse(
+      events,
+      wfs,
+      wfl,
+      (nextResult) => wflWorkspace.updateActiveInstance({
+        parseResult: nextResult,
+        parseError: nextResult?.success === false ? nextResult : null,
+      }),
+    );
   };
 
   const handleSwitchMode = (mode) => {
@@ -1024,9 +1036,11 @@ export function WfusionRuleEditorContent() {
                 {t('multipleInstances.addInstance')}
               </button>
             ) : null}
-            <button type="button" className="btn primary" onClick={handleLoadExample}>
-              {t('wfusionRuleEditor.loadExample')}
-            </button>
+            {workspaceMode === 'workspace' ? (
+              <button type="button" className="btn primary" onClick={handleLoadExample} disabled={loading}>
+                {t('wfusionRuleEditor.loadExample')}
+              </button>
+            ) : null}
             <button type="button" className="btn ghost" onClick={handleClearAll}>
               {t('wfusionRuleEditor.clearAll')}
             </button>

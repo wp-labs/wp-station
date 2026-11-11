@@ -78,7 +78,10 @@
       "noData": "No example data",
       "noAvailable": "No examples available, showing default examples",
       "fetchError": "Failed to fetch examples",
-      "unnamed": "Unnamed Example"
+      "unnamed": "Unnamed Example",
+      "loadFirst": "Load Example",
+      "noDefaultExample": "No WPL example found in the default configuration",
+      "defaultExampleLoaded": "Loaded WPL and sample log for default example {{name}}"
     },
     "logData": {
       "title": "Log Data",

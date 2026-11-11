@@ -182,7 +182,7 @@ pub async fn run_generator(
             .await
         }
         SystemKind::Wfusion => {
-            let scenarios = collect_wfusion_scenarios(project_dir)?;
+            let scenarios = select_wfusion_scenarios(project_dir, sample_count)?;
             run_generator_wfusion(
                 &binary,
                 generator_cmd,
@@ -746,4 +746,37 @@ fn collect_scenario_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<(), AppE
     }
 
     Ok(())
+}
+
+/// WFusion 的 sample_count 表示场景文件数，按相对路径字典序选取。
+fn select_wfusion_scenarios(
+    project_dir: &Path,
+    sample_count: u32,
+) -> Result<Vec<PathBuf>, AppError> {
+    let mut scenarios = collect_wfusion_scenarios(project_dir)?;
+    scenarios.truncate(sample_count as usize);
+    Ok(scenarios)
+}
+
+#[cfg(test)]
+mod scenario_selection_tests {
+    use super::*;
+
+    #[test]
+    fn selects_first_ten_wfg_files_in_path_order() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("models/scenarios");
+        fs::create_dir_all(&dir).unwrap();
+        for i in (0..12).rev() {
+            fs::write(dir.join(format!("{i:02}.wfg")), "").unwrap();
+        }
+        let selected = select_wfusion_scenarios(root.path(), 10).unwrap();
+        assert_eq!(selected.len(), 10);
+        assert_eq!(selected[0], dir.join("00.wfg"));
+        assert_eq!(selected[9], dir.join("09.wfg"));
+        assert_eq!(
+            select_wfusion_scenarios(root.path(), 100).unwrap().len(),
+            12
+        );
+    }
 }

@@ -472,6 +472,15 @@ pub(super) async fn stage_run_wpgen(
                     .unwrap_or_else(|| "GENERATOR_ANALYSE_FAILED".to_string()),
             )
         })?;
+    if system == crate::utils::SystemKind::Wfusion {
+        use std::io::Write;
+        let summary = analyze::wfusion_scenario_summary(&output.log_path);
+        let mut log = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&output.log_path)
+            .map_err(|err| StageError::new(err.to_string()))?;
+        writeln!(log, "\n{summary}").map_err(|err| StageError::new(err.to_string()))?;
+    }
     let metrics = resources.metrics_mut();
     metrics.wpgen_exit_code = output.exit_code;
     metrics.input_count = count;
@@ -484,12 +493,10 @@ pub(super) async fn stage_run_wpgen(
             count,
             output.command_lines.join("\n")
         ),
-        crate::utils::SystemKind::Wfusion => {
-            format!(
-                "wfusion 启动稳定等待{}ms后，wfgen 已启动（{}个场景），已生成并发送{}条消息。",
-                DAEMON_READY_BEFORE_WPGEN_WAIT_MS, output.scenario_count, count,
-            )
-        }
+        crate::utils::SystemKind::Wfusion => format!(
+            "wfgen 已执行{}个场景，发送{}条消息；详情见阶段日志。",
+            output.scenario_count, count
+        ),
     })
 }
 
@@ -530,6 +537,12 @@ pub(super) async fn stage_analyse_runtime_output(
         wait_ms,
         sandbox::daemon_command(system)
     );
+    if system == crate::utils::SystemKind::Wfusion {
+        log_text.push_str(&analyze::wfusion_scenario_summary(
+            &workspace.log_path("wfgen.log"),
+        ));
+        log_text.push_str("\n\n");
+    }
     log_text.push_str(&analysis.log_text);
     let log_path = workspace
         .write_text_log("analysis.log", &log_text)
@@ -553,7 +566,7 @@ pub(super) async fn stage_analyse_runtime_output(
                 wait_ms, expected_success, analysis.metrics.output_count
             ),
             crate::utils::SystemKind::Wfusion => format!(
-                "已等待{}ms 收集输出并关闭wfusion；已生成{}条消息，业务输出{}条。",
+                "已等待{}ms 收集输出并关闭wfusion；已发送{}条消息，业务输出{}条。",
                 wait_ms, expected_success, analysis.metrics.output_count
             ),
         })
@@ -577,7 +590,7 @@ pub(super) async fn stage_analyse_runtime_output(
         }
         if system == crate::utils::SystemKind::Wfusion && analysis.metrics.output_count == 0 {
             details.push(
-                "未观察到 WFusion 业务告警输出，请检查 sdm_alert.json 或 alert.json 是否生成，以及场景是否命中规则"
+                "未观察到 WFusion 业务输出，请检查 data/out_dat/all.json 是否生成，以及场景是否命中规则"
                     .to_string(),
             );
         }

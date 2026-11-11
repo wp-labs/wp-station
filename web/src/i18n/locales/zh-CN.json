@@ -78,7 +78,10 @@
       "noData": "暂无示例数据",
       "noAvailable": "暂无可用示例，已展示默认示例",
       "fetchError": "获取示例失败",
-      "unnamed": "未命名示例"
+      "unnamed": "未命名示例",
+      "loadFirst": "加载示例",
+      "noDefaultExample": "默认配置中没有可用的 WPL 示例",
+      "defaultExampleLoaded": "已加载默认示例 {{name}} 的 WPL 和样例日志"
     },
     "logData": {
       "title": "日志数据",

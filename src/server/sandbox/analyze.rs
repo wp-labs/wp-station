@@ -76,9 +76,15 @@ pub fn analyse_generator_result(
         std::fs::read_to_string(log_path).map_err(|err| StageError::new(err.to_string()))?;
     let generated_re = match system {
         SystemKind::Wparse => Regex::new(r"generated\s*=\s*(\d+)").unwrap(),
-        // wfgen 使用 --send 时输出 "Sent X events"，使用 --out 时输出 "Generated X events"，
-        // 此处同时匹配两种格式，并对多场景的条数求和。
-        SystemKind::Wfusion => Regex::new(r"(?i)(?:generated|sent)\s+(\d+)\s+events").unwrap(),
+        // 发送日志同时包含 Generated / Sent 时，只统计实际发送条数。
+        SystemKind::Wfusion => {
+            let sent = Regex::new(r"(?i)sent\s+(\d+)\s+events").unwrap();
+            if sent.is_match(&content) {
+                sent
+            } else {
+                Regex::new(r"(?i)generated\s+(\d+)\s+events").unwrap()
+            }
+        }
     };
     if !generated_re.is_match(&content) {
         return Err(StageError::with_code(
@@ -146,6 +152,8 @@ pub fn analyse_runtime_output(
     for check in &output_checks {
         let observation_suffix = if check.affects_pass {
             ""
+        } else if project_dir.join(&check.relative_path) == success_output_path {
+            "，计入成功输出统计"
         } else {
             "，仅观察，不参与通过判定"
         };
@@ -428,17 +436,16 @@ fn find_sink_output_file(content: &str) -> Option<String> {
 
 /// 解析 WFusion 沙盒的主业务告警文件。
 ///
-/// 生产规则通常按 yield 输出 `sdm_alert.json`；旧的默认示例仍使用
-/// `alert.json`，因此保留后者作为兼容回退。
+/// 沙盒统一写入 `all.json`；保留旧告警文件名作为兼容回退。
 fn resolve_wfusion_success_output_path(project_dir: &Path) -> std::path::PathBuf {
     let output_dir = project_dir.join("data/out_dat");
-    for file_name in ["sdm_alert.json", "alert.json"] {
+    for file_name in ["all.json", "sdm_alert.json", "alert.json"] {
         let path = output_dir.join(file_name);
         if path.is_file() {
             return path;
         }
     }
-    output_dir.join("sdm_alert.json")
+    output_dir.join("all.json")
 }
 
 fn daemon_name(system: SystemKind) -> &'static str {
@@ -453,4 +460,31 @@ fn generator_name(system: SystemKind) -> &'static str {
         SystemKind::Wparse => "wpgen",
         SystemKind::Wfusion => "wfgen",
     }
+}
+
+/// 从实际发送日志汇总场景，避免将消息条数误作场景数量。
+pub fn wfusion_scenario_summary(log_path: &Path) -> String {
+    let content = fs::read_to_string(log_path).unwrap_or_default();
+    let sent = Regex::new(r"(?i)sent\s+(\d+)\s+events").unwrap();
+    let mut scenarios: Vec<(String, usize)> = Vec::new();
+    for line in content.lines() {
+        if let Some(path) = line.strip_prefix("--- 场景: ") {
+            let name = path.split("/models/scenarios/").last().unwrap_or(path);
+            scenarios.push((name.to_string(), 0));
+        } else if let Some(caps) = sent.captures(line) {
+            if let Some((_, count)) = scenarios.last_mut() {
+                *count += caps[1].parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+    let mut lines = vec![format!("实际执行 {} 个 WFG 场景：", scenarios.len())];
+    for (i, (name, count)) in scenarios.iter().enumerate() {
+        lines.push(format!("{}. {}：发送 {} 条消息", i + 1, name, count));
+    }
+    lines.push(format!(
+        "合计：{} 个场景，发送 {} 条消息",
+        scenarios.len(),
+        scenarios.iter().map(|(_, n)| n).sum::<usize>()
+    ));
+    lines.join("\n")
 }

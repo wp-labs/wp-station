@@ -311,7 +311,7 @@ fn apply_sandbox_default_infra_sink_overrides(
     copy_dir_replace_all(&source_dir, &target_dir)
 }
 
-/// 沙盒环境中强制使用仓库 default_configs 的 business sink，避免用户自定义外部输出影响模拟。
+/// WFusion 沙盒生成唯一的本地业务 sink，接收所有窗口输出。
 fn apply_sandbox_default_business_sink_overrides(
     project_dir: &Path,
     system: SystemKind,
@@ -325,24 +325,6 @@ fn apply_sandbox_default_business_sink_overrides(
         .join(DIR_SINKS)
         .join(DIR_BUSINESS_D);
     fs::create_dir_all(&target_dir).map_err(AppError::internal)?;
-
-    if !contains_toml_files(&target_dir)? {
-        let Some(default_root) = runtime_default_configs_dir() else {
-            return Err(AppError::internal(
-                "沙盒覆盖 business sink 失败: 未找到 default_configs 目录".to_string(),
-            ));
-        };
-
-        let source_dir = resolve_sandbox_default_sink_dir(&default_root, system, DIR_BUSINESS_D);
-        if !source_dir.is_dir() {
-            return Err(AppError::internal(format!(
-                "沙盒覆盖 business sink 失败: 默认目录不存在 {}",
-                source_dir.display()
-            )));
-        }
-
-        copy_dir_replace_all(&source_dir, &target_dir)?;
-    }
 
     rewrite_wfusion_business_sink_runtime(&target_dir)
 }
@@ -570,41 +552,32 @@ fn contains_wfg_files(dir: &Path) -> Result<bool, AppError> {
     Ok(false)
 }
 
-fn contains_toml_files(dir: &Path) -> Result<bool, AppError> {
-    if !dir.is_dir() {
-        return Ok(false);
-    }
-    for entry in fs::read_dir(dir).map_err(AppError::internal)? {
-        let entry = entry.map_err(AppError::internal)?;
-        let path = entry.path();
-        if path.is_dir() && contains_toml_files(&path)? {
-            return Ok(true);
-        }
-        if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// 将 wfusion 业务 sink 强制改写为本地文件输出，避免真实下游副作用。
 fn rewrite_wfusion_business_sink_runtime(target_dir: &Path) -> Result<(), AppError> {
     let mut files = Vec::new();
     collect_toml_files(target_dir, &mut files)?;
     for file in files {
-        let content = fs::read_to_string(&file).map_err(AppError::internal)?;
-        let fallback_file = file
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(|stem| format!("{stem}.json"))
-            .unwrap_or_else(|| "output.json".to_string());
-        let patched = patch_wfusion_business_sink_runtime(&content, &fallback_file)?;
-        fs::write(&file, patched).map_err(AppError::internal)?;
+        fs::remove_file(file).map_err(AppError::internal)?;
     }
+    fs::write(
+        target_dir.join("all.toml"),
+        r#"version = "1.0"
+
+[sink_group]
+name = "sandbox_all"
+windows = ["*"]
+
+[[sink_group.sinks]]
+connect = "file_json_sink"
+name = "sandbox_all_file"
+
+[sink_group.sinks.params]
+base = "./data/out_dat/"
+file = "all.json"
+sync = true
+"#,
+    )
+    .map_err(AppError::internal)?;
     Ok(())
 }
 
@@ -960,7 +933,7 @@ pub(crate) fn sandbox_runtime_override_log_lines(
             "topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string(),
         );
         lines.push(
-            "topology/sinks/business.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string(),
+            "topology/sinks/business.d/*.toml -> 清理原业务配置，生成唯一 all.toml：windows = [\"*\"]，本地输出 data/out_dat/all.json".to_string(),
         );
     }
     lines
@@ -1366,114 +1339,6 @@ fn patch_wpgen_output_runtime(
         output.push('\n');
     }
     Ok(output)
-}
-
-/// 在保留原配置主体的前提下，将 wfusion 业务 sink 改写为本地 file_json 输出。
-fn patch_wfusion_business_sink_runtime(
-    content: &str,
-    fallback_file: &str,
-) -> Result<String, AppError> {
-    let mut lines = Vec::new();
-    let mut in_sink = false;
-    let mut in_sink_params = false;
-    let mut found_sink = false;
-    let mut found_sink_params = false;
-    let mut patched_connect = false;
-    let mut rewritten_params = false;
-    let output_file = find_wfusion_sink_file(content).unwrap_or_else(|| fallback_file.to_string());
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
-        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
-
-        if in_sink_params && !is_section && !is_array_section {
-            continue;
-        }
-
-        if is_array_section {
-            in_sink = trimmed == "[[sink_group.sinks]]";
-            in_sink_params = false;
-            found_sink |= in_sink;
-            lines.push(line.to_string());
-            continue;
-        }
-
-        if is_section {
-            in_sink_params = trimmed == "[sink_group.sinks.params]";
-            found_sink_params |= in_sink_params;
-            if in_sink_params {
-                lines.push(line.to_string());
-                lines.push("base = \"./data/out_dat/\"".to_string());
-                lines.push(format!(
-                    "file = \"{}\"",
-                    escape_toml_basic_string(&output_file)
-                ));
-                lines.push("sync = true".to_string());
-                rewritten_params = true;
-                continue;
-            }
-        }
-
-        if in_sink && !in_sink_params && trimmed.starts_with("connect") {
-            let indent = line
-                .chars()
-                .take_while(|ch| ch.is_whitespace())
-                .collect::<String>();
-            lines.push(format!("{indent}connect = \"file_json_sink\""));
-            patched_connect = true;
-            continue;
-        }
-
-        lines.push(line.to_string());
-    }
-
-    if !found_sink || !patched_connect {
-        return Err(AppError::validation(
-            "wfusion 业务 sink 缺少 [[sink_group.sinks]] 或 connect 配置，无法应用沙盒输出覆盖"
-                .to_string(),
-        ));
-    }
-
-    if !found_sink_params || !rewritten_params {
-        return Err(AppError::validation(
-            "wfusion 业务 sink 缺少 [sink_group.sinks.params] 配置，无法应用沙盒输出覆盖"
-                .to_string(),
-        ));
-    }
-
-    let mut output = lines.join("\n");
-    if content.ends_with('\n') {
-        output.push('\n');
-    }
-    Ok(output)
-}
-
-/// 从业务 sink 的参数区保留原始输出文件名，避免多个 yield 覆盖到同一个文件。
-fn find_wfusion_sink_file(content: &str) -> Option<String> {
-    let mut in_sink_params = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
-        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
-
-        if is_array_section {
-            in_sink_params = false;
-            continue;
-        }
-        if is_section {
-            in_sink_params = trimmed == "[sink_group.sinks.params]";
-            continue;
-        }
-        if in_sink_params && let Some(file) = parse_toml_string_assignment(trimmed, "file") {
-            return Some(file);
-        }
-    }
-    None
-}
-
-fn escape_toml_basic_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 /// 解析形如 `key = "value"` 的 TOML 字符串赋值。

@@ -471,6 +471,7 @@ pub struct FileOverride {
 /// 运行时参数，控制采样数量与超时。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunOptions {
+    /// WParse 为事件条数；WFusion 为按路径排序后依次执行的 WFG 文件数。
     pub sample_count: u32,
     pub startup_timeout_ms: u64,
     pub wpgen_timeout_ms: u64,
