@@ -67,8 +67,8 @@ jobs:
 
   # macOS：仅验证构建和格式，不跑测试
   build-macos:
-    name: Tests (macos-14, aarch64-apple-darwin)
-    runs-on: macos-14
+    name: Tests (macos-15, aarch64-apple-darwin)
+    runs-on: macos-15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
