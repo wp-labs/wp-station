@@ -471,10 +471,10 @@ pub fn wfusion_scenario_summary(log_path: &Path) -> String {
         if let Some(path) = line.strip_prefix("--- 场景: ") {
             let name = path.split("/models/scenarios/").last().unwrap_or(path);
             scenarios.push((name.to_string(), 0));
-        } else if let Some(caps) = sent.captures(line) {
-            if let Some((_, count)) = scenarios.last_mut() {
-                *count += caps[1].parse::<usize>().unwrap_or(0);
-            }
+        } else if let Some(caps) = sent.captures(line)
+            && let Some((_, count)) = scenarios.last_mut()
+        {
+            *count += caps[1].parse::<usize>().unwrap_or(0);
         }
     }
     let mut lines = vec![format!("实际执行 {} 个 WFG 场景：", scenarios.len())];

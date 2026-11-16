@@ -2,12 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Col, Descriptions, Modal, Progress, Row, Select, Spin, Statistic, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { clearSyncRuns, fetchAssetRuns, fetchGeoRuns, fetchIntelRuns, fetchKnowledgeSyncStatus, fetchMmdbFiles, startGeoImport } from '@/services/knowledge_sync';
+import { clearSyncRuns, fetchAgentRuns, fetchAssetRuns, fetchGeoRuns, fetchIntelRuns, fetchKnowledgeSyncStatus, fetchMmdbFiles, startGeoImport } from '@/services/knowledge_sync';
 
 const HISTORY_MODAL_LAYOUT = {
   asset: { width: 1120 },
   geo: { width: 1300 },
   intel: { width: 1100 },
+  agent: { width: 900 },
 };
 
 const formatTime = (value, locale) => {
@@ -28,6 +29,7 @@ function KnowledgeSyncPage() {
   const [asset, setAsset] = useState(null);
   const [geo, setGeo] = useState(null);
   const [intel, setIntel] = useState(null);
+  const [agent, setAgent] = useState(null);
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [startingImport, setStartingImport] = useState(false);
@@ -48,6 +50,7 @@ function KnowledgeSyncPage() {
       setAsset(result.asset);
       setGeo(result.geo);
       setIntel(result.intel);
+      setAgent(result.agent);
     } catch (error) {
       if (showError) {
         message.error(
@@ -72,9 +75,9 @@ function KnowledgeSyncPage() {
 
   useEffect(() => {
     loadStatus();
-    const timer = window.setInterval(() => loadStatus(false), geo?.latestRun?.status === 'running' || intel?.latestRun?.status === 'running' ? 5000 : 30000);
+    const timer = window.setInterval(() => loadStatus(false), geo?.latestRun?.status === 'running' || intel?.latestRun?.status === 'running' || agent?.latestRun?.status === 'running' ? 5000 : 30000);
     return () => window.clearInterval(timer);
-  }, [loadStatus, geo?.latestRun?.status, intel?.latestRun?.status]);
+  }, [loadStatus, geo?.latestRun?.status, intel?.latestRun?.status, agent?.latestRun?.status]);
 
   useEffect(() => {
     if (geo?.latestRun?.status !== 'running') return undefined;
@@ -95,7 +98,7 @@ function KnowledgeSyncPage() {
     if (!historyKind) return undefined;
     let active = true;
     setHistoryLoading(true);
-    const fetchRuns = historyKind === 'asset' ? fetchAssetRuns : historyKind === 'geo' ? fetchGeoRuns : fetchIntelRuns;
+    const fetchRuns = historyKind === 'asset' ? fetchAssetRuns : historyKind === 'geo' ? fetchGeoRuns : historyKind === 'agent' ? fetchAgentRuns : fetchIntelRuns;
     fetchRuns(historyPage, historyPageSize)
       .then((result) => { if (active) setHistory(result); })
       .catch((error) => {
@@ -114,8 +117,8 @@ function KnowledgeSyncPage() {
 
   const confirmClearHistory = () => {
     const kind = historyKind;
-    if (kind !== 'asset' && kind !== 'intel') return;
-    const title = kind === 'asset' ? t('knowledgeSync.assetHistory') : t('knowledgeSync.intelHistory');
+    if (!['asset', 'intel', 'agent'].includes(kind)) return;
+    const title = t(`knowledgeSync.${kind}History`);
     Modal.confirm({
       title: t('knowledgeSync.clearHistoryConfirmTitle'),
       content: t('knowledgeSync.clearHistoryConfirmContent', { name: title }),
@@ -238,6 +241,19 @@ function KnowledgeSyncPage() {
     { title: t('knowledgeSync.historyStart'), dataIndex: 'startedAt', width: 150,
       render: (value) => formatTime(value, i18n.language) },
     { title: t('knowledgeSync.historyEnd'), dataIndex: 'finishedAt', width: 150,
+      render: (value) => formatTime(value, i18n.language) },
+    { title: t('knowledgeSync.historyMessage'), dataIndex: 'error', ellipsis: true,
+      render: (value) => <Tooltip title={value}><span>{value || '—'}</span></Tooltip> },
+  ];
+  const agentHistoryColumns = [
+    { title: t('knowledgeSync.historyId'), dataIndex: 'id', width: 65 },
+    { title: t('knowledgeSync.lastRun'), dataIndex: 'status', width: 100,
+      render: (value) => t(`knowledgeSync.runStatus.${value}`, { defaultValue: value }) },
+    { title: t('knowledgeSync.historyRead'), dataIndex: 'readCount', width: 100 },
+    { title: t('knowledgeSync.agentCount'), dataIndex: 'agentCount', width: 100 },
+    { title: t('knowledgeSync.historyStart'), dataIndex: 'startedAt', width: 160,
+      render: (value) => formatTime(value, i18n.language) },
+    { title: t('knowledgeSync.historyEnd'), dataIndex: 'finishedAt', width: 160,
       render: (value) => formatTime(value, i18n.language) },
     { title: t('knowledgeSync.historyMessage'), dataIndex: 'error', ellipsis: true,
       render: (value) => <Tooltip title={value}><span>{value || '—'}</span></Tooltip> },
@@ -452,13 +468,42 @@ function KnowledgeSyncPage() {
                 {intel.latestRun?.error && <Alert type="error" showIcon message={intel.latestRun.error} style={{ marginTop: 16 }} />}
               </Card>
             )}
+            {agent && (
+              <Card title={t('knowledgeSync.agentTitle')} style={{ marginTop: 16 }}
+                extra={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Button type="link" onClick={() => openHistory('agent')} disabled={!agent.configured}>
+                    {t('knowledgeSync.history')}
+                  </Button>
+                  <Tag color={!agent.configured ? 'default' : agent.error ? 'error' : 'success'}>
+                    {!agent.configured ? t('knowledgeSync.notConfigured') : agent.error
+                      ? t('knowledgeSync.taskUnavailable') : t('knowledgeSync.taskActive')}
+                  </Tag>
+                </div>}>
+                {agent.error && <Alert type="error" showIcon message={agent.error} style={{ marginBottom: 16 }} />}
+                {!agent.configured && <Alert type="info" showIcon message={t('knowledgeSync.agentNotConfigured')} style={{ marginBottom: 16 }} />}
+                <Statistic title={t('knowledgeSync.agentCount')} value={agent.agentCount ?? 0} />
+                <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
+                  <Descriptions.Item label={t('knowledgeSync.schedule')}>
+                    {agent.intervalSeconds == null ? '—' : agent.intervalSeconds % 3600 === 0
+                      ? t('knowledgeSync.everyHours', { count: agent.intervalSeconds / 3600 })
+                      : agent.intervalSeconds % 60 === 0
+                        ? t('knowledgeSync.everyMinutes', { count: agent.intervalSeconds / 60 })
+                        : t('knowledgeSync.everySeconds', { count: agent.intervalSeconds })}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t('knowledgeSync.lastDataTime')}>
+                    {formatTime(agent.latestSuccessRun?.finishedAt, i18n.language)}
+                  </Descriptions.Item>
+                </Descriptions>
+                {agent.latestRun?.error && <Alert type="error" showIcon message={agent.latestRun.error} style={{ marginTop: 16 }} />}
+              </Card>
+            )}
           </Spin>
         </section>
       </article>
       <Modal
         title={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 24 }}>
-          <span>{historyKind === 'asset' ? t('knowledgeSync.assetHistory') : historyKind === 'geo' ? t('knowledgeSync.geoHistory') : t('knowledgeSync.intelHistory')}</span>
-          {(historyKind === 'asset' || historyKind === 'intel') && (
+          <span>{historyKind ? t(`knowledgeSync.${historyKind}History`) : ''}</span>
+          {(historyKind === 'asset' || historyKind === 'intel' || historyKind === 'agent') && (
             <Button danger size="small" disabled={!history.total || historyLoading} loading={historyClearing} onClick={confirmClearHistory}>
               {t('knowledgeSync.clearHistory')}
             </Button>
@@ -475,7 +520,7 @@ function KnowledgeSyncPage() {
         <Table
           className="knowledge-sync-history-table"
           rowKey="id"
-          columns={historyKind === 'asset' ? assetHistoryColumns : historyKind === 'geo' ? geoHistoryColumns : intelHistoryColumns}
+          columns={historyKind === 'asset' ? assetHistoryColumns : historyKind === 'geo' ? geoHistoryColumns : historyKind === 'agent' ? agentHistoryColumns : intelHistoryColumns}
           dataSource={history.items}
           loading={historyLoading}
           tableLayout="fixed"

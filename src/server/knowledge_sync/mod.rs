@@ -1,6 +1,9 @@
 //! 知识数据同步任务的初始化和状态编排。
 
 use serde::Serialize;
+use wp_station_knowledge_sync::agent::{
+    AgentRun, AgentSyncConfig, AgentSyncService, AgentSyncStatus,
+};
 use wp_station_knowledge_sync::geo::{
     GeoRun, GeoSyncConfig, GeoSyncService, GeoSyncStatus, MmdbFile,
 };
@@ -23,6 +26,8 @@ pub struct KnowledgeSyncState {
     geo_startup_status: GeoSyncStatus,
     intel_service: Option<IntelSyncService>,
     intel_startup_status: IntelSyncStatus,
+    agent_service: Option<AgentSyncService>,
+    agent_startup_status: AgentSyncStatus,
 }
 
 impl KnowledgeSyncState {
@@ -65,14 +70,17 @@ impl KnowledgeSyncState {
         }
         let (geo_service, geo_startup_status) = initialize_geo(run_store.as_ref()).await;
         let (intel_service, intel_startup_status) = initialize_intel(run_store.as_ref()).await;
+        let (agent_service, agent_startup_status) = initialize_agent(run_store.as_ref()).await;
         info!(
-            "知识库同步启动检查完成: asset_configured={}, asset_cron_active={:?}, geo_configured={}, geo_index_ready={}, intel_configured={}, intel_timer_started={}",
+            "知识库同步启动检查完成: asset_configured={}, asset_cron_active={:?}, geo_configured={}, geo_index_ready={}, intel_configured={}, intel_timer_started={}, agent_configured={}, agent_timer_started={}",
             asset_startup_status.configured,
             asset_startup_status.task_active,
             geo_startup_status.configured,
             geo_startup_status.index_ready,
             intel_startup_status.configured,
-            intel_startup_status.configured && intel_startup_status.error.is_none()
+            intel_startup_status.configured && intel_startup_status.error.is_none(),
+            agent_startup_status.configured,
+            agent_startup_status.configured && agent_startup_status.error.is_none()
         );
         Self {
             asset_service,
@@ -81,6 +89,8 @@ impl KnowledgeSyncState {
             geo_startup_status,
             intel_service,
             intel_startup_status,
+            agent_service,
+            agent_startup_status,
         }
     }
 
@@ -169,6 +179,20 @@ impl KnowledgeSyncState {
             .map_err(AppError::internal)
     }
 
+    /// 查询 Agent 映射同步历史。
+    pub async fn agent_history(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> Result<RunHistory<AgentRun>, AppError> {
+        self.agent_service
+            .as_ref()
+            .ok_or_else(|| AppError::validation("Agent 同步未配置"))?
+            .history(limit, offset)
+            .await
+            .map_err(AppError::internal)
+    }
+
     /// 按类别清空执行历史，不删除同步任务或正式数据。
     pub async fn clear_history(&self, kind: &str) -> Result<u64, AppError> {
         let deleted = match kind {
@@ -186,10 +210,63 @@ impl KnowledgeSyncState {
                 .clear_history()
                 .await
                 .map_err(AppError::internal)?,
+            "agent" => self
+                .agent_service
+                .as_ref()
+                .ok_or_else(|| AppError::validation("Agent 同步未配置"))?
+                .clear_history()
+                .await
+                .map_err(AppError::internal)?,
             _ => return Err(AppError::validation("无效的同步历史类型")),
         };
         info!("知识库同步历史清空完成: kind={}, deleted={}", kind, deleted);
         Ok(deleted)
+    }
+}
+
+async fn initialize_agent(
+    run_store: Option<&RunStore>,
+) -> (Option<AgentSyncService>, AgentSyncStatus) {
+    let config = match AgentSyncConfig::from_env() {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            info!("Agent 同步未配置，跳过定时器初始化");
+            return (None, AgentSyncStatus::unconfigured());
+        }
+        Err(error) => {
+            warn!("Agent 同步环境配置无效: error={:#}", error);
+            return (None, AgentSyncStatus::unavailable(format!("{error:#}")));
+        }
+    };
+    let Some(run_store) = run_store else {
+        return (
+            None,
+            AgentSyncStatus::unavailable("Station SQLite 运行记录库不可用"),
+        );
+    };
+    let service = match AgentSyncService::connect(config, run_store.clone()).await {
+        Ok(service) => service,
+        Err(error) => {
+            warn!("连接 Agent 同步服务失败: error={:#}", error);
+            return (None, AgentSyncStatus::unavailable(format!("{error:#}")));
+        }
+    };
+    match service.initialize().await {
+        Ok(status) => {
+            service.spawn_timer();
+            info!(
+                "Agent 同步初始化完成，定时器已启动: interval_seconds={:?}, agent_count={:?}, startup_sync=false",
+                status.interval_seconds, status.agent_count
+            );
+            (Some(service), status)
+        }
+        Err(error) => {
+            warn!("Agent 同步初始化失败: error={:#}", error);
+            (
+                Some(service),
+                AgentSyncStatus::unavailable(format!("{error:#}")),
+            )
+        }
     }
 }
 
@@ -352,6 +429,7 @@ pub struct KnowledgeSyncStatusResponse {
     pub asset: AssetSyncStatus,
     pub geo: GeoSyncStatus,
     pub intel: IntelSyncStatus,
+    pub agent: AgentSyncStatus,
 }
 
 /// 返回资产与 Geo 状态。
@@ -399,5 +477,21 @@ pub async fn get_knowledge_sync_status_logic(
             None => state.intel_startup_status.clone(),
         }
     };
-    KnowledgeSyncStatusResponse { asset, geo, intel }
+    let agent = if state.agent_startup_status.error.is_some() {
+        state.agent_startup_status.clone()
+    } else {
+        match &state.agent_service {
+            Some(service) => service
+                .status()
+                .await
+                .unwrap_or_else(|error| AgentSyncStatus::unavailable(format!("{error:#}"))),
+            None => state.agent_startup_status.clone(),
+        }
+    };
+    KnowledgeSyncStatusResponse {
+        asset,
+        geo,
+        intel,
+        agent,
+    }
 }

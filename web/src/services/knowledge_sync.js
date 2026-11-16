@@ -7,6 +7,7 @@ export async function fetchKnowledgeSyncStatus() {
   const asset = payload?.asset || {};
   const geo = payload?.geo || {};
   const intel = payload?.intel || {};
+  const agent = payload?.agent || {};
   const latestGeoRun = geo.latest_run || null;
 
   return {
@@ -66,6 +67,14 @@ export async function fetchKnowledgeSyncStatus() {
       latestSuccessRun: intel.latest_success_run ? mapIntelRun(intel.latest_success_run) : null,
       error: intel.error || '',
     },
+    agent: {
+      configured: Boolean(agent.configured),
+      intervalSeconds: agent.interval_seconds ?? null,
+      agentCount: agent.agent_count ?? null,
+      latestRun: agent.latest_run ? mapAgentRun(agent.latest_run) : null,
+      latestSuccessRun: agent.latest_success_run ? mapAgentRun(agent.latest_success_run) : null,
+      error: agent.error || '',
+    },
   };
 }
 
@@ -98,6 +107,18 @@ function mapIntelRun(run) {
     expiredCount: run.expired_count ?? 0,
     ipCount: run.ip_count ?? 0,
     domainCount: run.domain_count ?? 0,
+    error: run.error || '',
+    startedAt: run.started_at || '',
+    finishedAt: run.finished_at || '',
+  };
+}
+
+function mapAgentRun(run) {
+  return {
+    id: run.id,
+    status: run.status,
+    readCount: run.read_count ?? 0,
+    agentCount: run.agent_count ?? 0,
     error: run.error || '',
     startedAt: run.started_at || '',
     finishedAt: run.finished_at || '',
@@ -148,9 +169,18 @@ export async function fetchIntelRuns(page = 1, pageSize = 20) {
   return { total: payload.total || 0, items: (payload.items || []).map(mapIntelRun) };
 }
 
+/** 分页读取 Agent 映射同步历史。 */
+export async function fetchAgentRuns(page = 1, pageSize = 20) {
+  const response = await httpRequest.get('/knowledge-sync/agent-runs', {
+    params: { limit: pageSize, offset: (page - 1) * pageSize },
+  });
+  const payload = response?.items ? response : response?.data || { items: [], total: 0 };
+  return { total: payload.total || 0, items: (payload.items || []).map(mapAgentRun) };
+}
+
 /** 清空指定类别的同步执行历史。 */
 export async function clearSyncRuns(kind) {
-  if (!['asset', 'intel'].includes(kind)) {
+  if (!['asset', 'intel', 'agent'].includes(kind)) {
     throw new Error('无效的同步历史类型');
   }
   const response = await httpRequest.delete(`/knowledge-sync/runs/${kind}/history`);

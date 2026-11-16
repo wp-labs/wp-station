@@ -21,12 +21,13 @@ DEFAULT_PG_URL = "postgres://postgres:123456@127.0.0.1:5432/postgres"
 DEFAULT_REDIS_URL = "redis://:123456@127.0.0.1:6379/0"
 ASSET_JOB_NAME = "asset_subject_lookup_refresh"
 ASSET_COMMAND = "CALL asset_lookup.refresh_asset_subject_lookup();"
-REDIS_KEYS = {"threat_intelligence:ip", "threat_intelligence:domain", "{intel}:ip", "{intel}:domain"}
+REDIS_KEYS = {"threat_intelligence:ip", "threat_intelligence:domain", "{intel}:ip", "{intel}:domain", "agent_ip:registry"}
 REDIS_PREFIXES = (
     "threat_intelligence:ip:staging:",
     "threat_intelligence:domain:staging:",
     "threat_intelligence:ip:backup:",
     "threat_intelligence:domain:backup:",
+    "agent_ip:staging:",
 )
 
 
@@ -120,16 +121,20 @@ class RedisConnection:
 
     def matching_keys(self) -> list[str]:
         keys = set()
-        cursor = 0
-        while True:
-            cursor_raw, batch = self.execute("SCAN", cursor, "MATCH", "*intel*", "COUNT", 1000)
-            cursor = int(cursor_raw)
-            for raw in batch:
-                key = raw.decode("utf-8")
-                if key in REDIS_KEYS or key.startswith(REDIS_PREFIXES):
-                    keys.add(key)
-            if cursor == 0:
-                return sorted(keys)
+        for raw in self.execute("SMEMBERS", "agent_ip:registry"):
+            keys.add(raw.decode("utf-8"))
+        for pattern in ("*intel*", "agent_ip:*"):
+            cursor = 0
+            while True:
+                cursor_raw, batch = self.execute("SCAN", cursor, "MATCH", pattern, "COUNT", 1000)
+                cursor = int(cursor_raw)
+                for raw in batch:
+                    key = raw.decode("utf-8")
+                    if key in REDIS_KEYS or key.startswith(REDIS_PREFIXES):
+                        keys.add(key)
+                if cursor == 0:
+                    break
+        return sorted(keys)
 
 
 def inspect_postgres(connection) -> tuple[str, list[int], int]:
@@ -196,11 +201,11 @@ def clean_postgres(connection, jobs: list[int]) -> None:
 
 def inspect_sqlite(path: Path) -> tuple[sqlite3.Connection | None, dict[str, int]]:
     if not path.is_file():
-        return None, {"geo_sync_runs": 0, "intel_sync_runs": 0}
+        return None, {"geo_sync_runs": 0, "intel_sync_runs": 0, "agent_sync_runs": 0}
     connection = sqlite3.connect(f"file:{path}?mode=rw", uri=True, timeout=10)
     names = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     counts = {}
-    for name in ("geo_sync_runs", "intel_sync_runs"):
+    for name in ("geo_sync_runs", "intel_sync_runs", "agent_sync_runs"):
         counts[name] = connection.execute(f"SELECT count(*) FROM {name}").fetchone()[0] if name in names else 0
     return connection, counts
 
@@ -208,7 +213,7 @@ def inspect_sqlite(path: Path) -> tuple[sqlite3.Connection | None, dict[str, int
 def clean_sqlite(connection: sqlite3.Connection):
     names = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     with connection:
-        for name in ("geo_sync_runs", "intel_sync_runs"):
+        for name in ("geo_sync_runs", "intel_sync_runs", "agent_sync_runs"):
             if name in names:
                 connection.execute(f"DELETE FROM {name}")
                 if "sqlite_sequence" in names:
@@ -254,9 +259,9 @@ def main() -> int:
         pg_host = urlsplit(args.pg_url).hostname
         redis_target = urlsplit(args.redis_url)
         print(f"目标 PostgreSQL: {pg_host}/{database}；资产 cron: {len(jobs)}；资产历史: {runs}")
-        sqlite_state = "文件不存在，跳过" if station_db is None else f"Geo 历史: {counts['geo_sync_runs']}；情报历史: {counts['intel_sync_runs']}"
+        sqlite_state = "文件不存在，跳过" if station_db is None else f"Geo 历史: {counts['geo_sync_runs']}；情报历史: {counts['intel_sync_runs']}；Agent 历史: {counts['agent_sync_runs']}"
         print(f"Station SQLite: {sqlite_path}；{sqlite_state}")
-        print(f"目标 Redis: {redis_target.hostname}/{redis_target.path.lstrip('/') or '0'}；情报键: {len(keys)}")
+        print(f"目标 Redis: {redis_target.hostname}/{redis_target.path.lstrip('/') or '0'}；同步键: {len(keys)}")
         if args.dry_run:
             print("仅预览；不删除数据")
             return 0
@@ -264,7 +269,7 @@ def main() -> int:
         print("PostgreSQL 资产任务、资产对象、ip_geo 和旧同步对象已清理")
         for index in range(0, len(keys), 100):
             redis.execute("UNLINK", *keys[index:index + 100])
-        print(f"Redis 情报键已清理: {len(keys)}")
+        print(f"Redis 同步键已清理: {len(keys)}")
         if station_db is not None:
             clean_sqlite(station_db)
             print("Station SQLite 同步历史已清理")

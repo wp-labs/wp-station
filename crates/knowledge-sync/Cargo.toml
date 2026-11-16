@@ -10,7 +10,9 @@ maxminddb = { version = "0.27.3", features = ["mmap"] }
 ipnetwork = "0.21"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
 redis = { version = "0.25.5", features = ["tokio-comp"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 sha2 = "0.10"
 percent-encoding = "2"
 sqlx = { version = "0.8.6", default-features = false, features = ["chrono", "mysql", "postgres", "sqlite", "runtime-tokio-rustls"] }

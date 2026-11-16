@@ -2,6 +2,7 @@
 //!
 //! 当前阶段实现资产库初始化、定时任务幂等注册与运行状态读取。
 
+pub mod agent;
 pub mod geo;
 pub mod intel;
 pub mod legacy;

@@ -62,6 +62,16 @@ pub async fn list_intel_runs(
     Ok(HttpResponse::Ok().json(state.intel_history(limit, offset).await?))
 }
 
+#[get("/api/knowledge-sync/agent-runs")]
+/// 查询 Prometheus → Redis Agent 映射同步历史。
+pub async fn list_agent_runs(
+    state: web::Data<KnowledgeSyncState>,
+    query: web::Query<HistoryQuery>,
+) -> Result<HttpResponse, AppError> {
+    let (limit, offset) = query.bounds()?;
+    Ok(HttpResponse::Ok().json(state.agent_history(limit, offset).await?))
+}
+
 #[delete("/api/knowledge-sync/runs/{kind}/history")]
 /// 清空指定类别的执行历史。
 pub async fn clear_sync_runs(

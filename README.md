@@ -114,15 +114,16 @@ npm run dev
 
 ## 知识库同步
 
-顶部的 **知识库同步** 菜单（`/knowledge-sync`）展示任务状态、数量、周期、异常和历史。连接信息由服务端读取；页面提供 MMDB 文件选择与导入操作，资产和情报历史弹窗可确认后清空执行记录。Geo 导入历史不提供清空操作。
+顶部的 **知识库同步** 菜单（`/knowledge-sync`）展示任务状态、数量、周期、异常和历史。连接信息由服务端读取；页面提供 MMDB 文件选择与导入操作，资产、情报及 Agent 历史弹窗可确认后清空执行记录。Geo 导入历史不提供清空操作。
 
 | 数据 | 触发方式 | 查询数据 | 历史记录 |
 | --- | --- | --- | --- |
 | 资产 | PostgreSQL `pg_cron` 按配置周期执行 | `asset_lookup.asset_subject_exclude_biz_sync`，视图 `public.v_asset_subject_exclude_biz` | `cron.job_run_details`，成功数量在 `asset_lookup.sync_run_summary` |
 | IP Geo | 从服务端 MMDB 目录选择文件后手动导入 | `public.ip_geo` | Station SQLite `geo_sync_runs` |
 | IP / 域名情报 | Station 按周期从 Doris 全量拉取 | Redis SET `threat_intelligence:ip`、`threat_intelligence:domain` | Station SQLite `intel_sync_runs` |
+| Agent → IP | Station 按周期从 Prometheus 全量查询 | Redis 字符串，key 为 agent，value 为 host_ip | Station SQLite `agent_sync_runs` |
 
-Geo 与情报运行记录使用 Station 自身的 SQLite `station.db`；启用这两项功能时，Station 主数据库需配置为 SQLite。资产同步过程在目标 PostgreSQL 内执行，成功摘要也保存在该库中。
+Geo、情报和 Agent 运行记录使用 Station 自身的 SQLite `station.db`；启用这些功能时，Station 主数据库需配置为 SQLite。资产同步过程在目标 PostgreSQL 内执行，成功摘要也保存在该库中。
 
 ### 资产同步
 
@@ -132,7 +133,7 @@ Geo 与情报运行记录使用 Station 自身的 SQLite `station.db`；启用�
 
 Station 启动时检查并创建目标表、GiST 索引、视图、同步过程与 `pg_cron` 任务；已有任务的周期与部署环境变量不同时，原位更新周期，启动不执行同步。过程从外部 `dysec-asset.public.asset_subject` 读取 `HOST`、`TERMINAL` 的 `ip` 和 `public_ip`，以及 `NET_WORK` 的 `data.cidr`，把 IP 和网段转换为数值区间。同一资产同时有 `ip` 和 `public_ip` 时写入两行，资产属性相同，地址分别写入 `ip` 字段；公网地址行的内部 `source_key` 带 `:public_ip` 后缀。先在临时表校验非空、主键及区间，再在同一 PostgreSQL 事务中刷新正式表；失败时回滚。成功后记录写入总行数、HOST / TERMINAL / NET_WORK 行数、IPv4 / IPv6 行数。资产历史直接读取 `pg_cron` 执行结果。
 
-启动日志以 INFO 汇总三类知识库的配置、对象和任务状态，并分别列出最近执行结果与最近成功时间。`startup_sync=false` 表示启动只初始化对象和调度器；最近执行结果属于历史任务，不表示此次启动已同步。
+启动日志以 INFO 汇总各类知识数据的配置、对象和任务状态，并分别列出最近执行结果与最近成功时间。`startup_sync=false` 表示启动只初始化对象和调度器；最近执行结果属于历史任务，不表示此次启动已同步。
 
 ### Geo 导入
 
@@ -145,6 +146,12 @@ Station 启动时检查并创建目标表、GiST 索引、视图、同步过程�
 Station 启动时只初始化运行记录和定时器。到达周期边界后，从 Doris `intel.stix_object` 分页全量读取有效 IP、域名情报，先写 Redis 临时 SET，校验后用单个 Lua 脚本切换两个正式键。读取、构建或校验失败时清理临时键，正式键保持原样；切换不创建备份键。任务不重叠，执行时间跨越周期时跳过错过的触发点。
 
 `WP_KSYNC_INTEL_INTERVAL` 默认 `300` 秒，最小 `60` 秒。周期按 Unix 时间边界对齐：设置 `300` 秒时，每小时 `:00、:05、:10…` 开始；Station 启动后等待下一个边界。
+
+### Agent IP 同步
+
+设置 `WP_KSYNC_AGENT_PROMETHEUS_URL` 为 Prometheus API 的 `query_range` 地址，例如 `http://prometheus:9090/prometheus/api/v1/query_range`，并复用 `WP_KSYNC_REDIS_URL`。Station 启动只创建定时器，不立即查询。默认每 `300` 秒按整周期边界查询一次，可用 `WP_KSYNC_AGENT_INTERVAL` 调整，最小 `60` 秒。
+
+每次查询最近两天的数据，步长 `1d`，PromQL 为 `group by (agent, host_ip) (present_over_time(system_host_info[1d]))`。只接受有正值样本、非空 agent 和合法 IP；同一 agent 对应多个不同 IP 时本次任务失败。空结果和请求失败均保留 Redis 已有映射。成功后先写临时 HASH，再用 Redis 脚本将映射切换为直接的 `SET <agent> <host_ip>`，同时删除上次同步中已消失的 agent。内部集合 `agent_ip:registry` 只用于记录本功能管理的 key，不作为业务查询入口。
 
 ### 部署环境变量
 
@@ -162,6 +169,8 @@ Station 启动时只初始化运行记录和定时器。到达周期边界后，
 | `WP_KSYNC_DORIS_HOST` / `PORT` / `USER` / `PASSWORD` | Doris FE 连接信息，数据库固定为 `intel`，密码可以为空 |
 | `WP_KSYNC_REDIS_URL` | Redis 连接 URL |
 | `WP_KSYNC_INTEL_INTERVAL` | 情报同步周期，单位秒 |
+| `WP_KSYNC_AGENT_PROMETHEUS_URL` | Agent 数据的 Prometheus `query_range` API 地址；未设置则不启用 Agent 同步 |
+| `WP_KSYNC_AGENT_INTERVAL` | Agent 同步周期，单位秒，默认 300 |
 
 资产同步要求目标 PostgreSQL 可用 `dblink`、`btree_gist` 和预加载的 `pg_cron`；Geo 索引要求 `btree_gist`。目标库还需允许 Station 创建表、索引和扩展。开发与性能验证只使用本地副本和本地服务。运行记录和清理范围的细节见 [知识库同步实现说明](./KNOWLEDGE_SYNC_NOTES.md)。
 
