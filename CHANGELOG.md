@@ -17,8 +17,12 @@ Note:
 - 新增 Prometheus Agent/IP 定时同步：按周期查询 `system_host_info`，校验后全量写入 Redis，业务键为 agent、值为 IP；失败时保留上一批映射。
 - 知识库同步页面展示 Agent 数量、周期、最近执行错误和历史记录；Station SQLite 保存执行历史，支持清空历史。
 
+### Changed
+- 知识库同步页在宽屏使用铺满内容区的双列卡片布局，收紧指标和元数据间距；窄屏按单列展示。
+
 ### Fixed
 - 调整沙盒消息统计分支写法，通过 Rust 1.95 的严格 Clippy 检查。
+- 资产目标库与 `cron.database_name` 不同时，明确报告实际连接库、pg_cron 安装库及目标 URL 的环境变量优先级。
 
 ## [0.3.12-1] - 2026-11-12
 

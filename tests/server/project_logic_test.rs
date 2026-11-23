@@ -117,6 +117,89 @@ fn assert_archive_has_flat_root_dirs(entries: &[String]) {
 }
 
 #[tokio::test]
+async fn test_reject_wparse_models_imported_as_wfusion() {
+    let source = legacy_import_dir("wrong-wparse-models");
+    write_file(source.join("models/wpl/sample/parse.wpl"), "rule sample {}");
+    let archive = build_archive_with_dirs(&source, &["models"]);
+
+    let error = preview_project_archive_logic(SystemKind::Wfusion, "rules.tar.gz", archive)
+        .await
+        .err()
+        .expect("WParse models must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("WParse") && message.contains("WFusion"));
+    assert!(message.contains("models/wpl/sample/parse.wpl"));
+}
+
+#[tokio::test]
+async fn test_reject_wfusion_models_imported_as_wparse() {
+    let source = legacy_import_dir("wrong-wfusion-models");
+    write_file(
+        source.join("models/rules/sample/alert.wfl"),
+        "rule sample {}",
+    );
+    let archive = build_archive_with_dirs(&source, &["models"]);
+
+    let error = preview_project_archive_logic(SystemKind::Wparse, "rules.tar.gz", archive)
+        .await
+        .err()
+        .expect("WFusion models must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("WFusion") && message.contains("WParse"));
+    assert!(message.contains("models/rules/sample/alert.wfl"));
+}
+
+#[tokio::test]
+async fn test_reject_mixed_project_before_validation() {
+    let source = legacy_import_dir("mixed-systems");
+    write_file(source.join("conf/wparse.toml"), "version = '1.0'");
+    write_file(source.join("models/windows.toml"), "[window_defaults]");
+    let archive = build_archive_with_dirs(&source, &["conf", "models"]);
+
+    let error = preview_project_archive_logic(SystemKind::Wparse, "mixed.tar.gz", archive)
+        .await
+        .err()
+        .expect("mixed systems must be rejected");
+    assert!(error.to_string().contains("混用了 WParse 与 WFusion"));
+}
+
+#[tokio::test]
+async fn test_reject_wrong_system_directory_import_before_validation() {
+    let source = legacy_import_dir("wrong-directory-system");
+    for dir in ["conf", "connectors", "topology", "models"] {
+        fs::create_dir_all(source.join(dir)).expect("create project directory");
+    }
+    write_file(source.join("conf/wfusion.toml"), "mode = 'daemon'");
+
+    let error = import_project_from_files_logic(ProjectImportRequest {
+        system: SystemKind::Wparse,
+        source_dir: source.to_string_lossy().to_string(),
+    })
+    .await
+    .err()
+    .expect("WFusion directory must be rejected");
+    assert!(error.to_string().contains("conf/wfusion.toml"));
+}
+
+#[tokio::test]
+async fn test_reject_wrong_system_split_archive_with_specific_message() {
+    let source = legacy_import_dir("wrong-split-system");
+    write_file(
+        source.join("wfusion__models/models/rules/sample/alert.wfl"),
+        "rule sample {}",
+    );
+    let archive = build_archive_with_dirs(&source, &["wfusion__models"]);
+
+    let error = preview_project_archive_logic(SystemKind::Wparse, "split.tar.gz", archive)
+        .await
+        .err()
+        .expect("WFusion split archive must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("当前选择的是 WParse"));
+    assert!(message.contains("models/rules/sample/alert.wfl"));
+}
+
+#[tokio::test]
 async fn test_import_project_requires_legacy_directories() {
     setup_db().await;
     let source_dir = legacy_import_dir("missing-dirs");

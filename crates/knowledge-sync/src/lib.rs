@@ -409,10 +409,22 @@ async fn ensure_data_extensions(pool: &PgPool) -> Result<()> {
 }
 
 async fn ensure_pg_cron(pool: &PgPool) -> Result<()> {
+    let (database, cron_database): (String, Option<String>) =
+        sqlx::query_as("SELECT current_database(), current_setting('cron.database_name', true)")
+            .fetch_one(pool)
+            .await
+            .context("读取当前数据库和 pg_cron 配置库失败")?;
+    if let Some(cron_database) = cron_database.filter(|name| !name.is_empty())
+        && database != cron_database
+    {
+        bail!(
+            "资产目标数据库是 {database}，但 pg_cron 只能安装在 {cron_database}；请检查 WP_KSYNC_TARGET_URL（优先于 WP_KSYNC_ASSET_TARGET_URL）"
+        );
+    }
     sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_cron")
         .execute(pool)
         .await
-        .context("创建 pg_cron 扩展失败；数据库镜像须包含扩展并预加载 pg_cron")?;
+        .with_context(|| format!("在数据库 {database} 检查或创建 pg_cron 扩展失败"))?;
     Ok(())
 }
 

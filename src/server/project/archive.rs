@@ -174,8 +174,8 @@ pub(super) fn find_import_project_root(
     extract_dir: &Path,
     system: SystemKind,
 ) -> Result<PathBuf, AppError> {
-    if has_supported_import_layout(extract_dir, system) {
-        let normalized = normalize_import_root(extract_dir, system)?;
+    if let Some(source_system) = import_layout_system(extract_dir, system) {
+        let normalized = normalize_import_root(extract_dir, source_system)?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         return Ok(normalized);
     }
@@ -188,8 +188,10 @@ pub(super) fn find_import_project_root(
         }
     }
 
-    if dirs.len() == 1 && has_supported_import_layout(&dirs[0], system) {
-        let normalized = normalize_import_root(&dirs[0], system)?;
+    if dirs.len() == 1
+        && let Some(source_system) = import_layout_system(&dirs[0], system)
+    {
+        let normalized = normalize_import_root(&dirs[0], source_system)?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         Ok(normalized)
     } else {
@@ -198,6 +200,18 @@ pub(super) fn find_import_project_root(
                 .to_string(),
         ))
     }
+}
+
+/// 对分仓包使用其实际目录名规范化，之后再由源文件识别目标系统是否匹配。
+fn import_layout_system(dir: &Path, target: SystemKind) -> Option<SystemKind> {
+    if has_supported_import_layout(dir, target) {
+        return Some(target);
+    }
+    let other = match target {
+        SystemKind::Wparse => SystemKind::Wfusion,
+        SystemKind::Wfusion => SystemKind::Wparse,
+    };
+    has_split_import_dirs(dir, other).then_some(other)
 }
 
 /// 持久化预检时解析出的项目目录位置，供确认导入阶段复用。

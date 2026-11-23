@@ -9,6 +9,7 @@
 mod archive;
 mod io;
 mod summary;
+mod system_check;
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -34,6 +35,7 @@ use self::summary::{
     build_import_response_from_source_dir, detect_import_scope,
     validate_import_scope_with_repo_layout, validate_project_import_preview,
 };
+use self::system_check::validate_import_system;
 use crate::constants::project::{
     DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY, IMPORTABLE_ROOT_DIRS,
 };
@@ -231,6 +233,7 @@ pub async fn preview_project_archive_logic(
     extract_archive(file_name, &archive_path, &extract_dir)?;
 
     let project_dir = find_import_project_root(&extract_dir, system)?;
+    validate_import_system(&project_dir, system)?;
     let summary = validate_project_import_preview(system, &project_dir)?;
     info!(
         "归档预检通过: import_id={}, system={}",
@@ -294,6 +297,7 @@ pub async fn confirm_project_archive_import_logic(
         .filter(|value| !value.is_empty());
 
     let layout = layout_for_system(system).as_repo_layout();
+    validate_import_system(&project_dir, system)?;
     let result = import_project_archive_dir(
         system,
         &project_dir,
@@ -357,6 +361,7 @@ async fn import_project_dir(
     validation_message: &str,
 ) -> Result<ProjectImportResponse, AppError> {
     validate_legacy_project_dir(source_dir)?;
+    validate_import_system(source_dir, system)?;
     validate_project_in_dir(system, source_dir, ProjectCheckTarget::WholeProject)?;
     let scope = detect_import_scope(source_dir)?;
     let source_label = source_dir.to_string_lossy().to_string();
@@ -383,6 +388,7 @@ async fn import_project_archive_dir(
     source_label: Option<&str>,
 ) -> Result<ProjectImportResponse, AppError> {
     let scope = detect_import_scope(source_dir)?;
+    validate_import_system(source_dir, system)?;
     validate_import_scope_with_repo_layout(system, source_dir, layout, &scope)?;
     let source_label = source_label
         .map(|value| value.to_string())

@@ -270,6 +270,7 @@ function KnowledgeSyncPage() {
         </header>
         <section className="panel-body">
           <Spin spinning={loading}>
+            <div className="knowledge-sync-grid">
             {asset && (
               <Card
                 title={t('knowledgeSync.assetTitle')}
@@ -361,7 +362,6 @@ function KnowledgeSyncPage() {
                     </Button>
                   </div>}
                 </div>}
-                style={{ marginTop: 16 }}
                 extra={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Button type="link" onClick={() => openHistory('geo')} disabled={!geo.configured}>
                     {t('knowledgeSync.history')}
@@ -435,7 +435,7 @@ function KnowledgeSyncPage() {
               </Card>
             )}
             {intel && (
-              <Card title={t('knowledgeSync.intelTitle')} style={{ marginTop: 16 }}
+              <Card title={t('knowledgeSync.intelTitle')}
                 extra={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Button type="link" onClick={() => openHistory('intel')} disabled={!intel.configured}>
                     {t('knowledgeSync.history')}
@@ -469,7 +469,7 @@ function KnowledgeSyncPage() {
               </Card>
             )}
             {agent && (
-              <Card title={t('knowledgeSync.agentTitle')} style={{ marginTop: 16 }}
+              <Card title={t('knowledgeSync.agentTitle')}
                 extra={<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Button type="link" onClick={() => openHistory('agent')} disabled={!agent.configured}>
                     {t('knowledgeSync.history')}
@@ -497,6 +497,7 @@ function KnowledgeSyncPage() {
                 {agent.latestRun?.error && <Alert type="error" showIcon message={agent.latestRun.error} style={{ marginTop: 16 }} />}
               </Card>
             )}
+            </div>
           </Spin>
         </section>
       </article>

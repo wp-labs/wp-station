@@ -3233,7 +3233,7 @@ mark.diff-highlight {
   overflow-x: hidden;
 }
 
-/* 知识库同步内容按卡片高度自然展开，由页面容器负责滚动。 */
+/* 知识库同步卡片铺满内容区，宽屏两列、窄屏单列。 */
 .knowledge-sync-page {
   flex: 0 0 auto;
   overflow: visible;
@@ -3242,11 +3242,110 @@ mark.diff-highlight {
 .page-panels.knowledge-sync-page > .panel.is-visible {
   flex: 0 0 auto;
   min-height: auto;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.knowledge-sync-page .panel-header,
+.knowledge-sync-page .panel-body {
+  width: 100%;
+}
+
+.knowledge-sync-page .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.knowledge-sync-page .panel-header .ant-btn {
+  min-height: 44px;
 }
 
 .knowledge-sync-page .panel-body {
   flex: 0 0 auto;
   min-height: auto;
+}
+
+.knowledge-sync-page .ant-spin-nested-loading,
+.knowledge-sync-grid {
+  width: 100%;
+}
+
+.knowledge-sync-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+.knowledge-sync-grid .ant-card {
+  min-width: 0;
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.knowledge-sync-grid .ant-card-head {
+  min-height: 66px;
+  padding-inline: 22px;
+}
+
+.knowledge-sync-grid .ant-card-head-title {
+  font-size: 18px;
+}
+
+.knowledge-sync-grid .ant-card-head-wrapper {
+  column-gap: 12px;
+}
+
+.knowledge-sync-grid .ant-card-body {
+  padding: 22px;
+}
+
+.knowledge-sync-grid .ant-statistic-title {
+  color: #667085;
+  font-size: 14px;
+}
+
+.knowledge-sync-grid .ant-statistic-content {
+  font-size: 27px;
+  line-height: 1.35;
+}
+
+.knowledge-sync-grid .ant-descriptions-item-label {
+  color: #667085;
+}
+
+@media (max-width: 1350px) {
+  .knowledge-sync-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .knowledge-sync-page .panel-header {
+    padding-inline: 4px;
+  }
+
+  .knowledge-sync-grid .ant-card-head,
+  .knowledge-sync-grid .ant-card-body {
+    padding-inline: 16px;
+  }
+
+  .knowledge-sync-grid .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    padding-block: 12px;
+  }
+
+  .knowledge-sync-grid .ant-card-extra {
+    margin-inline-start: 0;
+  }
+
+  .knowledge-sync-grid .ant-statistic-content {
+    font-size: 23px;
+  }
 }
 
 .knowledge-sync-geo-title,
