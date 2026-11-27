@@ -368,7 +368,7 @@ async fn import_project_dir(
     let previous_snapshot = load_project_snapshot_from_repo_layout(layout).ok();
     overwrite_repo_layout_from_legacy_dir(source_dir, layout)?;
 
-    finalize_import_side_effects(system, layout).await?;
+    finalize_import_side_effects(system, layout, &scope).await?;
     build_import_response_from_source_dir(
         source_dir,
         layout,
@@ -401,7 +401,7 @@ async fn import_project_archive_dir(
         overwrite_repo_layout_from_partial_dir(source_dir, layout, &scope)?;
     }
 
-    finalize_import_side_effects(system, layout).await?;
+    finalize_import_side_effects(system, layout, &scope).await?;
     build_import_response_from_source_dir(
         source_dir,
         layout,
@@ -418,14 +418,23 @@ async fn import_project_archive_dir(
 async fn finalize_import_side_effects(
     system: SystemKind,
     layout: &RepoLayout,
+    scope: &ImportScope,
 ) -> Result<(), AppError> {
     if let Err(err) = reload_knowledge(layout) {
         warn!("知识库重载失败（忽略）: {}", err);
     }
 
     let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-    sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Models).await?;
-    sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Infra).await?;
+    if scope.imported_dirs.contains(&DIR_MODELS) {
+        sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Models).await?;
+    }
+    if scope
+        .imported_dirs
+        .iter()
+        .any(|dir| [DIR_CONF, DIR_CONNECTORS, DIR_TOPOLOGY].contains(dir))
+    {
+        sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Infra).await?;
+    }
     refresh_draft_release_logic(system, Some(&commit_message)).await?;
     Ok(())
 }

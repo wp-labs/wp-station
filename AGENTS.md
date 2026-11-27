@@ -367,7 +367,7 @@ result
 
 **配置和规则：**
 - 保存逻辑变化后，必须核对：写入 `project_models` / `project_infra` → Gitea → 草稿发布。
-- 双仓库是规则/配置/知识库主数据源，默认配置初始化只能补齐缺失文件，不能覆盖用户已编辑内容。
+- 双仓库是规则/配置/知识库主数据源；仅首次部署且 Gitea 对应仓库不存在时使用 `default_configs/` 初始化，不在后续启动或项目导入时补齐默认文件。
 - `src/server/config_templates.rs` 只承载模板接口编排；connector 扫描、字段分层、片段渲染集中在 `src/utils/config_templates.rs`，不要再塞回 `src/server/config.rs`。
 
 **设备与发布：**

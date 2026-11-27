@@ -13,10 +13,7 @@ use crate::server::sync::ensure_project_repositories;
 use crate::server::{
     KnowledgeSyncState, Setting, spawn_release_task_runner, spawn_restore_task_runner,
 };
-use crate::utils::{
-    WarpParseService, WfusionService, all_system_layouts, check_device_health,
-    init_default_configs_to_infra_for_system, init_default_configs_to_models_for_system,
-};
+use crate::utils::{WarpParseService, WfusionService, check_device_health};
 use wp_station_migrations::MigratorTrait;
 
 /// 为高噪音依赖追加模块级日志过滤，避免校验接口刷出大量中间过程日志。
@@ -85,9 +82,6 @@ pub(super) async fn initialize_runtime(setting: &Setting) -> std::io::Result<Kno
         Err(e) => warn!("检查项目 Git 仓库失败，已降级跳过 Gitea 初始化: {}", e),
     }
 
-    initialize_repo_layouts()?;
-    info!("默认配置检查完成");
-
     let sqlite_url = matches!(
         setting.database.database_kind(),
         crate::server::DatabaseKind::Sqlite
@@ -113,38 +107,6 @@ fn preload_admin_api_tls(setting: &Setting) -> std::io::Result<()> {
         info!("设备管理接口访问协议: https，TLS 证书加载完成");
     } else {
         info!("设备管理接口访问协议: http，已跳过 TLS 证书加载");
-    }
-
-    Ok(())
-}
-
-/// 补齐双系统固定目录，并按系统补齐默认配置。
-fn initialize_repo_layouts() -> std::io::Result<()> {
-    for layout in all_system_layouts() {
-        init_default_configs_to_models_for_system(
-            layout.system,
-            layout.models_root.to_string_lossy().as_ref(),
-        )
-        .map_err(|e| {
-            error!(
-                "加载默认 models 配置失败: system={}, error={}",
-                layout.system.as_ref(),
-                e
-            );
-            std::io::Error::other(format!("加载默认配置失败: {}", e))
-        })?;
-        init_default_configs_to_infra_for_system(
-            layout.system,
-            layout.infra_root.to_string_lossy().as_ref(),
-        )
-        .map_err(|e| {
-            error!(
-                "加载默认 infra 配置失败: system={}, error={}",
-                layout.system.as_ref(),
-                e
-            );
-            std::io::Error::other(format!("加载默认配置失败: {}", e))
-        })?;
     }
 
     Ok(())

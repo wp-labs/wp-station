@@ -19,30 +19,20 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
     }
 
     let setting = Setting::load();
-    let layout = layout_for_system(SystemKind::Wparse).as_repo_layout();
     let gitea_client = super::build_gitea_client(&setting)
         .map_err(|e| AppError::internal(format!("无法连接 Gitea: {}", e)))?;
-
-    crate::utils::init_default_configs_to_models(layout.models_root.to_string_lossy().as_ref())
-        .map_err(|e| AppError::internal(format!("初始化 models 默认配置失败: {}", e)))?;
-    crate::utils::init_default_configs_to_infra(layout.infra_root.to_string_lossy().as_ref())
-        .map_err(|e| AppError::internal(format!("初始化 infra 默认配置失败: {}", e)))?;
-    init_single_repo(
-        &setting,
-        &gitea_client,
-        SystemKind::Wparse,
-        ReleaseGroup::Models,
-        &layout.models_root,
-    )
-    .await?;
-    init_single_repo(
-        &setting,
-        &gitea_client,
-        SystemKind::Wparse,
-        ReleaseGroup::Infra,
-        &layout.infra_root,
-    )
-    .await?;
+    let layout = layout_for_system(SystemKind::Wparse).as_repo_layout();
+    for group in [ReleaseGroup::Models, ReleaseGroup::Infra] {
+        let project_path = super::repo_path_for_group(&layout, group);
+        ensure_single_project_repository(
+            &setting,
+            &gitea_client,
+            SystemKind::Wparse,
+            group,
+            &project_path,
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -112,11 +102,15 @@ async fn ensure_single_project_repository(
                 .await
         }
         (false, false) => {
-            init_default_configs_for_group(system, group)?;
+            if !remote_exists {
+                init_default_configs_for_group(system, group)?;
+            }
             init_single_repo(setting, gitea_client, system, group, project_path).await
         }
         (true, false) => {
-            init_default_configs_for_group(system, group)?;
+            if !remote_exists {
+                init_default_configs_for_group(system, group)?;
+            }
             prepare_single_repo(setting, gitea_client, system, group, project_path, false).await?;
             force_push_local_repo(gitea_client, project_path, group.as_ref())
         }
@@ -127,7 +121,6 @@ async fn ensure_single_project_repository(
                     .await
             }
             RepoStartupStrategy::Local => {
-                init_default_configs_for_group(system, group)?;
                 prepare_single_repo(setting, gitea_client, system, group, project_path, false)
                     .await?;
                 force_push_local_repo(gitea_client, project_path, group.as_ref())

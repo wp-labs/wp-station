@@ -33,7 +33,7 @@
 | Gitea / WarpParse 设备 | 分别承接配置版本化和远端配置加载 |
 | 目标 PostgreSQL / Redis | 分别承接资产、Geo 查询数据和 IP / 域名情报集合 |
 
-> 当前运行时采用双仓库布局：`project_models` 保存 `models/*`，`project_infra` 保存 `conf`、`connectors`、`topology`。`default_configs/` 只补齐缺失文件，不覆盖用户已编辑内容。
+> 当前运行时采用双仓库布局：`project_models` 保存 `models/*`，`project_infra` 保存 `conf`、`connectors`、`topology`。只有首次部署且 Gitea 对应仓库不存在时，Station 才用 `default_configs/` 初始化该仓库；后续重启和项目导入不会自动补入默认文件。
 
 业务配置保存与知识库数据同步是两条独立链路：前者进入仓库和发布流程，后者更新 PostgreSQL 或 Redis 中的查询数据。
 

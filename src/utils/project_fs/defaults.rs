@@ -132,19 +132,6 @@ pub fn init_default_configs_to_infra_for_system(
         }],
     )?;
 
-    // infra 目录已有其他配置时，主初始化会保护用户内容并跳过默认补齐；
-    // business.d 新增模板仍需逐文件补齐，不能因为 sink.toml 已存在而遗漏新文件。
-    if matches!(system, SystemKind::Wparse) {
-        ensure_default_configs_with_mappings(
-            infra_root,
-            "wparse/topology/sinks/business.d",
-            &[DefaultCopyMapping {
-                source_prefix: "wparse/topology/sinks/business.d",
-                target_prefix: "topology/sinks/business.d",
-            }],
-        )?;
-    }
-
     Ok(())
 }
 
